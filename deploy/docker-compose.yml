@@ -1,0 +1,103 @@
+# 阶段 A（本机 OrbStack）。目前只有 QQ 容器，用于 P0 消息链路验证和 P0-C 通话验证（G1）。
+# 服务端、数据库、LiveKit、call-gateway 会在后续阶段加入。
+#
+# 用法见仓库根目录 README.md。构建前先在仓库根目录执行 pnpm -r build。
+name: qqbridge
+
+services:
+  qq:
+    build:
+      context: ..
+      dockerfile: deploy/qq/Dockerfile
+    image: qqbridge/qq:dev
+    container_name: qqbridge-qq
+    restart: unless-stopped
+    # 与官方 compose 一致：固定 MAC 地址，避免每次重建容器都像换了一台设备。
+    mac_address: "02:42:ac:11:00:02"
+    environment:
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
+      ACCOUNT: ${QQ_ACCOUNT:-}
+      WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:-}
+      QQBRIDGE_PLUGIN_DEV: ${QQBRIDGE_PLUGIN_DEV:-0}
+      QQBRIDGE_CALLS: ${QQBRIDGE_CALLS:-0} # 通话桥总开关：做通话验证时再设为 1
+      QQBRIDGE_CALL_AUTO_ACCEPT: ${QQBRIDGE_CALL_AUTO_ACCEPT:-0}
+      QQBRIDGE_LAB: ${QQBRIDGE_LAB:-0}
+      QQBRIDGE_CAPTURE_AVSDK_VALUES: ${QQBRIDGE_CAPTURE_AVSDK_VALUES:-0}
+      # 消息上游：插件主动连服务端（服务端在宿主机上用 pnpm 运行；OrbStack 里 host.internal 指向宿主机，
+      # 服务端只监听 127.0.0.1 也能连上）。服务端没启动时事件先存在插件的本地队列里，启动后自动续传。
+      QQBRIDGE_UPSTREAM_URL: ${QQBRIDGE_UPSTREAM_URL:-ws://host.internal:8080/upstream/napcat}
+      QQBRIDGE_UPSTREAM_TOKEN: ${UPSTREAM_TOKEN:-}
+    ports:
+      - "127.0.0.1:6099:6099" # NapCat WebUI：扫码登录、查看日志
+    volumes:
+      - ./data/napcat-config:/app/napcat/config # NapCat 配置 + 插件数据（采样文件在 plugins/napcat-plugin-qqbridge/capture）
+      - ./data/qq:/app/.config # QQ 登录态与数据（含 AV Host 的独立 profile）
+      - qqbridge-run:/run/qqbridge # PulseAudio socket 与控制 token，以后与 call-gateway 共享
+      # 开发插件时取消注释，并设置 QQBRIDGE_PLUGIN_DEV=1：
+      # - ../packages/napcat-plugin-qqbridge/dist:/app/napcat/plugins/napcat-plugin-qqbridge:ro
+
+  # 服务端数据库（PGroonga：中文全文检索）。服务端目前在本机用 pnpm 运行，见 README。
+  postgres:
+    image: groonga/pgroonga:4.0.9-debian-17
+    container_name: qqbridge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: qqbridge
+      POSTGRES_USER: qqbridge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qqbridge -d qqbridge"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # 通话：LiveKit SFU（iPhone 与网关都连它）。密钥与节点 IP 在 deploy/.env 里配置。
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    container_name: qqbridge-livekit
+    restart: unless-stopped
+    profiles: ["calls"]
+    command: ["--config", "/etc/livekit.yaml", "--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-}"
+    ports:
+      # 信令只开在回环上，客户端经 Tailscale HTTPS（tailscale serve --https=7443 → 127.0.0.1:7880）访问。
+      - "127.0.0.1:7880:7880"
+      # 媒体端口要让 iPhone 直连（ICE 凭据由信令下发，外人连上也用不了）。
+      - "${LIVEKIT_BIND_IP:-127.0.0.1}:7881:7881"
+      - "${LIVEKIT_BIND_IP:-127.0.0.1}:7882:7882/udp"
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+  # 通话网关：QQ 容器里的虚拟声卡 ⇄ LiveKit。以与 napcat 相同的 uid 运行，才能访问共享的 PulseAudio socket。
+  # 常驻（serve）：服务端的 CallService 经控制接口（127.0.0.1:6120，CALL_GATEWAY_TOKEN）让它进出通话房间。
+  #   启动：docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile calls up -d livekit call-gateway
+  #   自检（不需要登录 QQ）：docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile calls run --rm call-gateway pulse-selftest
+  call-gateway:
+    build:
+      context: ..
+      dockerfile: deploy/call-gateway/Dockerfile
+    image: qqbridge/call-gateway:dev
+    container_name: qqbridge-call-gateway
+    profiles: ["calls"]
+    user: "${NAPCAT_UID:-1000}:${NAPCAT_GID:-1000}"
+    restart: unless-stopped
+    depends_on: [livekit]
+    environment:
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      CALL_GATEWAY_TOKEN: ${CALL_GATEWAY_TOKEN:-}
+    ports:
+      - "127.0.0.1:6120:6120"
+    volumes:
+      - qqbridge-run:/run/qqbridge
+    command: ["serve"]
+
+volumes:
+  qqbridge-run:

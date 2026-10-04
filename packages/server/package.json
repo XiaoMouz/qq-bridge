@@ -1,0 +1,45 @@
+{
+  "name": "@qqbridge/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "QQ Bridge 服务端：存档、媒体去重与占用统计、类 Telegram 增量同步、ConnectRPC API",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "cli": "node --env-file-if-exists=../../deploy/.env --import tsx src/cli.ts"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@connectrpc/connect": "^2.2.0",
+    "@connectrpc/connect-fastify": "^2.2.0",
+    "@fastify/websocket": "^11",
+    "@node-rs/argon2": "^2.2.1",
+    "@qqbridge/domain": "workspace:*",
+    "@qqbridge/protocol": "workspace:*",
+    "drizzle-orm": "^0.45.3",
+    "fastify": "^5.12.5",
+    "livekit-server-sdk": "^2.19.1",
+    "pg": "^8.23.1",
+    "pino": "^10.3.1",
+    "sharp": "^0.35.5",
+    "silk-wasm": "^3.7.1",
+    "thumbhash": "^0.1.1",
+    "ws": "^8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@connectrpc/connect-node": "^2.2.0",
+    "@testcontainers/postgresql": "^12.2.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8",
+    "drizzle-kit": "^0.31.11",
+    "fast-check": "^4.10.2",
+    "testcontainers": "^12.2.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}

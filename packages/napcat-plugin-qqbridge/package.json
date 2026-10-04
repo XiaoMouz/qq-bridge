@@ -1,0 +1,21 @@
+{
+  "name": "napcat-plugin-qqbridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "QQ Bridge 的 NapCat 插件：消息采集（P0 采样器）+ 通话信令桥（AVSDK）",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8",
+    "esbuild": "^0.28.2",
+    "napcat-types": "0.0.17",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3",
+    "ws": "^8"
+  }
+}

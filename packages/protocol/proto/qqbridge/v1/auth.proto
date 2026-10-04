@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+// 单所有者账号 + 每台设备一个令牌（docs/design.md 4.10）。除 Login 外都需要 Authorization: Bearer <token>。
+service AuthService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  // 吊销当前设备的令牌。
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc ListDevices(ListDevicesRequest) returns (ListDevicesResponse);
+  rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
+  // 登记本设备的推送令牌（APNs 普通推送和 VoIP 推送）。令牌变化时（例如重装 App）重新调用；传空表示取消。
+  rpc RegisterPush(RegisterPushRequest) returns (RegisterPushResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+  string device_name = 3;
+  string platform = 4;
+}
+
+message LoginResponse {
+  string token = 1;
+  int64 account_id = 2;
+  int64 device_id = 3;
+}
+
+message LogoutRequest {}
+
+message LogoutResponse {}
+
+message ListDevicesRequest {}
+
+message ListDevicesResponse {
+  repeated Device devices = 1;
+}
+
+message Device {
+  int64 id = 1;
+  string name = 2;
+  string platform = 3;
+  int64 created_at = 4;
+  int64 last_seen_at = 5;
+  bool current = 6;
+}
+
+message RevokeDeviceRequest {
+  int64 device_id = 1;
+}
+
+message RevokeDeviceResponse {
+  bool revoked = 1;
+}
+
+enum ApnsEnvironment {
+  APNS_ENVIRONMENT_UNSPECIFIED = 0;
+  APNS_ENVIRONMENT_SANDBOX = 1;
+  APNS_ENVIRONMENT_PRODUCTION = 2;
+}
+
+message RegisterPushRequest {
+  // 十六进制设备令牌。
+  string apns_token = 1;
+  string apns_voip_token = 2;
+  ApnsEnvironment environment = 3;
+}
+
+message RegisterPushResponse {}

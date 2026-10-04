@@ -1,0 +1,255 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+import "qqbridge/v1/common.proto";
+
+// 媒体（docs/design.md 4.6）：内容按 sha256 去重，只存一份。
+service MediaService {
+  // 秒传判定：客户端先算好 sha256，服务端已有就不必上传。
+  rpc PrepareUpload(PrepareUploadRequest) returns (PrepareUploadResponse);
+  // 为一批内容签发短期下载链接（AVPlayer 等不方便带请求头的场景也能直接用）。
+  rpc SignMediaUrls(SignMediaUrlsRequest) returns (SignMediaUrlsResponse);
+  // 这份内容出现在哪些聊天里（"出现在 N 个聊天" → 跳转到原消息）。
+  rpc ListMediaUsages(ListMediaUsagesRequest) returns (ListMediaUsagesResponse);
+  rpc GetStorageOverview(GetStorageOverviewRequest) returns (GetStorageOverviewResponse);
+  // 预估"清理某会话里符合条件的媒体原件"能释放多少空间（只算真正能删除的原件）。
+  rpc PlanCleanup(PlanCleanupRequest) returns (PlanCleanupResponse);
+  // 执行清理（条件同 PlanCleanup）：选中的这些出现以后不再需要原件；所有引用方都不需要原件的内容
+  // 立即删除原件，缩略图和预览图保留，消息里的媒体状态变为 PURGED。
+  rpc ExecuteCleanup(ExecuteCleanupRequest) returns (ExecuteCleanupResponse);
+  // 存储策略（全局 / 按会话类型 / 单个会话三层，越具体越优先）。
+  rpc ListStoragePolicies(ListStoragePoliciesRequest) returns (ListStoragePoliciesResponse);
+  rpc SetStoragePolicy(SetStoragePolicyRequest) returns (SetStoragePolicyResponse);
+  // 删除某一层的策略（回到继承上一层）。
+  rpc DeleteStoragePolicy(DeleteStoragePolicyRequest) returns (DeleteStoragePolicyResponse);
+  // 单个会话的占用明细：按类型拆分、冷热分布、最大的内容、最终生效的策略。
+  rpc GetChatStorage(GetChatStorageRequest) returns (GetChatStorageResponse);
+  // 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
+  rpc RunTiering(RunTieringRequest) returns (RunTieringResponse);
+}
+
+message PrepareUploadRequest {
+  string sha256 = 1;
+  uint64 size = 2;
+  string mime = 3;
+  string name = 4;
+}
+
+message PrepareUploadResponse {
+  // 服务端已有这份内容（秒传），不用上传。
+  bool exists = 1;
+  // 不存在时的上传地址（tus 1.0 核心协议：HEAD 查进度，PATCH 续传，带设备令牌）。
+  // 同一份内容重复调用会拿到同一个地址和已上传的进度，App 重启后也能续传。
+  string upload_url = 2;
+  uint64 offset = 3;
+}
+
+message SignMediaUrlsRequest {
+  repeated string sha256 = 1;
+}
+
+message SignMediaUrlsResponse {
+  repeated SignedMediaUrl urls = 1;
+}
+
+message SignedMediaUrl {
+  string sha256 = 1;
+  // 相对服务器根的路径，带过期时间与签名。
+  string url = 2;
+  int64 expires_at = 3;
+}
+
+message ListMediaUsagesRequest {
+  string sha256 = 1;
+}
+
+message ListMediaUsagesResponse {
+  repeated MediaUsage usages = 1;
+}
+
+message MediaUsage {
+  int64 chat_id = 1;
+  Scene scene = 2;
+  int64 peer_id = 3;
+  int64 message_seq = 4;
+  string forward_bundle_id = 5;
+  repeated uint32 node_path = 6;
+  int64 sender_id = 7;
+  int64 time = 8;
+  string role = 9;
+  MediaKind kind = 10;
+}
+
+message GetStorageOverviewRequest {
+  uint32 limit = 1;
+}
+
+message GetStorageOverviewResponse {
+  // 去重后实际占用。
+  uint64 physical_bytes = 1;
+  // 各会话逻辑占用之和。
+  uint64 logical_bytes = 2;
+  uint64 dedup_saved_bytes = 3;
+  uint32 blob_count = 4;
+  repeated ChatStorage chats = 5;
+  // 原件在热存储 / 冷存储里的字节数（去重后）。
+  uint64 hot_bytes = 6;
+  uint64 cold_bytes = 7;
+  // 是否配置了冷存储（MEDIA_COLD_ROOT）。
+  bool cold_tier_enabled = 8;
+}
+
+message ChatStorage {
+  int64 chat_id = 1;
+  Scene scene = 2;
+  int64 peer_id = 3;
+  uint64 logical_bytes = 4;
+  // 只被本会话引用的部分：清理本会话能真正腾出的空间。
+  uint64 exclusive_bytes = 5;
+  uint32 blob_count = 6;
+  // 本会话引用的原件里，在热存储 / 冷存储的字节数（按逻辑占用算）。
+  uint64 hot_bytes = 7;
+  uint64 cold_bytes = 8;
+}
+
+message PlanCleanupRequest {
+  int64 chat_id = 1;
+  repeated MediaKind kinds = 2;
+  optional uint32 older_than_days = 3;
+}
+
+message PlanCleanupResponse {
+  uint32 ref_count = 1;
+  uint32 blob_count = 2;
+  uint32 purgeable_blob_count = 3;
+  uint64 freed_bytes = 4;
+  // 因为其他聊天仍需要原件而保留的内容数。
+  uint32 kept_shared_blob_count = 5;
+}
+
+message ExecuteCleanupRequest {
+  int64 chat_id = 1;
+  repeated MediaKind kinds = 2;
+  optional uint32 older_than_days = 3;
+}
+
+message ExecuteCleanupResponse {
+  uint32 ref_count = 1;
+  uint32 blob_count = 2;
+  uint32 purged_blob_count = 3;
+  uint64 freed_bytes = 4;
+  // 因为其他聊天仍需要原件而保留的内容数。
+  uint32 kept_shared_blob_count = 5;
+}
+
+enum PolicyScope {
+  POLICY_SCOPE_UNSPECIFIED = 0;
+  POLICY_SCOPE_GLOBAL = 1;
+  POLICY_SCOPE_SCENE = 2;
+  POLICY_SCOPE_CHAT = 3;
+}
+
+message StoragePolicy {
+  PolicyScope scope = 1;
+  // scope = SCENE 时有效。
+  Scene scene = 2;
+  // scope = CHAT 时有效。
+  int64 chat_id = 3;
+  // 原件保留天数。每个字段各自继承：不设置 = 继承上一层（全局也不设置 = 永久）；
+  // -1 = 永久；0 = 只保留缩略图和预览图；N = 保留 N 天。
+  optional int32 keep_original_days = 4;
+  // 自动下载的大小上限（字节）；不设置 = 继承上一层（全局也不设置 = 默认 200MB）。
+  optional uint64 auto_fetch_max_bytes = 5;
+  // 多少天没被访问就把原件下沉到冷存储；不设置 = 继承（全局也不设置 = 180 天）；-1 = 永不下沉。
+  optional int32 cold_after_days = 6;
+  // 只下沉不小于这个大小的原件；不设置 = 继承（全局也不设置 = 1 MiB）。
+  optional uint64 cold_min_bytes = 7;
+  // 热存储配额：会话 / 会话类型层 = 每个会话独占原件的热存储上限；全局层 = 整个账号的热存储上限。超出时最久没访问的先下沉。
+  optional uint64 hot_quota_bytes = 8;
+}
+
+message ListStoragePoliciesRequest {}
+
+message ListStoragePoliciesResponse {
+  repeated StoragePolicy policies = 1;
+}
+
+message SetStoragePolicyRequest {
+  StoragePolicy policy = 1;
+}
+
+message SetStoragePolicyResponse {}
+
+message DeleteStoragePolicyRequest {
+  PolicyScope scope = 1;
+  Scene scene = 2;
+  int64 chat_id = 3;
+}
+
+message DeleteStoragePolicyResponse {
+  bool deleted = 1;
+}
+
+message GetChatStorageRequest {
+  int64 chat_id = 1;
+  // 最大内容列表的条数（默认 20）。
+  int32 top_limit = 2;
+}
+
+message KindStorage {
+  MediaKind kind = 1;
+  uint32 count = 2;
+  uint64 logical_bytes = 3;
+  uint64 exclusive_bytes = 4;
+  uint64 hot_bytes = 5;
+  uint64 cold_bytes = 6;
+  // 原件已清理（只剩缩略图）的数量。
+  uint32 purged_count = 7;
+}
+
+message StoredItem {
+  string sha256 = 1;
+  uint64 size = 2;
+  MediaKind kind = 3;
+  // hot / cold / purged。
+  string tier = 4;
+  // 也被其他会话引用（清理本会话不会释放它）。
+  bool shared = 5;
+  // unix 秒，0 = 从没被打开过。
+  int64 last_access_at = 6;
+  // 第一次出现在本会话的哪条消息（0 = 在合并转发或服务事件里）。
+  int64 first_seq = 7;
+}
+
+message EffectiveStoragePolicy {
+  // -1 = 永久。
+  int32 keep_original_days = 1;
+  uint64 auto_fetch_max_bytes = 2;
+  // -1 = 永不下沉。
+  int32 cold_after_days = 3;
+  uint64 cold_min_bytes = 4;
+  // 0 = 不限。
+  uint64 hot_quota_bytes = 5;
+}
+
+message GetChatStorageResponse {
+  ChatStorage summary = 1;
+  repeated KindStorage kinds = 2;
+  repeated StoredItem largest = 3;
+  EffectiveStoragePolicy policy = 4;
+}
+
+message RunTieringRequest {
+  bool dry_run = 1;
+}
+
+message RunTieringResponse {
+  uint32 candidates = 1;
+  uint64 bytes = 2;
+  uint32 moved = 3;
+  uint64 moved_bytes = 4;
+  uint32 by_age = 5;
+  uint32 by_chat_quota = 6;
+  uint32 by_global_quota = 7;
+}

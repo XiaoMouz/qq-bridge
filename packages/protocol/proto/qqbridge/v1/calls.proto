@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+// 通话（docs/design.md 5.4）：QQ 来电经通话桥（NapCat 插件 + AV Host）到服务端，
+// 客户端接听时服务端建 LiveKit 房间、让通话网关以"QQ 端"身份入会，客户端拿令牌入会即可通话。
+// 振铃、接通、结束等状态经 Subscribe 的 CallUpdate 实时推送（临时事件，不占 pts）；
+// 通话结束后在会话里留一条 kind = "call" 的服务事件作为通话记录。
+
+enum CallPhase {
+  CALL_PHASE_UNSPECIFIED = 0;
+  CALL_PHASE_RINGING = 1;
+  // 已发出接听，等 QQ 那边接通。
+  CALL_PHASE_ACCEPTING = 2;
+  CALL_PHASE_CONNECTED = 3;
+  CALL_PHASE_ENDED = 4;
+}
+
+enum CallMedia {
+  CALL_MEDIA_UNSPECIFIED = 0;
+  CALL_MEDIA_VOICE = 1;
+  CALL_MEDIA_VIDEO = 2;
+}
+
+message Call {
+  // 通话桥分配的 id（每通来电一个）。
+  string id = 1;
+  CallPhase phase = 2;
+  CallMedia media = 3;
+  bool incoming = 4;
+  int64 peer_uin = 5;
+  string peer_name = 6;
+  int64 invite_at = 7;
+  int64 connected_at = 8;
+  int64 ended_at = 9;
+  // QQ 内核给的结束原因（原样）。
+  int32 end_reason = 10;
+  // 由哪台设备接听（0：没有经本系统接听）。
+  int64 answered_device_id = 11;
+}
+
+message GetActiveCallRequest {}
+
+message GetActiveCallResponse {
+  // 没有进行中的通话时不设置。
+  optional Call call = 1;
+}
+
+message AnswerCallRequest {
+  string call_id = 1;
+}
+
+message AnswerCallResponse {
+  Call call = 1;
+  // 客户端用这两个值加入 LiveKit 房间；网关已经在房间里了。
+  string livekit_url = 2;
+  string livekit_token = 3;
+  string room = 4;
+}
+
+message ListCallsRequest {
+  int32 limit = 1;
+  // 翻页：只返回 invite_at 早于它的（秒）。
+  int64 before = 2;
+}
+
+message ListCallsResponse {
+  repeated Call calls = 1;
+}
+
+service CallService {
+  rpc GetActiveCall(GetActiveCallRequest) returns (GetActiveCallResponse);
+  rpc AnswerCall(AnswerCallRequest) returns (AnswerCallResponse);
+  rpc ListCalls(ListCallsRequest) returns (ListCallsResponse);
+}

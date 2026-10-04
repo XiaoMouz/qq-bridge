@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QQ Bridge 通话测试</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --fg: #1d1d1f; --muted: #6e6e73; --accent: #0a84ff; --ok: #30d158; --bad: #ff453a; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --fg: #f5f5f7; --muted: #98989d; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font: 16px/1.5 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  main { max-width: 480px; margin: 0 auto; display: grid; gap: 12px; }
+  .card { background: var(--card); border-radius: 16px; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  input, button { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #8884; background: transparent; color: inherit; }
+  button { border: 0; background: var(--accent); color: #fff; font-weight: 600; margin-top: 8px; }
+  button.ok { background: var(--ok); } button.bad { background: var(--bad); }
+  button:disabled { opacity: .4; }
+  .caller { font-size: 24px; font-weight: 700; }
+  .meter { height: 8px; border-radius: 4px; background: #8883; overflow: hidden; margin-top: 6px; }
+  .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .1s; }
+  pre { white-space: pre-wrap; font-size: 12px; margin: 0; color: var(--muted); max-height: 200px; overflow: auto; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>QQ Bridge 通话测试</h1>
+    <div class="muted">iOS 客户端完成前用来代替 iPhone 接听 QQ 来电（docs/design.md 5.7 G5）。</div>
+  </div>
+
+  <form class="card" id="login" hidden>
+    <input id="username" placeholder="服务端账号" autocomplete="username" required>
+    <input id="password" type="password" placeholder="密码" autocomplete="current-password" required style="margin-top:8px">
+    <button type="submit">登录</button>
+  </form>
+
+  <div class="card" id="call" hidden>
+    <div class="muted" id="phase">等待来电…</div>
+    <div class="caller" id="caller"></div>
+    <div class="muted" id="timer"></div>
+    <button class="ok" id="answer" hidden>接听</button>
+    <button class="bad" id="leave" hidden>离开（QQ 那边需对方挂断）</button>
+    <div id="levels" hidden>
+      <div class="muted" style="margin-top:12px">对方音量</div><div class="meter"><div id="remoteLevel"></div></div>
+      <div class="muted">我的音量</div><div class="meter"><div id="localLevel"></div></div>
+    </div>
+  </div>
+
+  <div class="card"><pre id="log"></pre></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (...a) => { $('log').textContent = `${new Date().toLocaleTimeString()} ${a.join(' ')}\n` + $('log').textContent; };
+let token = null;
+try { token = localStorage.getItem('qqbridge-lab-token'); } catch {}
+let current = null, room = null, connectedAt = null;
+
+async function rpc(service, method, body) {
+  const res = await fetch(`/qqbridge.v1.${service}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'connect-protocol-version': '1', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) { token = null; showLogin(); }
+    throw new Error(data.message || `${method} ${res.status}`);
+  }
+  return data;
+}
+
+function showLogin() { $('login').hidden = false; $('call').hidden = true; }
+function showCall() { $('login').hidden = true; $('call').hidden = false; }
+
+$('login').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const r = await rpc('AuthService', 'Login', { username: $('username').value, password: $('password').value, deviceName: 'call-lab' });
+    token = r.token;
+    try { localStorage.setItem('qqbridge-lab-token', token); } catch {}
+    showCall(); log('已登录，设备', r.deviceId);
+  } catch (err) { log('登录失败：', err.message); }
+});
+
+const PHASE = { CALL_PHASE_RINGING: '来电中', CALL_PHASE_ACCEPTING: '正在接通…', CALL_PHASE_CONNECTED: '通话中', CALL_PHASE_ENDED: '已结束' };
+
+async function poll() {
+  if (!token) return;
+  try {
+    const r = await rpc('CallService', 'GetActiveCall', {});
+    const call = r.call ?? null;
+    if (call?.id !== current?.id || call?.phase !== current?.phase) log('通话状态：', call ? `${PHASE[call.phase] ?? call.phase} ${call.peerName ?? ''}(${call.peerUin ?? '?'})` : '无');
+    current = call;
+    render();
+  } catch (err) { log('查询失败：', err.message); }
+}
+
+function render() {
+  const c = current;
+  $('phase').textContent = c ? (PHASE[c.phase] ?? c.phase) : (room ? '对方已挂断' : '等待来电…');
+  $('caller').textContent = c ? `${c.peerName || ''} ${c.peerUin ? '(' + c.peerUin + ')' : ''}` : '';
+  $('answer').hidden = !(c && c.phase === 'CALL_PHASE_RINGING') || Boolean(room);
+  $('leave').hidden = !room;
+  $('levels').hidden = !room;
+  if (room && !c) leave();
+}
+
+$('answer').addEventListener('click', async () => {
+  $('answer').disabled = true;
+  try {
+    const r = await rpc('CallService', 'AnswerCall', { callId: current.id });
+    log('网关已就位，加入房间', r.room);
+    room = new LivekitClient.Room({ adaptiveStream: false, audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+      if (track.kind !== 'audio') return;
+      const el = track.attach(); el.autoplay = true; document.body.appendChild(el);
+      log('收到', participant.identity, '的声音');
+    });
+    room.on(LivekitClient.RoomEvent.Disconnected, () => { log('已离开房间'); room = null; render(); });
+    room.on(LivekitClient.RoomEvent.ConnectionQualityChanged, (q, p) => { if (p.isLocal) log('连接质量：', q); });
+    await room.connect(r.livekitUrl, r.livekitToken);
+    await room.startAudio();
+    await room.localParticipant.setMicrophoneEnabled(true);
+    connectedAt = Date.now();
+    log('已入会，麦克风已开');
+    render();
+  } catch (err) {
+    log('接听失败：', err.message);
+  } finally {
+    $('answer').disabled = false;
+  }
+});
+
+async function leave() { if (room) { const r = room; room = null; await r.disconnect(); } connectedAt = null; render(); }
+$('leave').addEventListener('click', leave);
+
+setInterval(() => {
+  if (!room) { $('timer').textContent = ''; return; }
+  const remote = [...room.remoteParticipants.values()][0];
+  $('remoteLevel').style.width = `${Math.min(100, (remote?.audioLevel ?? 0) * 300)}%`;
+  $('localLevel').style.width = `${Math.min(100, (room.localParticipant.audioLevel ?? 0) * 300)}%`;
+  const s = Math.floor((Date.now() - connectedAt) / 1000);
+  $('timer').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}, 100);
+
+if (token) showCall(); else showLogin();
+setInterval(poll, 1000); poll();
+</script>
+</body>
+</html>

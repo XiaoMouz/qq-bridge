@@ -1,0 +1,22 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# 运行期数据：QQ 登录态、NapCat 配置、采样原始数据（含隐私，绝不入库）
+deploy/data/
+fixtures/raw/
+*.token
+
+# 只有脱敏后的样本才放进 fixtures/ 的其他子目录
+
+# 本机部署参数（含 WebUI 口令）
+deploy/.env
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate

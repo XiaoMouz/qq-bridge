@@ -1,0 +1,11 @@
+# LiveKit SFU（docs/design.md 5.2）。节点 IP 由 compose 的 --node-ip 传入：
+# 阶段 A 用这台 Mac 的 Tailscale IP（iPhone 经 Tailscale 访问；容器经 Mac 回环也能连上）。
+port: 7880
+bind_addresses: ["0.0.0.0"]
+rtc:
+  tcp_port: 7881
+  # 单端口 UDP 复用，方便 Docker 端口映射。
+  udp_port: 7882
+  use_external_ip: false
+logging:
+  level: info

@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+import "qqbridge/v1/common.proto";
+
+service MessageService {
+  // 按 seq 翻页读取历史；AROUND 用于"跳转到原消息"。
+  rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+  // 发送：先进服务端发件箱并立即返回，再由服务端发往 QQ，进度经 Subscribe / GetDifference 的发件箱条目推送。
+  // client_random_id 由客户端生成，同一条消息重试时保持不变：服务端据此去重，重试不会发出两条。
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  // 撤回自己的消息（群管理员也可以撤回别人的）。撤回结果经 QQ 的撤回通知回到会话里。
+  rpc RecallMessage(RecallMessageRequest) returns (RecallMessageResponse);
+  // 全文搜索（PGroonga，中文按 N-gram 切分），按时间倒序分页。
+  // 查询语法：空格分隔的词需同时出现；A OR B 任一出现；-词 排除。语法写错时按普通文本搜索。
+  rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
+  // 表情回应（只有群聊支持）：加或取消自己的回应。结果直接写进消息的 reactions 并经 chat_pts 同步，
+  // 之后 QQ 的回应通知会用准确的总数覆盖。
+  rpc React(ReactRequest) returns (ReactResponse);
+  // 展开合并转发：第一次打开时向 QQ 拉取并缓存，之后直接读缓存。嵌套的合并转发用 path 逐层展开。
+  rpc GetForward(GetForwardRequest) returns (GetForwardResponse);
+  // 会话里的共享媒体（图片、视频、文件……），按消息倒序分页。
+  rpc ListSharedMedia(ListSharedMediaRequest) returns (ListSharedMediaResponse);
+}
+
+message ReactRequest {
+  int64 chat_id = 1;
+  int64 seq = 2;
+  // QQ 表情 id（小黄脸是数字，emoji 是码点）。
+  string emoji_id = 3;
+  // true = 加上回应，false = 取消。
+  bool add = 4;
+}
+
+message ReactResponse {
+  Message message = 1;
+}
+
+message GetForwardRequest {
+  int64 chat_id = 1;
+  // 合并转发所在消息。
+  int64 seq = 2;
+  // 嵌套展开：上一层里第几个节点的合并转发（从 0 开始）；为空表示最外层。
+  repeated int32 path = 3;
+}
+
+message ForwardNode {
+  int64 sender_id = 1;
+  string sender_name = 2;
+  // unix 秒。
+  int64 time = 3;
+  repeated Segment segments = 4;
+}
+
+message GetForwardResponse {
+  repeated ForwardNode nodes = 1;
+  // QQ 那边已经拉不到（太久远等）时为 true，nodes 为空。
+  bool unavailable = 2;
+}
+
+message ListSharedMediaRequest {
+  int64 chat_id = 1;
+  // 为空表示所有类型。
+  repeated MediaKind kinds = 2;
+  // 翻页：只返回 seq 小于它的（0 = 从最新开始）。
+  int64 before_seq = 3;
+  int32 limit = 4;
+}
+
+message SharedMedia {
+  int64 seq = 1;
+  // unix 秒。
+  int64 time = 2;
+  int64 sender_id = 3;
+  MediaKind kind = 4;
+  // 含媒体信息的那个消息段（图片、视频、语音、文件、商城表情）。
+  Segment segment = 5;
+}
+
+message ListSharedMediaResponse {
+  repeated SharedMedia items = 1;
+  // 下一页的 before_seq；0 表示没有更多了。
+  int64 next_before_seq = 2;
+}
+
+message SearchCursor {
+  // unix 秒。
+  int64 time = 1;
+  int64 chat_id = 2;
+  int64 seq = 3;
+}
+
+message SearchMessagesRequest {
+  string query = 1;
+  // 只搜某个会话；0 = 全部会话。
+  int64 chat_id = 2;
+  // 只搜某人发的；0 = 不限。
+  int64 sender_id = 3;
+  // 只看带某些内容的消息（MessageFlag 位的"或"，例如图片 | 文件）；0 = 不限。
+  uint32 flags_any = 4;
+  // 时间范围（unix 秒，左闭右开）；0 = 不限。
+  int64 since = 5;
+  int64 until = 6;
+  // 上一页的 next；第一页留空。
+  SearchCursor before = 7;
+  uint32 limit = 8;
+}
+
+message SearchMessagesResponse {
+  repeated Message messages = 1;
+  // 从查询里提取的关键词，客户端用来高亮。
+  repeated string keywords = 2;
+  // 下一页游标；没有更多结果时不设置。
+  SearchCursor next = 3;
+}
+
+message SendMessageRequest {
+  int64 chat_id = 1;
+  int64 client_random_id = 2;
+  repeated OutgoingSegment segments = 3;
+  // 回复同一会话里的某条消息；0 表示不回复。
+  int64 reply_to_seq = 4;
+}
+
+message SendMessageResponse {
+  OutboxEntry entry = 1;
+}
+
+message RecallMessageRequest {
+  int64 chat_id = 1;
+  int64 seq = 2;
+}
+
+message RecallMessageResponse {}
+
+enum HistoryDirection {
+  HISTORY_DIRECTION_UNSPECIFIED = 0;
+  HISTORY_DIRECTION_OLDER = 1;
+  HISTORY_DIRECTION_NEWER = 2;
+  HISTORY_DIRECTION_AROUND = 3;
+}
+
+message GetHistoryRequest {
+  int64 chat_id = 1;
+  // 不填表示从最新开始。
+  optional int64 anchor_seq = 2;
+  HistoryDirection direction = 3;
+  uint32 limit = 4;
+}
+
+message GetHistoryResponse {
+  // 从这个 chat_pts 开始跟进该会话的变化。
+  int64 chat_pts = 1;
+  repeated Message messages = 2;
+  // 这一页时间范围内的服务事件（最新一页包含最后一条消息之后的事件）。
+  repeated ChatEvent events = 3;
+}

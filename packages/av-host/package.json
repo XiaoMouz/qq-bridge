@@ -1,0 +1,8 @@
+{
+  "name": "@qqbridge/av-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "由 QQ 自带的 Electron 启动的第二个进程，加载 libAVSDKPlugin.so 承载通话引擎（不打包、不依赖外部包）",
+  "main": "host.cjs",
+  "license": "GPL-3.0-only"
+}

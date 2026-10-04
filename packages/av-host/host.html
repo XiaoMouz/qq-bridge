@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>QQ Bridge AVSDK Host</title>
+    <style>
+      html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+      embed { display: block; }
+    </style>
+  </head>
+  <body>
+    <!-- 改写自 ClaudiaGardner/maibot-qq-voice-call（GPL-3.0）bridge/av-host/host.html。
+         embed 保持静态声明（与已验证的写法一致），视频研究时再由脚本放大。 -->
+    <embed id="avsdk" type="application/x-ppapi-avSDK" width="1" height="1" />
+    <script>
+      "use strict";
+      const { ipcRenderer } = require("electron");
+      const query = new URLSearchParams(location.search);
+      const embed = document.getElementById("avsdk");
+      if (query.get("w") && query.get("h")) {
+        embed.width = query.get("w");
+        embed.height = query.get("h");
+      }
+
+      // 已知的方法名（来自 maibot 的探测结果），只用于状态展示；实际调用统一走 postMessage({cmd,id,param})。
+      const knownMethods = [
+        "login", "logout", "startCall", "quit", "close", "clearRoom", "invite", "ignore", "reject",
+        "acceptInvite", "startTRAEAudio", "stopTRAEAudio", "openMic", "closeMic", "sendNTDataToAVSdk", "postMessage",
+      ];
+
+      function inspectPlugin() {
+        try {
+          const methods = new Set();
+          for (const name in embed) {
+            try { if (typeof embed[name] === "function") methods.add(name); } catch {}
+          }
+          for (const name of knownMethods) {
+            try { if (typeof embed[name] === "function") methods.add(name); } catch {}
+          }
+          ipcRenderer.send("qqbridge-avsdk-state", { ready: true, pluginFound: Boolean(embed), methods: [...methods].sort(), error: null });
+        } catch (error) {
+          ipcRenderer.send("qqbridge-avsdk-state", { ready: true, pluginFound: false, methods: [], error: String(error?.message ?? error) });
+        }
+      }
+
+      window.qqbridgeAVSDKInvoke = (command, id, params) => {
+        if (!embed || typeof embed.postMessage !== "function") throw new Error("AVSDK postMessage is unavailable");
+        if (!Number.isInteger(command) || !Number.isInteger(id) || !Array.isArray(params)) throw new Error("invalid AVSDK invocation");
+        embed.postMessage({ cmd: command, id, param: params });
+        return { posted: true, command, id };
+      };
+
+      window.addEventListener("load", () => {
+        embed?.addEventListener("message", (event) => {
+          if (event.data && typeof event.data === "object") ipcRenderer.send("qqbridge-avsdk-message", event.data);
+        });
+        setTimeout(inspectPlugin, 1500);
+      });
+    </script>
+  </body>
+</html>

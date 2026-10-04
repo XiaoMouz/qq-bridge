@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+import "qqbridge/v1/calls.proto";
+import "qqbridge/v1/common.proto";
+
+// 类 Telegram 的增量同步（docs/design.md 4.7）。
+// 客户端规则：本地序号 + 1 == 更新的序号 → 应用；更小 → 忽略；更大 → 等 0.5 秒后拉差量。
+service SyncService {
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  // 会话列表、联系人资料的差量（全局 pts）。pts = 0 等于全量拉取。
+  rpc GetDifference(GetDifferenceRequest) returns (GetDifferenceResponse);
+  // 单个会话里消息的差量（chat_pts）。
+  rpc GetChatDifference(GetChatDifferenceRequest) returns (GetChatDifferenceResponse);
+  // 批量拉多个会话的"首屏"：启动、回到前台、重连后预取用，一次往返补齐多个会话，
+  // 切换会话时直接读本地，不用再等网络（docs/design.md 4.7 / 6.3）。
+  rpc GetChatDifferences(GetChatDifferencesRequest) returns (GetChatDifferencesResponse);
+  // 先回放差量，再推送实时更新；两段之间不漏不重。
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+}
+
+message GetStateRequest {}
+
+message GetStateResponse {
+  int64 pts = 1;
+  int64 server_time = 2;
+}
+
+message GetDifferenceRequest {
+  int64 pts = 1;
+  uint32 limit = 2;
+}
+
+message GetDifferenceResponse {
+  Difference difference = 1;
+}
+
+message Difference {
+  // 应用本页之后的新游标。
+  int64 pts = 1;
+  // false 表示还有下一页，用新游标继续拉。
+  bool is_final = 2;
+  // 游标太旧，只能从 0 全量重拉。
+  bool too_long = 3;
+  repeated Dialog dialogs = 4;
+  repeated Peer peers = 5;
+  repeated Tombstone tombstones = 6;
+  // 发件箱变化。全新设备（pts = 0）只会收到尚未发送成功的条目。
+  repeated OutboxEntry outbox = 7;
+}
+
+message GetChatDifferenceRequest {
+  int64 chat_id = 1;
+  int64 chat_pts = 2;
+  uint32 limit = 3;
+}
+
+message GetChatDifferenceResponse {
+  int64 chat_pts = 1;
+  bool is_final = 2;
+  // 变化太多：messages 是最新一页，客户端应丢弃该会话的本地窗口重新开始。
+  bool too_long = 3;
+  repeated Message messages = 4;
+  // 同一段 chat_pts 里变化的服务事件。
+  repeated ChatEvent events = 5;
+}
+
+message ChatSyncState {
+  int64 chat_id = 1;
+  // 客户端本地的 chat_pts；0 表示本地还没有这个会话的消息，直接给最新一屏。
+  int64 chat_pts = 2;
+}
+
+message GetChatDifferencesRequest {
+  // 最多 100 个会话，按客户端的优先级排好序（置顶、有未读、最近活跃……）。
+  repeated ChatSyncState chats = 1;
+  // 每个会话最多返回多少条：默认 30，最多 100。
+  uint32 per_chat_limit = 2;
+}
+
+message ChatDifferenceResult {
+  int64 chat_id = 1;
+  int64 chat_pts = 2;
+  // false 表示该会话还有更多变化，用 GetChatDifference 继续拉。
+  bool is_final = 3;
+  // 变化超过一屏：messages 是最新一屏，与本地窗口之间可能有空洞，客户端按空洞处理（翻页时补）。
+  bool too_long = 4;
+  repeated Message messages = 5;
+  repeated ChatEvent events = 6;
+}
+
+message GetChatDifferencesResponse {
+  // 不存在或不属于当前账号的会话不会出现在结果里。
+  repeated ChatDifferenceResult chats = 1;
+}
+
+message SubscribeRequest {
+  int64 pts = 1;
+}
+
+message SubscribeResponse {
+  oneof event {
+    Difference difference = 1;
+    DialogUpdate dialog = 2;
+    PeerUpdate peer = 3;
+    TombstoneUpdate tombstone = 4;
+    ChatMessageUpdate chat_message = 5;
+    Heartbeat heartbeat = 6;
+    // 客户端跟不上：断开后用 GetDifference 重新追平。
+    Resync resync = 7;
+    OutboxUpdate outbox = 8;
+    ChatEventUpdate chat_event = 9;
+    // 临时事件，不占 pts、不存档。
+    TypingUpdate typing = 10;
+    // 通话状态变化（临时事件）。
+    CallUpdate call = 11;
+  }
+}
+
+message CallUpdate {
+  Call call = 1;
+}
+
+message ChatEventUpdate {
+  int64 chat_id = 1;
+  int64 chat_pts = 2;
+  ChatEvent event = 3;
+}
+
+// "对方正在输入…"：只推给在线的客户端，几秒后自动消失。
+message TypingUpdate {
+  int64 chat_id = 1;
+  int64 user_id = 2;
+  string text = 3;
+}
+
+message OutboxUpdate {
+  int64 pts = 1;
+  OutboxEntry entry = 2;
+}
+
+message DialogUpdate {
+  int64 pts = 1;
+  Dialog dialog = 2;
+}
+
+message PeerUpdate {
+  int64 pts = 1;
+  Peer peer = 2;
+}
+
+message TombstoneUpdate {
+  int64 pts = 1;
+  Tombstone tombstone = 2;
+}
+
+message ChatMessageUpdate {
+  int64 chat_id = 1;
+  int64 chat_pts = 2;
+  Message message = 3;
+}
+
+message Heartbeat {
+  int64 pts = 1;
+  int64 server_time = 2;
+}
+
+message Resync {}

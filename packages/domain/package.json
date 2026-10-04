@@ -1,0 +1,20 @@
+{
+  "name": "@qqbridge/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "领域模型（Milky 语义）与纯函数：消息段、媒体保留策略、存储统计、同步规则",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "fast-check": "^4.10.2",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}

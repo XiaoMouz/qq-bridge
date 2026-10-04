@@ -1,0 +1,13 @@
+.nofail
+# 只在容器内通过 unix socket 访问；以后 call-gateway sidecar 通过共享卷访问同一个 socket。
+load-module module-native-protocol-unix socket=/run/qqbridge/pulse/native auth-anonymous=1
+
+# qq_speaker：QQ 的默认扬声器。读取 qq_speaker.monitor 就是通话对方的声音。
+load-module module-null-sink sink_name=qq_speaker rate=48000 channels=2 sink_properties=device.description=QQBridge_Speaker
+
+# qq_mic：往这里播放的声音，经 remap 后成为 QQ 的默认麦克风 qq_mic_source。
+load-module module-null-sink sink_name=qq_mic rate=48000 channels=2 sink_properties=device.description=QQBridge_Mic_Feed
+load-module module-remap-source master=qq_mic.monitor source_name=qq_mic_source channels=1 source_properties=device.description=QQBridge_Microphone
+
+set-default-sink qq_speaker
+set-default-source qq_mic_source

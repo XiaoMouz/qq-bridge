@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+import "qqbridge/v1/calls.proto";
+import "qqbridge/v1/common.proto";
+
+// 管理（docs/design.md 4.8 AdminService）：系统状态、QQ 扫码登录中转、存档完整性与深度归档。
+service AdminService {
+  // 一页看全：QQ 是否在线、积压与失败、存档缺口、下载队列、通话桥健康状况、存储。
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse);
+  // QQ 登录状态；没登录时带上扫码登录的二维码内容（客户端自己画成二维码）。
+  rpc GetQqLogin(GetQqLoginRequest) returns (GetQqLoginResponse);
+  // 二维码过期了：让 NapCat 换一张新的。
+  rpc RefreshQqLoginQrcode(RefreshQqLoginQrcodeRequest) returns (RefreshQqLoginQrcodeResponse);
+  // 各会话的存档完整性（缺口、是否已到历史开头、深度归档开关），缺口多的在前。
+  rpc ListArchiveStatus(ListArchiveStatusRequest) returns (ListArchiveStatusResponse);
+  // 打开 / 关闭某个会话的深度归档（从第一条消息补起）。
+  rpc SetDeepArchive(SetDeepArchiveRequest) returns (SetDeepArchiveResponse);
+  // 立即跑一轮缺口补齐（平时对账后和每 10 分钟各跑一轮）。
+  rpc FillHolesNow(FillHolesNowRequest) returns (FillHolesNowResponse);
+}
+
+message GetStatusRequest {}
+
+message QqStatus {
+  int64 qq_account_id = 1;
+  int64 uin = 2;
+  string nickname = 3;
+  // 插件是否连着服务端。
+  bool connected = 4;
+  int64 connected_at = 5;
+  string plugin_version = 6;
+  // 最后收到上游事件的时间（unix 秒）。
+  int64 last_event_at = 7;
+}
+
+message InboxStatus {
+  uint32 pending = 1;
+  uint32 failed = 2;
+  // 最近 24 小时忽略的事件数（暂不支持的通知等）。
+  uint32 ignored_24h = 3;
+}
+
+message ArchiveSummary {
+  uint32 chats_with_holes = 1;
+  uint64 missing_seqs = 2;
+  uint32 deep_archive_chats = 3;
+}
+
+message MediaQueueStatus {
+  uint32 pending = 1;
+  uint32 failed = 2;
+  uint32 expired = 3;
+}
+
+message OutboxStatus {
+  uint32 pending = 1;
+  uint32 failed = 2;
+}
+
+message CallBridgeStatus {
+  // 服务端配好了 LiveKit 和网关。
+  bool configured = 1;
+  // 插件里的通话桥开着（QQBRIDGE_CALLS）。
+  bool bridge_enabled = 2;
+  // 通话引擎已登录。
+  bool engine_logged_in = 3;
+  // 通话引擎被暂停的原因（反复要求重登等），为空表示正常。
+  string paused_reason = 4;
+  string last_error = 5;
+  bool gateway_reachable = 6;
+  // 网关正在桥接的房间。
+  string gateway_room = 7;
+  optional Call active_call = 8;
+}
+
+message StorageStatus {
+  uint64 hot_bytes = 1;
+  uint64 cold_bytes = 2;
+  bool cold_tier_enabled = 3;
+}
+
+message GetStatusResponse {
+  repeated QqStatus qq = 1;
+  InboxStatus inbox = 2;
+  ArchiveSummary archive = 3;
+  MediaQueueStatus media = 4;
+  OutboxStatus outbox = 5;
+  CallBridgeStatus calls = 6;
+  StorageStatus storage = 7;
+  int64 server_started_at = 8;
+}
+
+message GetQqLoginRequest {}
+
+message GetQqLoginResponse {
+  bool logged_in = 1;
+  // 登录过但掉线了。
+  bool offline = 2;
+  // NapCat 的登录阶段（例如 qrcode_scanned）。
+  string phase = 3;
+  // 扫码登录的二维码内容（一个 URL，客户端画成二维码给手机 QQ 扫）。
+  string qrcode_url = 4;
+  string error = 5;
+  // NapCat WebUI 连不上（例如没配 NAPCAT_WEBUI_TOKEN）。
+  bool unavailable = 6;
+}
+
+message RefreshQqLoginQrcodeRequest {}
+
+message RefreshQqLoginQrcodeResponse {
+  string qrcode_url = 1;
+}
+
+message ListArchiveStatusRequest {
+  int32 limit = 1;
+}
+
+message ChatArchiveStatus {
+  int64 chat_id = 1;
+  Scene scene = 2;
+  int64 peer_id = 3;
+  string name = 4;
+  int64 earliest_seq = 5;
+  int64 top_seq = 6;
+  uint32 holes = 7;
+  uint64 missing_seqs = 8;
+  bool deep_archive = 9;
+  // 已经确认补到了 QQ 那边能拉到的最早一条。
+  bool history_complete = 10;
+}
+
+message ListArchiveStatusResponse {
+  repeated ChatArchiveStatus chats = 1;
+}
+
+message SetDeepArchiveRequest {
+  int64 chat_id = 1;
+  bool enabled = 2;
+}
+
+message SetDeepArchiveResponse {}
+
+message FillHolesNowRequest {}
+
+message FillHolesNowResponse {}

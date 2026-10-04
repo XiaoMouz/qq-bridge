@@ -1,0 +1,230 @@
+// 服务端可以调用的插件动作（经上游连接的 req/res）。只做"取数"，不在插件里做业务判断：
+// 返回 NT 原始结构，由服务端统一映射（docs/design.md 4.3：映射放在服务端）。
+import { ChatType, msgApi, requireFn, uidByUin, type Peer } from '../core.js';
+import type { NapCatPluginContext } from '../napcat.js';
+import { callAction } from './actions.js';
+import type { RpcHandler } from './link.js';
+import type { SendParams, Sender } from './sender.js';
+
+/** 服务端存在 media_refs.locator 里的定位信息，换新下载链接时原样传回来。 */
+export interface MediaLocator {
+  chatType: number;
+  peerUid: string;
+  msgId: string;
+  elementId: string;
+  elementType: number;
+  fileUuid?: string;
+  file10MMd5?: string;
+  originImageUrl?: string;
+  md5HexStr?: string;
+}
+
+const ElementType = { PIC: 2, FILE: 3, PTT: 4, VIDEO: 5 } as const;
+const URL_TIMEOUT_MS = 5000;
+
+/** 通话桥里服务端会用到的部分（通话桥关闭时为 null）。 */
+export interface CallControl {
+  current(): unknown;
+  accept(): Promise<unknown>;
+  status(): Record<string, unknown>;
+}
+
+export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender; calls?: CallControl | null } = {}): Record<string, RpcHandler> {
+  const fileApi = () => {
+    const api = ctx.core?.apis?.FileApi;
+    if (!api) throw new Error('NapCat internal API missing: core.apis.FileApi');
+    return api as Record<string, any>;
+  };
+
+  const calls = () => {
+    if (!deps.calls) throw new Error('call bridge is off (QQBRIDGE_CALLS=0)');
+    return deps.calls;
+  };
+
+  return {
+    /** 当前通话（服务端重连后用来对齐状态）。 */
+    'x.call.current': async () => calls().current(),
+    /** iPhone 端经服务端接听：服务端先让网关进好房间，再调这个。 */
+    'x.call.accept': async () => calls().accept(),
+    /** 通话桥健康状态（管理页用）；通话桥关闭时 enabled = false。 */
+    'x.call.status': async () => {
+      if (!deps.calls) return { enabled: false };
+      const { serviceMethods: _omit, ...status } = deps.calls.status();
+      return { enabled: true, ...status };
+    },
+
+    /** 透传 OneBot 动作（例如已读回写 mark_*_as_read）。 */
+    ob11: async (params: { name?: unknown; params?: unknown }) => {
+      if (typeof params?.name !== 'string' || !params.name) throw new Error('ob11: name is required');
+      return callAction(ctx, params.name, params.params ?? {});
+    },
+
+    /** 发送消息：按 clientRandomId 去重（见 sender.ts）。 */
+    'x.send': async (params: SendParams) => {
+      if (!deps.sender) throw new Error('x.send: sender is not available');
+      return deps.sender.send(params);
+    },
+
+    /** 撤回：自己的消息（2 分钟内），或群管理员撤回别人的。结果以 QQ 的撤回通知为准。 */
+    'x.recall': async (params: { chatType?: number; peerUid?: string; peerUin?: string; msgId?: string }) => {
+      if (!params?.msgId) throw new Error('x.recall: msgId is required');
+      const peer = await historyPeer(ctx, params);
+      await msgApi(ctx.core).recallMsg(peer, String(params.msgId));
+      return { ok: true };
+    },
+
+    /** 最近会话及每个会话的最新一条原始消息（服务端据此对账和预热）。 */
+    'x.recent_contacts': async (params: { count?: number }) => {
+      const count = clamp(params?.count, 1, 500, 200);
+      const snapshot = await requireFn<(n: number) => Promise<any>>(
+        ctx.core?.apis?.UserApi,
+        'getRecentContactListSnapShot',
+        'UserApi',
+      )(count);
+      const list: any[] = Array.isArray(snapshot?.info?.changedList) ? snapshot.info.changedList : [];
+      const api = msgApi(ctx.core);
+      return Promise.all(
+        list.map(async (c) => {
+          let latest: unknown = null;
+          try {
+            const res = await api.getMsgsByMsgId({ chatType: c.chatType, peerUid: c.peerUid, guildId: '' }, [c.msgId]);
+            latest = res?.msgList?.[0] ?? null;
+          } catch {
+            latest = null;
+          }
+          return {
+            chatType: c.chatType,
+            peerUid: String(c.peerUid ?? ''),
+            peerUin: String(c.peerUin ?? ''),
+            peerName: String(c.peerName ?? ''),
+            remark: String(c.remark ?? ''),
+            msgTime: String(c.msgTime ?? ''),
+            latest,
+          };
+        }),
+      );
+    },
+
+    /**
+     * 按 seq 拉原始历史消息。fromSeq 为空时取最新的 count 条；否则从 fromSeq 起往更早拉（desc，默认），
+     * includeCurrent 表示是否包含 fromSeq 本身（默认包含）。参数顺序与 NapCat 自己按 seq 取消息时一致：
+     * getMsgsBySeqAndCount(peer, seq, count, isReverseOrder, isIncludeCurrent)。分页语义由 P0 采样确认。
+     * 好友会话需要 NT uid：服务端知道就直接给 peerUid，否则用 peerUin 现查。
+     */
+    'x.history': async (params: {
+      chatType?: number;
+      peerUid?: string;
+      peerUin?: string;
+      fromSeq?: string;
+      count?: number;
+      desc?: boolean;
+      includeCurrent?: boolean;
+    }) => {
+      const peer = await historyPeer(ctx, params);
+      const count = clamp(params?.count, 1, 100, 20);
+      const api = msgApi(ctx.core);
+      const res = params.fromSeq
+        ? await api.getMsgsBySeqAndCount(peer, String(params.fromSeq), count, params.desc !== false, params.includeCurrent !== false)
+        : await api.getAioFirstViewLatestMsgs(peer, count);
+      const msgList: unknown[] = Array.isArray(res?.msgList) ? res.msgList : [];
+      return { peer, result: res?.result ?? 0, errMsg: res?.errMsg ?? '', messages: msgList };
+    },
+
+    /** 表情回应：加或取消自己对某条消息（按 seq）的回应。 */
+    'x.react': async (params: { chatType?: number; peerUid?: string; peerUin?: string; seq?: string; emojiId?: string; add?: boolean }) => {
+      if (!params?.seq || !params.emojiId) throw new Error('x.react: seq and emojiId are required');
+      const peer = await historyPeer(ctx, params);
+      const setEmojiLike = requireFn<(...a: unknown[]) => Promise<{ result?: number; errMsg?: string }>>(msgApi(ctx.core), 'setEmojiLike', 'MsgApi');
+      const res = await setEmojiLike(peer, String(params.seq), String(params.emojiId), params.add !== false);
+      if (res?.result) throw new Error(`setEmojiLike failed: ${res.result} ${res.errMsg ?? ''}`);
+      return { ok: true };
+    },
+
+    /**
+     * 合并转发的内容（原始消息）。rootMsgId 是合并转发所在消息的 NT msgId；
+     * 展开嵌套的合并转发时 parentMsgId 是上一层里那个节点的 msgId，最外层与 rootMsgId 相同。
+     */
+    'x.forward': async (params: { chatType?: number; peerUid?: string; peerUin?: string; rootMsgId?: string; parentMsgId?: string }) => {
+      if (!params?.rootMsgId) throw new Error('x.forward: rootMsgId is required');
+      const peer = await historyPeer(ctx, params);
+      const getMultiMsg = requireFn<(...a: unknown[]) => Promise<{ result?: number; errMsg?: string; msgList?: unknown[] }>>(msgApi(ctx.core), 'getMultiMsg', 'MsgApi');
+      const res = await getMultiMsg(peer, String(params.rootMsgId), String(params.parentMsgId || params.rootMsgId));
+      return { result: res?.result ?? 0, errMsg: res?.errMsg ?? '', messages: Array.isArray(res?.msgList) ? res.msgList : [] };
+    },
+
+    /** 媒体换新下载链接（QQ 的链接带 rkey，会过期）。拿不到返回 url = null。 */
+    'x.media_url': async (locator: MediaLocator) => {
+      if (!locator || typeof locator.elementType !== 'number') throw new Error('x.media_url: locator is required');
+      const api = fileApi();
+      const peerUid = String(locator.peerUid ?? '');
+      switch (locator.elementType) {
+        case ElementType.PIC: {
+          const url = await api.getImageUrl?.({ originImageUrl: locator.originImageUrl, md5HexStr: locator.md5HexStr });
+          return { url: nonEmpty(url) };
+        }
+        case ElementType.VIDEO: {
+          try {
+            const urls = await api.getVideoUrl?.({ chatType: locator.chatType, peerUid, guildId: '0' }, locator.msgId, locator.elementId);
+            const found = Array.isArray(urls) ? urls.find((u: any) => u?.url) : null;
+            if (found?.url) return { url: String(found.url) };
+          } catch {
+            // 退回到 packet 方式
+          }
+          if (!locator.fileUuid || !api.getVideoUrlPacket) return { url: null };
+          return { url: await packetUrl(() => api.getVideoUrlPacket(peerUid, locator.fileUuid, URL_TIMEOUT_MS)) };
+        }
+        case ElementType.PTT:
+          if (!locator.fileUuid || !api.getPttUrl) return { url: null };
+          return { url: await packetUrl(() => api.getPttUrl(peerUid, locator.fileUuid, URL_TIMEOUT_MS)) };
+        case ElementType.FILE:
+          if (!locator.fileUuid || !api.getFileUrl) return { url: null };
+          return {
+            url: await packetUrl(() => api.getFileUrl(locator.chatType, peerUid, locator.fileUuid, locator.file10MMd5, URL_TIMEOUT_MS)),
+          };
+        default:
+          return { url: null };
+      }
+    },
+  };
+}
+
+async function historyPeer(
+  ctx: NapCatPluginContext,
+  params: { chatType?: number; peerUid?: string; peerUin?: string },
+): Promise<Peer> {
+  const chatType = Number(params?.chatType);
+  if (chatType === ChatType.group) {
+    const code = params.peerUid || params.peerUin;
+    if (!code) throw new Error('x.history: group code is required');
+    return { chatType, peerUid: String(code), guildId: '' };
+  }
+  if (chatType === ChatType.friend || chatType === ChatType.temp) {
+    const uid = params.peerUid || (params.peerUin ? await uidByUin(ctx.core, String(params.peerUin)) : '');
+    if (!uid) throw new Error('x.history: peerUid or peerUin is required');
+    return { chatType, peerUid: uid, guildId: '' };
+  }
+  throw new Error(`x.history: unsupported chatType ${params?.chatType}`);
+}
+
+function clamp(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.max(min, Math.min(Math.floor(n), max));
+}
+
+/**
+ * 经 packet 换链接。QQ 服务器回了包、但里面没有下载信息时（资源已过期或被删），NapCat 会在读
+ * `download.info` 时抛 TypeError——这是"拿不到了"，返回 null，让服务端记为过期而不是反复重试。
+ */
+async function packetUrl(fn: () => Promise<unknown>): Promise<string | null> {
+  try {
+    return nonEmpty(await fn());
+  } catch (error) {
+    if (error instanceof TypeError && /reading '(info|download|domain)'/.test(error.message)) return null;
+    throw error;
+  }
+}
+
+function nonEmpty(url: unknown): string | null {
+  return typeof url === 'string' && url.length > 0 ? url : null;
+}

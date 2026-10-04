@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package qqbridge.v1;
+
+import "qqbridge/v1/common.proto";
+
+// 联系人与资料（docs/design.md 4.8 ContactService）。服务端不在后台逐个爬取资料，只在需要时取：
+// - 好友列表、群列表各一次请求拿全，每天刷新一次（也可 RefreshContacts 手动刷新）；
+// - 头像在打开会话（DialogService.SetActiveChat）时按需下载，一天最多一次；
+// - 客户端打开资料页时带 refresh = true：缓存超过 10 分钟就当场向 QQ 刷新再返回。
+// 资料变化（含头像）同时经 Subscribe 的 PeerUpdate 推送，会话列表和聊天页能直接更新。
+service ContactService {
+  rpc ListFriends(ListFriendsRequest) returns (ListFriendsResponse);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  rpc GetUserProfile(GetUserProfileRequest) returns (GetUserProfileResponse);
+  rpc GetGroupProfile(GetGroupProfileRequest) returns (GetGroupProfileResponse);
+  rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
+  // 立即从 QQ 刷新好友列表和群列表（例如用户下拉刷新联系人页）。
+  rpc RefreshContacts(RefreshContactsRequest) returns (RefreshContactsResponse);
+}
+
+message ListFriendsRequest {}
+
+message ListFriendsResponse {
+  repeated Peer friends = 1;
+}
+
+message ListGroupsRequest {}
+
+message ListGroupsResponse {
+  repeated Peer groups = 1;
+}
+
+message GetUserProfileRequest {
+  int64 user_id = 1;
+  bool refresh = 2;
+}
+
+message UserProfile {
+  Peer peer = 1;
+  // unknown / male / female。
+  string sex = 2;
+  uint32 age = 3;
+  uint32 level = 4;
+  // 上次从 QQ 刷新的时间（unix 秒，0 = 从没刷新过）。
+  int64 refreshed_at = 5;
+}
+
+message GetUserProfileResponse {
+  UserProfile profile = 1;
+  // 想刷新但 QQ 离线或请求失败：返回的是缓存。
+  bool stale = 2;
+}
+
+message GetGroupProfileRequest {
+  int64 group_id = 1;
+  bool refresh = 2;
+}
+
+message GroupProfile {
+  Peer peer = 1;
+  uint32 max_member_count = 2;
+  int64 owner_id = 3;
+  int64 refreshed_at = 4;
+}
+
+message GetGroupProfileResponse {
+  GroupProfile profile = 1;
+  bool stale = 2;
+}
+
+message GroupMember {
+  int64 user_id = 1;
+  string nickname = 2;
+  // 群名片（为空时显示昵称）。
+  string card = 3;
+  // owner / admin / member。
+  string role = 4;
+  string title = 5;
+  string level = 6;
+  int64 joined_at = 7;
+  int64 last_sent_at = 8;
+}
+
+message ListGroupMembersRequest {
+  int64 group_id = 1;
+  bool refresh = 2;
+  int32 offset = 3;
+  int32 limit = 4;
+}
+
+message ListGroupMembersResponse {
+  repeated GroupMember members = 1;
+  uint32 total = 2;
+  bool stale = 3;
+}
+
+message RefreshContactsRequest {}
+
+message RefreshContactsResponse {
+  uint32 friends = 1;
+  uint32 groups = 2;
+}

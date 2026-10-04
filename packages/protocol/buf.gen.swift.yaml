@@ -1,0 +1,19 @@
+# Swift：消息（swift-protobuf）与 Connect 客户端（connect-swift），给 ios/QQBridgeKit 用。
+#   pnpm --filter @qqbridge/protocol generate:swift
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/apple/swift
+    out: ../../ios/QQBridgeKit/Sources/QQBridgeProto
+    opt:
+      - Visibility=Public
+      - FileNaming=PathToUnderscores
+  - remote: buf.build/connectrpc/swift
+    out: ../../ios/QQBridgeKit/Sources/QQBridgeProto
+    opt:
+      - Visibility=Public
+      - FileNaming=PathToUnderscores
+      - GenerateAsyncMethods=true
+      - GenerateCallbackMethods=false
+clean: true

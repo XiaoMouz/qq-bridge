@@ -1,0 +1,213 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pino from 'pino';
+import { buildServer } from './api/server.ts';
+import { MediaUrlSigner } from './api/media-urls.ts';
+import type { ApiDeps } from './api/context.ts';
+import { AuthService } from './auth/service.ts';
+import type { Config } from './config.ts';
+import { sql } from 'drizzle-orm';
+import { createDb, rows, runMigrations, type Db } from './db/client.ts';
+import { IngestService } from './ingest/service.ts';
+import { MediaCleaner } from './media/cleanup.ts';
+import { MediaFetcher } from './media/fetcher.ts';
+import { MediaProcessor } from './media/processing.ts';
+import { MediaService } from './media/service.ts';
+import { StoredUrlSource, type MediaSource } from './media/source.ts';
+import { LocalFsBackend, RemovableBackend } from './media/store.ts';
+import { UploadService } from './media/upload.ts';
+import { DialogPrefs } from './dialogs/prefs.ts';
+import { OutboxService } from './outbox/service.ts';
+import { OutboxWorker } from './outbox/worker.ts';
+import { ActiveChats } from './sync/active-chats.ts';
+import { UpdateBus } from './sync/bus.ts';
+import { WriterRegistry } from './sync/writer.ts';
+import { CallService } from './calls/service.ts';
+import { AdminService } from './admin/service.ts';
+import { NapcatWebUi } from './admin/napcat-webui.ts';
+import { ContactService } from './contacts/service.ts';
+import { TierManager } from './media/tiering.ts';
+import { ForwardService } from './messages/forwards.ts';
+import { MessageInteractions } from './messages/interactions.ts';
+import { HttpCallGateway } from './calls/gateway.ts';
+import { createUpstream } from './upstream/index.ts';
+
+/** 组装服务端的全部依赖；测试与 CLI 共用。 */
+export function createDeps(
+  db: Db,
+  opts: { mediaRoot: string; mediaColdRoot?: string; mediaUrlSecret: string; logLevel?: string; uploadMaxBytes?: number; ffmpegPath?: string },
+): ApiDeps {
+  const bus = new UpdateBus();
+  const writers = new WriterRegistry(db, bus);
+  const root = path.resolve(opts.mediaRoot);
+  const backend = new LocalFsBackend(root);
+  // 冷存储一般在外接硬盘上：用 RemovableBackend，盘不在时不会往系统盘上写。
+  const media = new MediaService(db, backend, opts.mediaColdRoot ? new RemovableBackend(path.resolve(opts.mediaColdRoot)) : null);
+  const ingest = new IngestService(db, writers);
+  const logger = pino({ level: opts.logLevel ?? 'info' });
+  const processor = new MediaProcessor(db, media, {
+    ...(opts.ffmpegPath ? { ffmpegPath: opts.ffmpegPath } : {}),
+    logger: logger.child({ component: 'media' }),
+  });
+  media.onPresenceChanged = (sha256, present) =>
+    void ingest.mediaPresenceChanged(sha256, present).catch((error: unknown) => logger.warn({ err: error, sha256 }, 'media presence update failed'));
+  const deps: ApiDeps = {
+    db,
+    bus,
+    ingest,
+    auth: new AuthService(db),
+    media,
+    backend,
+    uploads: new UploadService(db, media, path.join(root, 'uploads'), opts.uploadMaxBytes, processor),
+    processor,
+    outbox: new OutboxService(db, writers),
+    dialogPrefs: new DialogPrefs(writers),
+    cleaner: new MediaCleaner(db, media, logger.child({ component: 'cleanup' })),
+    upstream: null,
+    history: null,
+    // 没有上游 / LiveKit / 网关时只能记录和查询，接听会返回 Unavailable；startServer 里按配置替换。
+    calls: new CallService(db, ingest, null, null, null),
+    interactions: new MessageInteractions(db, ingest, () => deps.upstream),
+    forwards: new ForwardService(db, ingest, () => deps.upstream),
+    tiering: new TierManager(db, media, logger.child({ component: 'tiering' })),
+    rehydrate: null,
+    defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
+    admin: new AdminService(db, {
+      upstream: () => deps.upstream,
+      history: () => deps.history,
+      calls: () => deps.calls,
+      media,
+    }),
+    napcatWebUi: null,
+    contacts: new ContactService(db, ingest, media, processor, () => deps.upstream, { logger: logger.child({ component: 'contacts' }) }),
+    signer: new MediaUrlSigner(opts.mediaUrlSecret),
+    activeChats: new ActiveChats(),
+    logger,
+  };
+  return deps;
+}
+
+/**
+ * 启动服务端。mediaSource 由上游适配器提供（能向 NapCat 换新的媒体链接）；
+ * 没有上游时只用入库时记下的链接，过期的媒体记为 expired。
+ */
+export async function startServer(config: Config, opts: { mediaSource?: MediaSource } = {}) {
+  const db = createDb(config.DATABASE_URL);
+  await runMigrations(db);
+  const deps = createDeps(db, {
+    mediaRoot: config.MEDIA_ROOT,
+    ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+    mediaUrlSecret: config.MEDIA_URL_SECRET,
+    logLevel: config.LOG_LEVEL,
+    uploadMaxBytes: config.UPLOAD_MAX_BYTES,
+    ...(config.FFMPEG_PATH ? { ffmpegPath: config.FFMPEG_PATH } : {}),
+  });
+  let fetcher: MediaFetcher | null = null;
+  const upstream = config.UPSTREAM_TOKEN
+    ? createUpstream(
+        db,
+        deps.ingest,
+        deps.logger,
+        {
+          token: config.UPSTREAM_TOKEN,
+          account: config.UPSTREAM_ACCOUNT,
+          warmMessages: config.UPSTREAM_WARM_MESSAGES,
+          backfillIntervalMs: config.UPSTREAM_BACKFILL_INTERVAL_MS,
+          inboxRetentionDays: config.UPSTREAM_INBOX_RETENTION_DAYS,
+        },
+        {
+          onMediaQueued: () => fetcher?.poke(),
+          activeChats: deps.activeChats,
+          onCall: (qqAccountId, state) => deps.calls.onPluginState(qqAccountId, state),
+        },
+      )
+    : null;
+  deps.upstream = upstream?.hub ?? null;
+  deps.history = upstream?.history ?? null;
+  const livekit =
+    config.LIVEKIT_API_KEY && config.LIVEKIT_API_SECRET && config.LIVEKIT_PUBLIC_URL
+      ? { livekitApiKey: config.LIVEKIT_API_KEY, livekitApiSecret: config.LIVEKIT_API_SECRET, livekitPublicUrl: config.LIVEKIT_PUBLIC_URL }
+      : null;
+  deps.calls = new CallService(
+    db,
+    deps.ingest,
+    upstream?.hub ?? null,
+    config.CALL_GATEWAY_TOKEN ? new HttpCallGateway(config.CALL_GATEWAY_URL, config.CALL_GATEWAY_TOKEN) : null,
+    livekit ? { ...livekit, logger: deps.logger.child({ component: 'calls' }) } : null,
+  );
+  const app = await buildServer(deps);
+  if (upstream) await upstream.hub.register(app);
+  if (config.CALL_LAB) {
+    // 通话测试页（iOS 客户端完成前代替 iPhone 接听）。页面本身不含任何数据，接口照常要求登录。
+    const labHtml = await fs.readFile(new URL('./calls/lab.html', import.meta.url), 'utf8');
+    app.get('/lab/call', async (_req, reply) => reply.type('text/html; charset=utf-8').header('cache-control', 'no-store').send(labHtml));
+  }
+  await app.listen({ host: config.HOST, port: config.PORT });
+  deps.logger.info(
+    { host: config.HOST, port: config.PORT, upstream: Boolean(upstream), calls: Boolean(livekit && config.CALL_GATEWAY_TOKEN), callLab: config.CALL_LAB },
+    'qqbridge server listening',
+  );
+  await upstream?.start();
+
+  fetcher =
+    config.MEDIA_FETCH_CONCURRENCY > 0
+      ? new MediaFetcher(db, deps.media, deps.ingest, opts.mediaSource ?? upstream?.mediaSource ?? new StoredUrlSource(), {
+          concurrency: config.MEDIA_FETCH_CONCURRENCY,
+          defaultMaxBytes: config.MEDIA_AUTO_FETCH_MAX_BYTES,
+          priorityChatIds: () => deps.activeChats.chatIds(),
+          logger: deps.logger.child({ component: 'media-fetcher' }),
+        }, deps.processor)
+      : null;
+  fetcher?.start();
+  if (fetcher) {
+    const f = fetcher;
+    deps.rehydrate = (sha256) => f.rehydrate(sha256);
+  }
+
+  // 发送：发件箱 → 插件（x.send）。没有接上游时消息留在发件箱里，接上后自动发出。
+  const outboxWorker = upstream
+    ? new OutboxWorker(db, deps.outbox, upstream.hub, deps.signer, {
+        mediaBaseUrl: config.UPSTREAM_MEDIA_BASE_URL ?? `http://host.internal:${config.PORT}`,
+        logger: deps.logger.child({ component: 'outbox' }),
+      })
+    : null;
+  if (upstream && outboxWorker) {
+    deps.outbox.onEnqueued = () => outboxWorker.poke();
+    const onConnected = upstream.hub.onConnected;
+    upstream.hub.onConnected = (info) => {
+      onConnected?.(info);
+      outboxWorker.poke();
+    };
+    outboxWorker.start();
+  }
+  const uploadCleanup = setInterval(
+    () => void deps.uploads.cleanup().catch((error: unknown) => deps.logger.warn({ err: error }, 'upload cleanup failed')),
+    3600_000,
+  );
+  uploadCleanup.unref();
+  // 按保留策略清理原件：启动后 10 分钟跑一次，之后每天一次。
+  const runRetention = () =>
+    void deps.cleaner.runRetention().catch((error: unknown) => deps.logger.warn({ err: error }, 'retention cleanup failed'));
+  const retentionFirst = setTimeout(runRetention, 10 * 60_000);
+  const retentionDaily = setInterval(runRetention, 24 * 3600_000);
+  retentionFirst.unref();
+  retentionDaily.unref();
+
+  deps.defaultAutoFetchMaxBytes = config.MEDIA_AUTO_FETCH_MAX_BYTES;
+  deps.napcatWebUi = config.NAPCAT_WEBUI_TOKEN ? new NapcatWebUi(config.NAPCAT_WEBUI_URL, config.NAPCAT_WEBUI_TOKEN) : null;
+  deps.tiering.start();
+  if (upstream) deps.contacts.start(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
+  const close = async () => {
+    deps.contacts.stop();
+    deps.tiering.stop();
+    clearInterval(uploadCleanup);
+    clearTimeout(retentionFirst);
+    clearInterval(retentionDaily);
+    await outboxWorker?.stop();
+    await upstream?.stop();
+    await fetcher?.stop();
+    await app.close();
+    await db.$client.end();
+  };
+  return { app, deps, fetcher, upstream, close };
+}
