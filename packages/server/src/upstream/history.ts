@@ -229,7 +229,12 @@ export class HoleFiller {
         result.exhausted = true;
         break;
       }
-      if (messages.length === 0) break; // 返回的都不在范围内（不该发生），避免死循环
+      if (messages.length === 0) {
+        // QQ 返回的全都早于这段（seq <= stopAt）：这段在 QQ 上本来就没有消息（删除、撤回后清掉等），记为核对过。
+        // 返回了比 from 还新的（不该发生）就什么也不记，避免误判。
+        if (all.every((m) => int(m.msgSeq) <= stopAt)) await this.markVerified(chat.id, stopAt + 1, from + 1, []);
+        break;
+      }
       const failedSeqs: number[] = [];
       for (const raw of messages) {
         const action = mapRawMessage(raw, { selfUin: chat.selfUin, source: 'backfill' });

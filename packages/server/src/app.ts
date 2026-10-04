@@ -195,6 +195,10 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
 
   deps.defaultAutoFetchMaxBytes = config.MEDIA_AUTO_FETCH_MAX_BYTES;
   deps.napcatWebUi = config.NAPCAT_WEBUI_TOKEN ? new NapcatWebUi(config.NAPCAT_WEBUI_URL, config.NAPCAT_WEBUI_TOKEN) : null;
+  if (deps.media.hasColdTier) {
+    // 外接盘在不在、后台进程有没有权限读（macOS 的"可移除宗卷"权限）都体现在这里。
+    deps.logger.info({ root: config.MEDIA_COLD_ROOT, available: deps.media.coldAvailable }, 'cold storage');
+  }
   deps.tiering.start();
   if (upstream) deps.contacts.start(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
   const close = async () => {

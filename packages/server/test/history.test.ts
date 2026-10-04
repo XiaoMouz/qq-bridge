@@ -166,4 +166,17 @@ describe('HoleFiller', () => {
     const left = await filler.holes(acc.qqAccountId);
     expect(left.map((h) => h.chatId)).toEqual([await chatId(acc, 810006)]); // 810007 的 2–9：QQ 说没有了，记为核对过
   });
+
+  it('marks a hole as verified when QQ only has messages older than it', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const qq = new FakeQq(acc.uin);
+    qq.chat(2, '810008', 30, () => '20002', (seq) => seq >= 11 && seq <= 29); // QQ 上 11–29 都没有
+    await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810008, 10, 20002));
+    await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810008, 30, 20002));
+    const filler = new HoleFiller(t.db, qq, new InboxProcessor(t.db, ingest), null, { sleep: noSleep });
+    expect(await filler.fillHoles(acc.qqAccountId)).toMatchObject({ holes: 1, requests: 1 });
+    expect(await filler.holes(acc.qqAccountId)).toEqual([]);
+    expect(await filler.fillHoles(acc.qqAccountId)).toMatchObject({ holes: 0, requests: 0 });
+  });
 });

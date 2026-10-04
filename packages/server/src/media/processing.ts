@@ -164,7 +164,10 @@ export class MediaProcessor {
     return this.saveImageDerivatives(sha256, frame);
   }
 
-  /** 索引已经在前面就直接用原件；否则只换封装（-c copy），把 moov 挪到开头。 */
+  /**
+   * 索引已经在前面就直接用原件；否则只换封装（-c copy），把 moov 挪到开头。
+   * 只带视频和音频轨：有的 QQ 视频带时间码之类的数据轨，mp4 封装不进去（ffmpeg 报 codec none）。
+   */
   private async faststart(sha256: string, blob: BlobRecord, file: string): Promise<DerivedInfo> {
     if (blob.mime !== 'video/mp4' && blob.mime !== 'video/quicktime') return {};
     const layout = await moovLayout(file);
@@ -174,7 +177,7 @@ export class MediaProcessor {
     } else if (layout === 'end') {
       const out = path.join(os.tmpdir(), `qqbridge-${randomUUID()}.mp4`);
       try {
-        await runFfmpeg(['-i', file, '-map', '0', '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', '-y', out], this.ff());
+        await runFfmpeg(['-i', file, '-map', '0:v', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', '-y', out], this.ff());
         const remuxed = await this.media.storeBlob(createReadStream(out), { kind: 'video', mime: 'video/mp4' });
         playableSha256 = remuxed.sha256;
       } finally {
