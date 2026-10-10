@@ -110,7 +110,7 @@ describe('upstream link (plugin ⇄ server)', () => {
     await vi.waitFor(async () => expect(await messageAt(600001, 41)).toMatchObject({ text: '看图[图片]' }), { timeout: 10_000 });
     await upstream.inbox.idle(); // 消息入库后还会更新群资料、标记事件状态
 
-    // 群聊图片：原图和 QQ 缩略图都按需（群聊从不自动下载）。
+    // 常用群聊的图片：原图按需，QQ 缩略图立刻排队。
     const ref = await one<{ url: string; locator: Record<string, unknown>; qq_md5: string; fetch_state: string }>(
       t.db,
       sql`select r.url, r.locator, r.qq_md5, r.fetch_state from media_refs r join chats c on c.id = r.chat_id
@@ -121,7 +121,7 @@ describe('upstream link (plugin ⇄ server)', () => {
       t.db,
       sql`select r.fetch_state from media_refs r join chats c on c.id = r.chat_id where c.peer_id = 600001 and r.role = 'qq_thumb'`,
     );
-    expect(thumb.fetch_state).toBe('on_demand');
+    expect(thumb.fetch_state).toBe('pending');
     expect(ref.locator).toMatchObject({ chatType: 2, peerUid: '600001', elementType: 2, msgId: groupMsg.msgId });
     const group = await one<{ name: string }>(t.db, sql`select name from peers where kind = 'group' and peer_id = 600001`);
     expect(group.name).toBe('联调群');

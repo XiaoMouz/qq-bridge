@@ -43,20 +43,28 @@ interface LockedChat {
 }
 
 /**
- * 下载规则（按会话类型，不看提醒设置）：
- * - 私聊：QQ 缩略图（spec=720）、视频、文件、表情消息到了就下载；图片原图看大图时才从 QQ 拿。
- * - 群聊：从不自动下载，客户端显示到 / 点开时才要（图片要 QQ 缩略图，视频文件要整个文件，表情要原图）。
- * - 服务端不自己生成缩略图。
- * 原件保留另看提醒设置：免打扰、群助手里的群不需要留原件（之后由保留清理删掉，缩略图留着）；
- * 同一内容若也出现在别的会话里，原件按"保留最久者优先"仍会留着。
+ * 下载规则：
+ * - 图片：原图一律按需（客户端点开看时才从 QQ 拿）；"QQ 缩略图"引用（role = qq_thumb，QQ 的 spec=720，长边约 1280px）
+ *   在私聊和常用群聊（正常提醒）里消息到了就下载，免打扰 / 群助手里的群显示到时才要。服务端不自己生成缩略图。
+ * - 动画表情：和缩略图一样（要原图才能动）。
+ * - 视频、文件：私聊到了就下载；群聊一律按需（点进去看时才要）。
+ * - 下载过的原件都留着，不自动清理（不常用的由冷热分层沉到冷存储，需要时手动清理）。
  */
-export const ON_DEMAND_SCENES: readonly string[] = ['group'];
 export const ON_DEMAND_POLICIES: readonly string[] = ['muted', 'archived'];
 export const ON_DEMAND_KINDS: readonly string[] = ['image', 'video', 'file'];
 export const QQ_THUMB_ROLE = 'qq_thumb';
 
 /** 照片（不含动画表情：表情要原图才能动，QQ 的缩略档只有第一帧）。 */
 const isPhoto = (m: { kind: string; role: string }) => m.kind === 'image' && m.role !== 'sticker';
+
+/** 入库时这个媒体（的原件）是不是按需。见上面的下载规则。 */
+function onDemandAtIngest(m: { kind: string; role: string; locator?: unknown }, groupChat: boolean, quietGroup: boolean): boolean {
+  // 照片原图一律按需；没有定位信息的（以后换不了新链接）只能立刻下原图。
+  if (isPhoto(m)) return Boolean(m.locator);
+  if (m.kind === 'image') return quietGroup; // 动画表情
+  if (m.kind === 'video' || m.kind === 'file') return groupChat;
+  return false;
+}
 
 export interface ForwardNodeInput {
   senderId: number;
@@ -129,12 +137,11 @@ export class IngestService {
         reused.set(media.ord, hit);
         segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
       }
-      const groupChat = ON_DEMAND_SCENES.includes(msg.scene);
-      const noOriginal = ON_DEMAND_POLICIES.includes(chat.notify_policy);
+      const groupChat = msg.scene === 'group';
+      const quietGroup = groupChat && ON_DEMAND_POLICIES.includes(chat.notify_policy);
       const onDemand = new Set(
         msg.media
-          // 没有定位信息的图片（以后换不了新链接）还是立刻下原图；私聊的动画表情要原图才能动，照常下原图。
-          .filter((m) => !reused.has(m.ord) && ((isPhoto(m) && m.locator) || (groupChat && ON_DEMAND_KINDS.includes(m.kind))))
+          .filter((m) => !reused.has(m.ord) && onDemandAtIngest(m, groupChat, quietGroup))
           .map((m) => m.ord),
       );
       for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
@@ -159,15 +166,14 @@ export class IngestService {
         await w.tx.execute(
           sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, sha256, qq_md5, qq_md5_partial, qq_file_uuid,
                                       qq_resource_id, qq_file_id, url, url_expires_at, size, name, mime, fetch_state, thumbhash,
-                                      locator, sender_uin, time, keep_original)
+                                      locator, sender_uin, time)
               values (${chat.id}, ${msg.seq}, ${media.ord}, ${media.role}, ${media.kind}, ${hit?.sha256 ?? null},
                       ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null},
                       ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
                       ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
                       ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null},
                       ${hit ? 'stored' : onDemand.has(media.ord) ? 'on_demand' : 'pending'}, ${hit?.thumbhash ?? null},
-                      ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time},
-                      ${noOriginal && ON_DEMAND_KINDS.includes(media.kind) ? false : null})`,
+                      ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time})`,
         );
         if (hit) await addUsage(w.tx, chat.id, hit.sha256);
         if (isPhoto(media) && !hit?.thumbSha256 && media.locator) {
@@ -178,7 +184,7 @@ export class IngestService {
                         ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null},
                         ${media.qqFileId ?? null}, ${media.url ?? null},
                         ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                        ${groupChat ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
+                        ${quietGroup ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
           );
         }
       }
@@ -617,24 +623,26 @@ export class IngestService {
 
   /**
    * 把已有数据按下载规则整理一遍（`cli media:apply-on-demand`）：
-   * 1. 不常用会话（免打扰、群助手）里的图片、视频、文件标为不需要原件；
-   * 2. 还没下载的图片原图改为按需（所有会话）；群聊里还没下载的视频、文件、表情、QQ 缩略图改为按需；
-   * 3. 还没下载原图、也没有 QQ 缩略图引用的图片补一条（私聊立刻排队，群聊等显示到时）。
+   * 1. 不再自动清理原件：去掉以前打的"不需要原件"标记；
+   * 2. 还没下载的媒体按规则改为按需（照片原图、群聊视频文件、免打扰群的缩略图和动画表情），
+   *    或者排进下载队列（私聊和常用群聊的缩略图、动画表情，私聊视频文件）；
+   * 3. 还没下载原图、也没有 QQ 缩略图引用的照片补一条。
    */
-  async applyOnDemandToExisting(): Promise<{ marked: number; deferred: number; thumbs: number }> {
-    const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
-    const policies = sql`(${sql.join(ON_DEMAND_POLICIES.map((p) => sql`${p}`), sql`, `)})`;
-    const marked = await this.db.execute(
-      sql`update media_refs r set keep_original = false from chats c
-           where r.chat_id = c.id and c.notify_policy in ${policies} and r.kind in ${kinds} and r.keep_original is null
-             and r.role <> ${QQ_THUMB_ROLE}`,
-    );
-    const targets = await rows<MediaRefTarget & { account_id: number }>(
+  async applyOnDemandToExisting(): Promise<{ unmarked: number; deferred: number; queued: number; thumbs: number }> {
+    const quiet = sql`(${sql.join(ON_DEMAND_POLICIES.map((p) => sql`${p}`), sql`, `)})`;
+    const unmarked = await this.db.execute(sql`update media_refs set keep_original = null where keep_original = false`);
+    // 原件（非 QQ 缩略图）应不应该按需。
+    const wantOnDemand = sql`(
+      (r.kind = 'image' and r.role <> 'sticker' and r.locator is not null)
+      or (r.kind = 'image' and r.role = 'sticker' and c.scene = 'group' and c.notify_policy in ${quiet})
+      or (r.kind in ('video', 'file') and c.scene = 'group'))`;
+    const targets = await rows<MediaRefTarget & { account_id: number; want: boolean }>(
       this.db,
-      sql`select r.chat_id, r.message_seq, r.chat_event_id, r.forward_bundle_id, r.node_path, r.ordinal, q.account_id
+      sql`select r.chat_id, r.message_seq, r.chat_event_id, r.forward_bundle_id, r.node_path, r.ordinal, q.account_id,
+                 ${wantOnDemand} as want
             from media_refs r join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
-           where r.role <> ${QQ_THUMB_ROLE} and r.message_seq is not null and r.fetch_state in ('pending', 'failed')
-             and ((r.kind = 'image' and r.role <> 'sticker' and r.locator is not null) or (c.scene = 'group' and r.kind in ${kinds}))
+           where r.role <> ${QQ_THUMB_ROLE} and r.message_seq is not null and r.kind in ('image', 'video', 'file')
+             and ((r.fetch_state in ('pending', 'failed') and ${wantOnDemand}) or (r.fetch_state = 'on_demand' and not ${wantOnDemand}))
            order by q.account_id, r.chat_id, r.message_seq`,
     );
     const byAccount = new Map<number, typeof targets>();
@@ -643,34 +651,38 @@ export class IngestService {
       for (let i = 0; i < list.length; i += 200) {
         await this.writers.forAccount(accountId).run(async (w) => {
           for (const ref of list.slice(i, i + 200)) {
+            const state = ref.want ? 'on_demand' : 'pending';
             await w.tx.execute(
-              sql`update media_refs set fetch_state = 'on_demand', next_attempt_at = null
+              sql`update media_refs set fetch_state = ${state}, attempts = 0, next_attempt_at = null
                    where chat_id = ${ref.chat_id} and message_seq = ${ref.message_seq} and ordinal = ${ref.ordinal}
-                     and role <> ${QQ_THUMB_ROLE} and fetch_state in ('pending', 'failed')`,
+                     and role <> ${QQ_THUMB_ROLE} and sha256 is null`,
             );
-            await updateMessageMedia(w, ref, { state: 'on_demand' });
+            await updateMessageMedia(w, ref, { state });
           }
         });
       }
     }
-    // 群聊里排着队、还没下的 QQ 缩略图也改回按需（缩略图状态不写进消息）。
+    // QQ 缩略图（状态不写进消息）：免打扰群按需，其余排队。
     await this.db.execute(
-      sql`update media_refs r set fetch_state = 'on_demand', next_attempt_at = null from chats c
-           where r.chat_id = c.id and c.scene = 'group' and r.role = ${QQ_THUMB_ROLE} and r.fetch_state in ('pending', 'failed')`,
+      sql`update media_refs r set fetch_state = case when c.scene = 'group' and c.notify_policy in ${quiet} then 'on_demand' else 'pending' end,
+                 attempts = 0, next_attempt_at = null
+            from chats c
+           where r.chat_id = c.id and r.role = ${QQ_THUMB_ROLE} and r.sha256 is null and r.fetch_state in ('pending', 'failed', 'on_demand')`,
     );
     const thumbs = await this.db.execute(
       sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
                                   qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
           select r.chat_id, r.message_seq, r.ordinal, ${QQ_THUMB_ROLE}, 'image', r.qq_md5, r.qq_md5_partial, r.qq_file_uuid,
                  r.qq_resource_id, r.qq_file_id, r.url, r.url_expires_at,
-                 case when c.scene = 'group' then 'on_demand' else 'pending' end, r.locator, r.sender_uin, r.time
+                 case when c.scene = 'group' and c.notify_policy in ${quiet} then 'on_demand' else 'pending' end, r.locator, r.sender_uin, r.time
             from media_refs r join chats c on c.id = r.chat_id
            where r.kind = 'image' and r.role not in (${QQ_THUMB_ROLE}, 'sticker') and r.message_seq is not null and r.locator is not null
              and r.fetch_state = 'on_demand'
              and not exists (select 1 from media_refs t where t.chat_id = r.chat_id and t.message_seq = r.message_seq
                                and t.ordinal = r.ordinal and t.role = ${QQ_THUMB_ROLE})`,
     );
-    return { marked: marked.rowCount ?? 0, deferred: targets.length, thumbs: thumbs.rowCount ?? 0 };
+    const queued = targets.filter((t) => !t.want).length;
+    return { unmarked: unmarked.rowCount ?? 0, deferred: targets.length - queued, queued, thumbs: thumbs.rowCount ?? 0 };
   }
 
   async patchMediaBySha(sha256: string, patch: Partial<Omit<MediaInfo, 'ord'>>): Promise<number> {
@@ -814,16 +826,18 @@ export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: numb
 }
 
 /**
- * 会话的通知策略变了：进出免打扰 / 群助手只影响要不要留原件（下载规则按会话类型，不变）。
+ * 群的通知策略变了：从免打扰 / 群助手变回正常提醒时，之前按需的 QQ 缩略图和动画表情排进下载队列；
+ * 反过来不动（已下的留着）。视频、文件在群里一直按需，原件保留也不受影响。
  */
 export async function applyOnDemandPolicy(w: WriteContext, chatId: number, before: string, after: string): Promise<void> {
-  const was = ON_DEMAND_POLICIES.includes(before);
-  const now = ON_DEMAND_POLICIES.includes(after);
-  if (was === now) return;
-  const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
-  if (now) {
-    await w.tx.execute(sql`update media_refs set keep_original = false where chat_id = ${chatId} and kind in ${kinds} and keep_original is null`);
-  } else {
-    await w.tx.execute(sql`update media_refs set keep_original = null where chat_id = ${chatId} and kind in ${kinds} and keep_original = false`);
-  }
+  const wasQuiet = ON_DEMAND_POLICIES.includes(before);
+  const nowQuiet = ON_DEMAND_POLICIES.includes(after);
+  if (!wasQuiet || nowQuiet) return;
+  const queued = await rows<MediaRefTarget & { role: string }>(
+    w.tx,
+    sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null
+         where chat_id = ${chatId} and fetch_state = 'on_demand' and (role = ${QQ_THUMB_ROLE} or (kind = 'image' and role = 'sticker'))
+     returning chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, role`,
+  );
+  for (const ref of queued) if (ref.role !== QQ_THUMB_ROLE) await updateMessageMedia(w, ref, { state: 'pending' });
 }

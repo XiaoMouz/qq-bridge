@@ -95,13 +95,13 @@ describe('image downloads', () => {
     expect(await blobState(orig.sha256)).toBe('present'); // 常用会话：看过的原图留着
   });
 
-  it('in groups (muted or not): nothing is fetched until the image is shown', async () => {
+  it('in muted / Group Helper groups: nothing is fetched until the image is shown', async () => {
     await setPolicy('group', 710001, 'muted');
     const chatId = await chatIdOf('group', 710001);
     const s = seq++;
     await deps.ingest.ingestMessage(qqAccountId, photo('group', 710001, s));
     const { original, thumb } = await refs(chatId, s);
-    expect(original).toMatchObject({ fetch_state: 'on_demand', keep_original: false });
+    expect(original).toMatchObject({ fetch_state: 'on_demand', keep_original: null }); // 看过的原图也留着
     expect(thumb).toMatchObject({ fetch_state: 'on_demand' });
 
     // 显示到：要 QQ 缩略图（别的账号要不了）。
@@ -122,18 +122,29 @@ describe('image downloads', () => {
     expect((await refs(chatId, s)).thumb).toMatchObject({ id: queued[0], fetch_state: 'pending' });
   });
 
-  it('normal (not muted) groups do not download on their own either', async () => {
+  it('in normal groups: thumbnails are cached right away, videos and files wait until opened', async () => {
     await setPolicy('group', 710005, 'all');
     const chatId = await chatIdOf('group', 710005);
     const s = seq++;
     await deps.ingest.ingestMessage(qqAccountId, photo('group', 710005, s));
     expect(await refs(chatId, s)).toMatchObject({
       original: { fetch_state: 'on_demand', keep_original: null },
-      thumb: { fetch_state: 'on_demand' },
+      thumb: { fetch_state: 'pending' },
     });
+    for (const kind of ['video', 'file'] as const) {
+      const v = seq++;
+      const m = photo('group', 710005, v);
+      await deps.ingest.ingestMessage(qqAccountId, { ...m, media: m.media.map((x) => ({ ...x, kind })) });
+      expect((await refs(chatId, v)).original).toMatchObject({ fetch_state: 'on_demand' });
+    }
+    // 私聊的视频照常自动下载。
+    const p = seq++;
+    const pm = photo('friend', 810009, p);
+    await deps.ingest.ingestMessage(qqAccountId, { ...pm, media: pm.media.map((x) => ({ ...x, kind: 'video' as const })) });
+    expect((await refs(await chatIdOf('friend', 810009), p)).original).toMatchObject({ fetch_state: 'pending' });
   });
 
-  it('unmuting a group only changes whether originals are kept: groups never download on their own', async () => {
+  it('unmuting a group queues its thumbnails; originals stay on demand', async () => {
     await setPolicy('group', 710003, 'archived');
     const chatId = await chatIdOf('group', 710003);
     const s = seq++;
@@ -141,7 +152,7 @@ describe('image downloads', () => {
     await deps.dialogPrefs.setNotifyPolicy(accountId, chatId, 'all');
     expect(await refs(chatId, s)).toMatchObject({
       original: { fetch_state: 'on_demand', keep_original: null },
-      thumb: { fetch_state: 'on_demand' },
+      thumb: { fetch_state: 'pending' },
     });
   });
 
