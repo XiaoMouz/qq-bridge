@@ -60,7 +60,12 @@ struct ContactsView: View {
 struct SearchView: View {
   let session: Session
   @Environment(AppModel.self) private var model
+  #if DEBUG
+  // 调试：模拟器里系统搜索栏收不到注入的按键，启动时用环境变量 QQB_SEARCH 预填搜索词。
+  @State private var query = ProcessInfo.processInfo.environment["QQB_SEARCH"] ?? ""
+  #else
   @State private var query = ""
+  #endif
   @State private var dialogs: [DialogItem] = []
   @State private var results: [Qqbridge_V1_Message] = []
   @State private var searching = false

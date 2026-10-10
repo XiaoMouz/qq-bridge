@@ -92,6 +92,13 @@
       "when": 1791616143884,
       "tag": "0012_bot_keyboard",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791616144884,
+      "tag": "0013_resync",
+      "breakpoints": true
     }
   ]
 }
