@@ -164,7 +164,7 @@ describe('NapCat mapping', () => {
     expect(segments[0]).toEqual({ type: 'face', faceId: '474', isLarge: true, name: '给你一拳' });
     expect(segments[1]).toEqual({ type: 'markdown', content: '# 签到成功' });
     expect(segments[2]).toMatchObject({ type: 'unknown', original: 'keyboard' });
-    expect(plainText(segments)).toBe('[给你一拳]# 签到成功');
+    expect(plainText(segments)).toBe('[给你一拳]签到成功');
   });
 
   it('maps history messages without OneBot segments: no URL, but a locator to fetch one later', () => {
