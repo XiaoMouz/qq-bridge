@@ -19,6 +19,8 @@ final class ImageMemoryCache {
 struct CachedImage<Placeholder: View>: View {
   let sha256: String?
   var chatId: Int64? = nil
+  /// 取不到时调用（例如原件已清理、QQ 上也过期了）。
+  var onFailure: (() -> Void)? = nil
   @ViewBuilder var placeholder: () -> Placeholder
   @Environment(\.session) private var session
   @State private var image: UIImage?
@@ -55,6 +57,7 @@ struct CachedImage<Placeholder: View>: View {
       }
     } catch {
       image = nil
+      if !(error is CancellationError) { onFailure?() }
     }
   }
 }

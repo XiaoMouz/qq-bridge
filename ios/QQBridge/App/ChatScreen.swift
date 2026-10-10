@@ -1,6 +1,7 @@
 // 聊天页：消息列表（UIKit 集合视图，见 ChatCollectionView）+ 玻璃输入栏。
 // 数据流：打开时让同步引擎拉首屏 / 补变化 → 观察本地库 → 列表刷新；滑到顶部时往上翻页；看到底部就标已读。
 import PhotosUI
+import QuickLook
 import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
@@ -19,11 +20,13 @@ struct ChatScreen: View {
   @State private var composer = Composer()
   @State private var members = GroupMembers()
   @State private var avatars = AvatarBook()
+  @State private var requester = MediaRequester()
   @State private var voice = VoicePlayer()
   @State private var actions = ChatActions()
   @State private var sendError: String?
   @State private var profileUser: ProfileTarget?
   @State private var mediaTarget: MediaTarget?
+  @State private var fileURL: URL?
   @State private var forwardMessage: Qqbridge_V1_Message?
   @State private var showInfo = false
   @State private var showStickers = false
@@ -54,6 +57,7 @@ struct ChatScreen: View {
         store: session.store,
         members: members,
         avatars: avatars,
+        requester: requester,
         voice: voice,
         actions: actions,
         session: session
@@ -98,6 +102,7 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .fullScreenCover(item: $mediaTarget) { MediaViewer(target: $0, session: session, chatId: chatId) }
+    .quickLookPreview($fileURL)
     .sheet(item: $forwardMessage) { m in
       NavigationStack { ForwardView(session: session, chatId: chatId, seq: m.seq, path: []) }
     }
@@ -258,6 +263,20 @@ struct ChatScreen: View {
       }
     }
     actions.openMedia = { mediaTarget = $0 }
+    actions.openFile = { file in
+      Task {
+        // 原件可能已清理（按需会话），下载接口会当场从 QQ 拉回；拿不到就提示。
+        do {
+          let cached = try await session.media.file(for: file.media.sha256, chatId: chatId)
+          let named = FileManager.default.temporaryDirectory.appendingPathComponent(file.name.isEmpty ? cached.lastPathComponent : file.name)
+          try? FileManager.default.removeItem(at: named)
+          try FileManager.default.copyItem(at: cached, to: named)
+          fileURL = named
+        } catch {
+          sendError = "文件打不开：QQ 上已经拿不到了"
+        }
+      }
+    }
     actions.playVoice = { voice.toggle($0, session: session) }
     actions.openForward = { forwardMessage = $0 }
   }

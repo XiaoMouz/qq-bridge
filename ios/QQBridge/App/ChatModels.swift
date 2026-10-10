@@ -68,6 +68,7 @@ final class ChatActions {
   var react: (Qqbridge_V1_Message, String) -> Void = { _, _ in }
   var recall: (Qqbridge_V1_Message) -> Void = { _ in }
   var openMedia: (MediaTarget) -> Void = { _ in }
+  var openFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
   var playVoice: (Qqbridge_V1_RecordSegment) -> Void = { _ in }
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
 }
@@ -138,6 +139,44 @@ final class AvatarBook {
         for a in res.avatars { sha256[a.userID] = a.sha256 }
       } else {
         requested.subtract(ids)  // 失败的下次再要
+      }
+    }
+    flushTask = nil
+  }
+}
+
+/// 按需媒体（免打扰、群助手里的群）：图片显示到时、视频文件点开时向服务端要。攒 300ms 一起要，同一个只要一次。
+@MainActor
+@Observable
+final class MediaRequester {
+  private var requested: Set<String> = []
+  private var pending: [Qqbridge_V1_MediaRef] = []
+  private var flushTask: Task<Void, Never>?
+
+  func want(chatId: Int64, seq: Int64, ord: UInt32, session: Session) {
+    let key = "\(chatId):\(seq):\(ord)"
+    guard seq > 0, !requested.contains(key) else { return }
+    requested.insert(key)
+    var ref = Qqbridge_V1_MediaRef()
+    ref.chatID = chatId
+    ref.seq = seq
+    ref.ord = ord
+    pending.append(ref)
+    guard flushTask == nil else { return }
+    flushTask = Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(300))
+      await self?.flush(session: session)
+    }
+  }
+
+  private func flush(session: Session) async {
+    while !pending.isEmpty {
+      let batch = Array(pending.prefix(100))
+      pending.removeFirst(batch.count)
+      var req = Qqbridge_V1_RequestMediaRequest()
+      req.refs = batch
+      if (try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()) == nil {
+        for r in batch { requested.remove("\(r.chatID):\(r.seq):\(r.ord)") }  // 失败的下次再要
       }
     }
     flushTask = nil

@@ -14,6 +14,8 @@ struct MediaViewer: View {
   @State private var showOriginal = false
   @State private var player: AVPlayer?
   @State private var scale: CGFloat = 1
+  @State private var videoFailed = false
+  @State private var originalFailed = false
 
   var body: some View {
     ZStack(alignment: .topTrailing) {
@@ -22,16 +24,22 @@ struct MediaViewer: View {
       case .image:
         let media = target.media
         // 先显示预览图（约 1280px），点"查看原图"再加载原件。
-        let sha = showOriginal || media.previewSha256.isEmpty ? media.sha256 : media.previewSha256
-        CachedImage(sha256: sha.isEmpty ? media.thumbSha256 : sha, chatId: chatId) {
-          CachedImage(sha256: media.thumbSha256, chatId: chatId) { ProgressView().tint(.white) }.aspectRatio(contentMode: .fit)
+        let sha = (showOriginal && !originalFailed) || media.previewSha256.isEmpty ? media.sha256 : media.previewSha256
+        CachedImage(sha256: sha.isEmpty ? media.thumbSha256 : sha, chatId: chatId, onFailure: { if showOriginal { originalFailed = true } }) {
+          // 原图加载中：先显示预览图（没有就缩略图），上面转圈。
+          CachedImage(sha256: media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256, chatId: chatId) {
+            ProgressView().tint(.white)
+          }
+          .aspectRatio(contentMode: .fit)
+          .overlay { if showOriginal { ProgressView().tint(.white).controlSize(.large) } }
         }
         .aspectRatio(contentMode: .fit)
         .scaleEffect(scale)
         .gesture(MagnifyGesture().onChanged { scale = max(1, $0.magnification) }.onEnded { _ in withAnimation { scale = 1 } })
         .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2.5 } }
         .onTapGesture { dismiss() }
-        if !showOriginal, !media.previewSha256.isEmpty, media.state == .stored {
+        // 原件已清理（按需会话只留了预览图）也能看原图：服务端当场从 QQ 拉。
+        if !showOriginal, !media.previewSha256.isEmpty, media.state == .stored || media.state == .purged {
           VStack {
             Spacer()
             Button("查看原图（\(ByteCountFormatter.string(fromByteCount: Int64(media.size), countStyle: .file))）") { showOriginal = true }
@@ -40,10 +48,20 @@ struct MediaViewer: View {
           }
           .frame(maxWidth: .infinity)
         }
+        if originalFailed {
+          VStack {
+            Spacer()
+            Text("原图已过期，QQ 上也拿不到了").font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
+              .glassEffect(.regular, in: Capsule()).padding(.bottom, 40)
+          }
+          .frame(maxWidth: .infinity)
+        }
       case .video:
         if let player {
           VideoPlayer(player: player).ignoresSafeArea()
-        } else if target.media.state != .stored {
+        } else if videoFailed {
+          Text("视频已过期，QQ 上也拿不到了").foregroundStyle(.white)
+        } else if target.media.state != .stored && target.media.state != .purged {
           Text(target.media.state == .expired ? "视频已过期" : "视频还没下载好").foregroundStyle(.white)
         } else {
           ProgressView().tint(.white)
@@ -57,9 +75,15 @@ struct MediaViewer: View {
       .padding()
     }
     .task {
-      guard target.kind == .video, target.media.state == .stored else { return }
-      // 优先播 faststart 版本（边下边播），没有就播原件。
+      guard target.kind == .video, target.media.state == .stored || target.media.state == .purged else { return }
       let sha = target.media.playableSha256.isEmpty ? target.media.sha256 : target.media.playableSha256
+      if target.media.state == .purged {
+        // 原件已清理：先让服务端从 QQ 取回（取回前播放器拿不到内容），拿不到就提示。
+        guard (try? await session.media.file(for: sha, chatId: chatId)) != nil else {
+          videoFailed = true
+          return
+        }
+      }
       if let url = try? await session.media.streamURL(for: sha) {
         let p = AVPlayer(url: url)
         player = p

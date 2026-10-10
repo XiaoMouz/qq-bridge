@@ -11,6 +11,7 @@ struct MessageContext {
   let store: LocalStore
   let members: GroupMembers
   let avatars: AvatarBook
+  let requester: MediaRequester
   let voice: VoicePlayer
   let actions: ChatActions
   let session: Session
@@ -283,6 +284,7 @@ struct BlockView: View {
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId)
+        .onAppear { if i.media.state == .onDemand { requestMedia(i.media) } }
         .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media)) }
     case .sticker(let sha, let summary):
       CachedImage(sha256: sha, chatId: context.chatId) {
@@ -296,9 +298,13 @@ struct BlockView: View {
         .onTapGesture { context.actions.playVoice(r) }
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId)
-        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .video, media: v.media)) }
+        .onTapGesture {
+          // 按需的视频：点一下开始下载，下好后再点播放。
+          if v.media.state == .onDemand { requestMedia(v.media) } else { context.actions.openMedia(MediaTarget(kind: .video, media: v.media)) }
+        }
         .overlay {
-          Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
+          Image(systemName: v.media.state == .onDemand ? "arrow.down.circle.fill" : v.media.state == .pending ? "hourglass.circle.fill" : "play.circle.fill")
+            .font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
         }
         .overlay(alignment: .bottomTrailing) {
           if v.durationSec > 0 {
@@ -308,10 +314,18 @@ struct BlockView: View {
         }
     case .file(let f):
       HStack(spacing: 10) {
-        Image(systemName: "doc.fill").font(.title2)
+        Image(systemName: fileIcon(f.media.state)).font(.title2)
         VStack(alignment: .leading) {
           Text(f.name).lineLimit(2)
-          Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).opacity(0.7)
+          Text(fileStatus(f)).font(.caption).opacity(0.7)
+        }
+      }
+      .contentShape(Rectangle())
+      .onTapGesture {
+        switch f.media.state {
+        case .onDemand: requestMedia(f.media)
+        case .stored, .purged: context.actions.openFile(f)
+        default: break
         }
       }
     case .forward(let f):
@@ -328,6 +342,31 @@ struct BlockView: View {
       .onTapGesture { if let m = message { context.actions.openForward(m) } }
     case .card(let text):
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
+    }
+  }
+
+  private func requestMedia(_ media: Qqbridge_V1_MediaInfo) {
+    guard let message else { return }
+    context.requester.want(chatId: context.chatId, seq: message.seq, ord: media.ord, session: context.session)
+  }
+
+  private func fileIcon(_ state: Qqbridge_V1_MediaState) -> String {
+    switch state {
+    case .onDemand: "arrow.down.doc.fill"
+    case .pending: "hourglass"
+    case .expired, .failed: "doc.badge.ellipsis"
+    default: "doc.fill"
+    }
+  }
+
+  private func fileStatus(_ f: Qqbridge_V1_FileSegment) -> String {
+    let size = ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)
+    switch f.media.state {
+    case .onDemand: return "\(size) · 点击下载"
+    case .pending: return "\(size) · 下载中"
+    case .expired: return "\(size) · 已过期"
+    case .failed: return "\(size) · 下载失败"
+    default: return size
     }
   }
 }
@@ -352,7 +391,7 @@ struct MediaThumb: View {
           Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
         } else if media.state == .purged {
           Text("原图已清理").font(.caption).foregroundStyle(.secondary)
-        } else if media.state == .pending {
+        } else if media.state == .pending || media.state == .onDemand {
           ProgressView()
         }
       }
