@@ -16,7 +16,7 @@ import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { decode as decodeSilk } from 'silk-wasm';
 import { maybeOne, rows, type Db } from '../db/client.ts';
-import { ffmpegAvailable, runFfmpeg } from './ffmpeg.ts';
+import { ffmpegAvailable, probeStreams, runFfmpeg } from './ffmpeg.ts';
 import type { BlobRecord, MediaService } from './service.ts';
 import { deriveImage, MAX_DERIVE_BYTES } from './variants.ts';
 
@@ -166,7 +166,8 @@ export class MediaProcessor {
 
   /**
    * 索引已经在前面就直接用原件；否则只换封装（-c copy），把 moov 挪到开头。
-   * 只带视频和音频轨：有的 QQ 视频带时间码之类的数据轨，mp4 封装不进去（ffmpeg 报 codec none）。
+   * 只带第一条视频轨和 ffmpeg 认得的音频轨：有的视频带数据轨或 iPhone 空间音频（apac），
+   * 这些编码 ffmpeg 不认识（codec none），封装进 mp4 会失败。
    */
   private async faststart(sha256: string, blob: BlobRecord, file: string): Promise<DerivedInfo> {
     if (blob.mime !== 'video/mp4' && blob.mime !== 'video/quicktime') return {};
@@ -177,7 +178,13 @@ export class MediaProcessor {
     } else if (layout === 'end') {
       const out = path.join(os.tmpdir(), `qqbridge-${randomUUID()}.mp4`);
       try {
-        await runFfmpeg(['-i', file, '-map', '0:v', '-map', '0:a?', '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', '-y', out], this.ff());
+        const streams = await probeStreams(file, this.ff());
+        const video = streams.find((s) => s.type === 'video' && s.codec !== 'none');
+        const audio = streams.filter((s) => s.type === 'audio' && s.codec !== 'none');
+        const maps = video
+          ? [video, ...audio].flatMap((s) => ['-map', `0:${s.index}`])
+          : ['-map', '0:v:0', '-map', '0:a?']; // 解析不出流信息时退回原来的做法
+        await runFfmpeg(['-i', file, ...maps, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', '-y', out], this.ff());
         const remuxed = await this.media.storeBlob(createReadStream(out), { kind: 'video', mime: 'video/mp4' });
         playableSha256 = remuxed.sha256;
       } finally {

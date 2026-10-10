@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MessageFlag, messageFlags, plainText, updateMediaInfo } from '../src/segments.ts';
+import { MessageFlag, messageFlags, plainText, updateMediaInfo, markdownText } from '../src/segments.ts';
 import { classifyUpdate } from '../src/sync-rules.ts';
 import type { Segment } from '../src/types.ts';
 
@@ -41,5 +41,13 @@ describe('classifyUpdate', () => {
     expect(classifyUpdate(10, 10)).toBe('skip');
     expect(classifyUpdate(10, 13)).toBe('gap');
     expect(classifyUpdate(10, 12, 2)).toBe('apply');
+  });
+});
+
+describe('markdownText', () => {
+  it('turns bot markdown into a readable preview', () => {
+    const md = '[@短歌今难长](mqqapi://markdown/mention?at_type=1)\n\n# ✅ 签到成功\n\n**今日幸运值：54** · 中吉\n![DT 30PM #300px #200px](https://qqbot.ugcimg.cn/1.png)\n[【远行商人】](mqqapi://aio/inlinecmd?command=%2F)';
+    expect(markdownText(md)).toBe('@短歌今难长\n\n✅ 签到成功\n\n今日幸运值：54 · 中吉\n[图片]\n【远行商人】');
+    expect(plainText([{ type: 'markdown', content: md }])).toBe(markdownText(md));
   });
 });

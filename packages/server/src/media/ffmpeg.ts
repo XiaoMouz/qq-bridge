@@ -25,7 +25,7 @@ export function runFfmpeg(args: string[], opts: FfmpegOptions = {}): Promise<Buf
     let err = '';
     child.stdout!.on('data', (chunk: Buffer) => out.push(chunk));
     child.stderr!.on('data', (chunk: Buffer) => {
-      err = (err + chunk.toString()).slice(-2000);
+      err = (err + chunk.toString()).slice(-8000);
     });
     const timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs ?? 60_000);
     child.on('error', (error) => {
@@ -48,4 +48,30 @@ export async function ffmpegAvailable(ffmpegPath?: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export interface StreamInfo {
+  index: number;
+  type: 'video' | 'audio' | 'data' | 'subtitle' | 'attachment';
+  /** ffmpeg 认不出的编码是 "none"（比如 iPhone 空间音频 apac、mebx 元数据轨）。 */
+  codec: string;
+}
+
+/** 解析 "ffmpeg -i 文件" 打印的流列表（不依赖 ffprobe）。 */
+export function parseStreams(stderr: string): StreamInfo[] {
+  const out: StreamInfo[] = [];
+  for (const m of stderr.matchAll(/Stream #0:(\d+)[^:]*: (Video|Audio|Data|Subtitle|Attachment): (\S+)/g)) {
+    out.push({ index: Number(m[1]), type: m[2]!.toLowerCase() as StreamInfo['type'], codec: m[3]!.replace(/,$/, '') });
+  }
+  return out;
+}
+
+/** 列出文件里的流。 */
+export async function probeStreams(file: string, opts: FfmpegOptions = {}): Promise<StreamInfo[]> {
+  // 只给输入不给输出，ffmpeg 打完流信息后以非零码退出，这是预期的。
+  const err = await runFfmpeg(['-loglevel', 'info', '-i', file], opts).then(
+    () => '',
+    (error: unknown) => (error instanceof FfmpegError ? error.message : ''),
+  );
+  return parseStreams(err);
 }

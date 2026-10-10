@@ -57,6 +57,21 @@ export function messageFlags(segments: readonly Segment[], selfUin: number): num
   return flags;
 }
 
+/**
+ * 机器人 markdown → 纯文本（预览和检索用，正文仍按 markdown 渲染）：
+ * 图片记为 [图片]，链接只留文字，去掉标题、加粗、代码等标记。
+ */
+export function markdownText(md: string): string {
+  return md
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '[图片]')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '')
+    .replace(/^[ \t]{0,3}>[ \t]?/gm, '')
+    .replace(/(\*\*|__|~~|`)/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** 纯文本表示：用于全文检索和会话列表预览。非文本内容用简短占位符。 */
 export function plainText(segments: readonly Segment[]): string {
   return segments
@@ -89,7 +104,7 @@ export function plainText(segments: readonly Segment[]): string {
         case 'xml':
           return '[卡片]';
         case 'markdown':
-          return seg.content;
+          return markdownText(seg.content);
         case 'unknown':
           return seg.original === 'keyboard' ? '' : `[${seg.original}]`;
       }

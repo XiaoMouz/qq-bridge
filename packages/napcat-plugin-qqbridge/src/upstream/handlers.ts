@@ -5,6 +5,7 @@ import type { NapCatPluginContext } from '../napcat.js';
 import { callAction } from './actions.js';
 import type { RpcHandler } from './link.js';
 import type { SendParams, Sender } from './sender.js';
+import { unwrapFileUuid } from './file-uuid.js';
 
 /** 服务端存在 media_refs.locator 里的定位信息，换新下载链接时原样传回来。 */
 export interface MediaLocator {
@@ -213,8 +214,9 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
           } catch {
             // 退回到 packet 方式
           }
-          if (!locator.fileUuid || !api.getVideoUrlPacket) return { url: null };
-          return { url: await packetUrl(() => api.getVideoUrlPacket(peerUid, locator.fileUuid, URL_TIMEOUT_MS)) };
+          const fileUuid = locator.fileUuid;
+          if (!fileUuid || !api.getVideoUrlPacket) return { url: null };
+          return { url: await packetUrl(() => api.getVideoUrlPacket(peerUid, unwrapFileUuid(fileUuid), URL_TIMEOUT_MS)) };
         }
         case ElementType.PTT:
           if (!locator.fileUuid || !api.getPttUrl) return { url: null };

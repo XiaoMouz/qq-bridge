@@ -38,7 +38,7 @@ struct MessageRow: View {
       case .event(let e):
         Notice(text: EventText.describe(e, context: context))
       case .message(let m) where m.state == .recalled:
-        Notice(text: "\(context.name(of: m.senderID)) 撤回了一条消息")
+        Notice(text: m.senderID == context.selfUin ? "你撤回了一条消息" : "\(context.name(of: m.senderID)) 撤回了一条消息")
       case .message(let m):
         MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
       case .outgoing(let o):

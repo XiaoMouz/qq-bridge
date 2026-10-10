@@ -28,6 +28,7 @@ struct ChatScreen: View {
   @State private var showInfo = false
   @State private var showStickers = false
   @State private var photoItem: PhotosPickerItem?
+  @State private var showPhotos = false
   @State private var atBottom = true
   @State private var lastMarked: Int64 = 0
   @FocusState private var inputFocused: Bool
@@ -138,6 +139,7 @@ struct ChatScreen: View {
       // 删掉了某个 "@名字"：对应的 @ 也不要了。
       composer.mentions.removeAll { !new.contains("@\($0.name)") }
     }
+    .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
     .onChange(of: photoItem) { _, item in
       guard let item else { return }
       photoItem = nil
@@ -177,7 +179,8 @@ struct ChatScreen: View {
       }
       HStack(alignment: .bottom, spacing: 8) {
         Menu {
-          PhotosPicker(selection: $photoItem, matching: .images) { Label("照片", systemImage: "photo") }
+          // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
+          Button("照片", systemImage: "photo") { showPhotos = true }
           Button("表情", systemImage: "face.smiling") { showStickers = true }
           if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
         } label: {
