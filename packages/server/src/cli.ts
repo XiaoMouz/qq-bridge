@@ -5,6 +5,7 @@
 //   pnpm cli serve                         启动 API 服务
 //   pnpm cli media:reprocess               补处理已存档的媒体（纠正类型、补缩略图 / 语音可播放版本 / 视频封面）
 //   pnpm cli media:drop-playable-copies    删掉以前给视频另存的 faststart 副本（现在直接播原件）
+//   pnpm cli media:apply-on-demand         免打扰 / 群助手里的群：已有的图片视频文件改为按需，删原件（留缩略图和预览图）
 //   pnpm cli media:tier                    立即执行一次冷热分层（平时服务端每天自动跑）
 //   pnpm cli inbox:reprocess <ignored|failed>  重新处理收件箱里被忽略 / 失败的上游事件（映射新增支持后用）
 import { createDeps, startServer } from './app.ts';
@@ -86,6 +87,22 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify(report));
       return;
     }
+    case 'media:apply-on-demand': {
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      await runMigrations(db);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+      });
+      const applied = await deps.ingest.applyOnDemandToExisting();
+      const retention = await deps.cleaner.runRetention();
+      await db.$client.end();
+      console.log(JSON.stringify({ ...applied, ...retention }));
+      return;
+    }
     case 'media:tier': {
       const config = loadConfig();
       const db = createDb(config.DATABASE_URL);
@@ -117,7 +134,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:tier|inbox:reprocess>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess>');
   }
 }
 

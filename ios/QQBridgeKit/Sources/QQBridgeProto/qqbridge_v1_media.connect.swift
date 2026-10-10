@@ -62,6 +62,11 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     /// 准备一批表情的图片：服务端按 md5 找已有内容，没有就下载存下（去重），返回 sha256 与缩略图。表情面板滚动到哪准备到哪。
     @available(iOS 13, *)
     func `prepareStickers`(request: Qqbridge_V1_PrepareStickersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_PrepareStickersResponse>
+
+    /// 下载按需（ON_DEMAND）的媒体：图片在聊天页显示到时要（只留缩略图和预览图），视频、文件点开时要。
+    /// 下载好后消息经同步更新；立即返回。
+    @available(iOS 13, *)
+    func `requestMedia`(request: Qqbridge_V1_RequestMediaRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RequestMediaResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MediaServiceClientInterface`.
@@ -137,6 +142,11 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
         return await self.client.unary(path: "/qqbridge.v1.MediaService/PrepareStickers", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `requestMedia`(request: Qqbridge_V1_RequestMediaRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RequestMediaResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/RequestMedia", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let prepareUpload = Connect.MethodSpec(name: "PrepareUpload", service: "qqbridge.v1.MediaService", type: .unary)
@@ -152,6 +162,7 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
             public static let runTiering = Connect.MethodSpec(name: "RunTiering", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStickers = Connect.MethodSpec(name: "ListStickers", service: "qqbridge.v1.MediaService", type: .unary)
             public static let prepareStickers = Connect.MethodSpec(name: "PrepareStickers", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let requestMedia = Connect.MethodSpec(name: "RequestMedia", service: "qqbridge.v1.MediaService", type: .unary)
         }
     }
 }

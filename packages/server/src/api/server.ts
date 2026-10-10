@@ -28,9 +28,10 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
       return reply.code(403).send({ error: 'forbidden' });
     }
     let blob = await deps.media.getBlob(sha256);
-    if (!blob || blob.state !== 'present') return reply.code(404).send({ error: 'not found' });
-    if (blob.tier === 'cold' && !deps.media.coldAvailable) {
-      // 冷存储的外接盘不在：当场从 QQ 取回一份放进热存储；拿不到就告诉客户端已过期。
+    if (!blob) return reply.code(404).send({ error: 'not found' });
+    if (blob.state === 'purged' || (blob.tier === 'cold' && !deps.media.coldAvailable)) {
+      // 原件已清理（按需会话只留了缩略图和预览图），或者冷存储的外接盘不在：当场从 QQ 取回一份放进热存储；
+      // 拿不到就告诉客户端已过期。
       const result = deps.rehydrate ? await deps.rehydrate(sha256) : 'expired';
       if (result !== 'restored') return reply.code(410).send({ error: 'expired', reason: result === 'unavailable' ? 'qq_offline' : 'not_available' });
       blob = await deps.media.getBlob(sha256);

@@ -50,6 +50,8 @@ export interface ApiDeps {
   stickers: StickerService;
   /** 冷存储的盘不在时从 QQ 取回内容（媒体下载任务提供；没有上游时为 null）。 */
   rehydrate: ((sha256: string) => Promise<RehydrateResult>) | null;
+  /** 有媒体新排进下载队列（例如客户端要按需媒体）：叫醒下载器。 */
+  pokeMediaFetcher: () => void;
   admin: AdminService;
   /** NapCat WebUI（扫码登录中转）；没配 NAPCAT_WEBUI_TOKEN 时为 null。 */
   napcatWebUi: NapcatWebUi | null;

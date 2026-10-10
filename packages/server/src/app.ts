@@ -73,6 +73,7 @@ export function createDeps(
     forwards: new ForwardService(db, ingest, () => deps.upstream),
     tiering: new TierManager(db, media, logger.child({ component: 'tiering' })),
     rehydrate: null,
+    pokeMediaFetcher: () => undefined,
     stickers: new StickerService(db, media, processor, () => deps.upstream, logger.child({ component: 'stickers' })),
     defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
     admin: new AdminService(db, {
@@ -158,6 +159,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
           concurrency: config.MEDIA_FETCH_CONCURRENCY,
           defaultMaxBytes: config.MEDIA_AUTO_FETCH_MAX_BYTES,
           priorityChatIds: () => deps.activeChats.chatIds(),
+          afterStored: (sha256) => deps.cleaner.purgeIfUnneeded(sha256),
           logger: deps.logger.child({ component: 'media-fetcher' }),
         }, deps.processor)
       : null;
@@ -165,6 +167,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
   if (fetcher) {
     const f = fetcher;
     deps.rehydrate = (sha256) => f.rehydrate(sha256);
+    deps.pokeMediaFetcher = () => f.poke();
   }
 
   // 发送：发件箱 → 插件（x.send）。没有接上游时消息留在发件箱里，接上后自动发出。

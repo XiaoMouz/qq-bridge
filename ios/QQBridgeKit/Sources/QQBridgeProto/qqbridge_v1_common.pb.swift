@@ -178,6 +178,9 @@ public nonisolated enum Qqbridge_V1_MediaState: SwiftProtobuf.Enum, Swift.CaseIt
 
   /// 原件已按保留策略清理，只剩缩略图与预览。
   case purged // = 6
+
+  /// 按需：这个会话设为不自动下载（免打扰、群助手里的群），客户端显示到 / 点开时用 RequestMedia 要。
+  case onDemand // = 7
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -193,6 +196,7 @@ public nonisolated enum Qqbridge_V1_MediaState: SwiftProtobuf.Enum, Swift.CaseIt
     case 4: self = .expired
     case 5: self = .skipped
     case 6: self = .purged
+    case 7: self = .onDemand
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -206,6 +210,7 @@ public nonisolated enum Qqbridge_V1_MediaState: SwiftProtobuf.Enum, Swift.CaseIt
     case .expired: return 4
     case .skipped: return 5
     case .purged: return 6
+    case .onDemand: return 7
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -219,6 +224,7 @@ public nonisolated enum Qqbridge_V1_MediaState: SwiftProtobuf.Enum, Swift.CaseIt
     .expired,
     .skipped,
     .purged,
+    .onDemand,
   ]
 
 }
@@ -1312,7 +1318,7 @@ nonisolated extension Qqbridge_V1_MediaKind: SwiftProtobuf._ProtoNameProviding {
 }
 
 nonisolated extension Qqbridge_V1_MediaState: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEDIA_STATE_UNSPECIFIED\0\u{1}MEDIA_STATE_PENDING\0\u{1}MEDIA_STATE_STORED\0\u{1}MEDIA_STATE_FAILED\0\u{1}MEDIA_STATE_EXPIRED\0\u{1}MEDIA_STATE_SKIPPED\0\u{1}MEDIA_STATE_PURGED\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEDIA_STATE_UNSPECIFIED\0\u{1}MEDIA_STATE_PENDING\0\u{1}MEDIA_STATE_STORED\0\u{1}MEDIA_STATE_FAILED\0\u{1}MEDIA_STATE_EXPIRED\0\u{1}MEDIA_STATE_SKIPPED\0\u{1}MEDIA_STATE_PURGED\0\u{1}MEDIA_STATE_ON_DEMAND\0")
 }
 
 nonisolated extension Qqbridge_V1_MessageState: SwiftProtobuf._ProtoNameProviding {

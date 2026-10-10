@@ -39,7 +39,16 @@ interface LockedChat {
   id: number;
   top_seq: number | null;
   read_inbox_max_seq: number;
+  notify_policy: string;
 }
+
+/**
+ * 免打扰的群和收进群助手的群：图片、视频、文件不自动下载（按需，客户端显示到 / 点开时要），
+ * 也不需要留原件（图片下载后只留缩略图和预览图，看大图时再从 QQ 拉）。
+ * 同一内容若也出现在别的会话里，原件按"保留最久者优先"仍会留着。
+ */
+export const ON_DEMAND_POLICIES: readonly string[] = ['muted', 'archived'];
+export const ON_DEMAND_KINDS: readonly string[] = ['image', 'video', 'file'];
 
 export interface ForwardNodeInput {
   senderId: number;
@@ -112,6 +121,11 @@ export class IngestService {
         reused.set(media.ord, hit);
         segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
       }
+      const onDemandChat = ON_DEMAND_POLICIES.includes(chat.notify_policy);
+      const onDemand = new Set(
+        onDemandChat ? msg.media.filter((m) => ON_DEMAND_KINDS.includes(m.kind) && !reused.has(m.ord)).map((m) => m.ord) : [],
+      );
+      for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
 
       const flags = messageFlags(segments, qq.uin);
       const reply = segments.find((s): s is Extract<Segment, { type: 'reply' }> => s.type === 'reply');
@@ -133,14 +147,15 @@ export class IngestService {
         await w.tx.execute(
           sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, sha256, qq_md5, qq_md5_partial, qq_file_uuid,
                                       qq_resource_id, qq_file_id, url, url_expires_at, size, name, mime, fetch_state, thumbhash,
-                                      locator, sender_uin, time)
+                                      locator, sender_uin, time, keep_original)
               values (${chat.id}, ${msg.seq}, ${media.ord}, ${media.role}, ${media.kind}, ${hit?.sha256 ?? null},
                       ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null},
                       ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
                       ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
                       ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null},
-                      ${hit ? 'stored' : 'pending'}, ${hit?.thumbhash ?? null},
-                      ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time})`,
+                      ${hit ? 'stored' : onDemand.has(media.ord) ? 'on_demand' : 'pending'}, ${hit?.thumbhash ?? null},
+                      ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time},
+                      ${onDemandChat && ON_DEMAND_KINDS.includes(media.kind) ? false : null})`,
         );
         if (hit) await addUsage(w.tx, chat.id, hit.sha256);
       }
@@ -483,6 +498,69 @@ export class IngestService {
     });
   }
 
+  /**
+   * 客户端要按需媒体（RequestMedia）：排进下载队列，消息里的状态改为"下载中"。只认这个账号自己会话里的引用。
+   * 返回排进队列的个数。
+   */
+  async requestMedia(accountId: number, refs: readonly { chatId: number; seq: number; ord: number }[]): Promise<number> {
+    if (refs.length === 0) return 0;
+    return this.writers.forAccount(accountId).run(async (w) => {
+      let queued = 0;
+      for (const r of refs) {
+        const hit = await maybeOne<MediaRefTarget>(
+          w.tx,
+          sql`update media_refs m set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null
+                from chats c join qq_accounts q on q.id = c.qq_account_id
+               where m.chat_id = c.id and q.account_id = ${accountId}
+                 and m.chat_id = ${r.chatId} and m.message_seq = ${r.seq} and m.ordinal = ${r.ord} and m.fetch_state = 'on_demand'
+           returning m.chat_id, m.message_seq, m.chat_event_id, m.forward_bundle_id, m.node_path, m.ordinal`,
+        );
+        if (!hit) continue;
+        await updateMessageMedia(w, hit, { state: 'pending' });
+        queued += 1;
+      }
+      return queued;
+    });
+  }
+
+  /**
+   * 把已有数据按"按需下载"规则整理一遍（`cli media:apply-on-demand`）：免打扰 / 群助手里的会话，
+   * 图片、视频、文件标为不需要原件；还没下载的改为按需。返回 [标记的引用数, 改为按需的引用数]。
+   */
+  async applyOnDemandToExisting(): Promise<{ marked: number; deferred: number }> {
+    const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
+    const policies = sql`(${sql.join(ON_DEMAND_POLICIES.map((p) => sql`${p}`), sql`, `)})`;
+    const marked = await this.db.execute(
+      sql`update media_refs r set keep_original = false from chats c
+           where r.chat_id = c.id and c.notify_policy in ${policies} and r.kind in ${kinds} and r.keep_original is null`,
+    );
+    const targets = await rows<MediaRefTarget & { account_id: number }>(
+      this.db,
+      sql`select r.chat_id, r.message_seq, r.chat_event_id, r.forward_bundle_id, r.node_path, r.ordinal, q.account_id
+            from media_refs r join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
+           where c.notify_policy in ${policies} and r.kind in ${kinds} and r.message_seq is not null
+             and r.fetch_state in ('pending', 'failed')
+           order by q.account_id, r.chat_id, r.message_seq`,
+    );
+    const byAccount = new Map<number, typeof targets>();
+    for (const t of targets) byAccount.set(t.account_id, [...(byAccount.get(t.account_id) ?? []), t]);
+    for (const [accountId, list] of byAccount) {
+      for (let i = 0; i < list.length; i += 200) {
+        await this.writers.forAccount(accountId).run(async (w) => {
+          for (const ref of list.slice(i, i + 200)) {
+            await w.tx.execute(
+              sql`update media_refs set fetch_state = 'on_demand', next_attempt_at = null
+                   where chat_id = ${ref.chat_id} and message_seq = ${ref.message_seq} and ordinal = ${ref.ordinal}
+                     and fetch_state in ('pending', 'failed')`,
+            );
+            await updateMessageMedia(w, ref, { state: 'on_demand' });
+          }
+        });
+      }
+    }
+    return { marked: marked.rowCount ?? 0, deferred: targets.length };
+  }
+
   async patchMediaBySha(sha256: string, patch: Partial<Omit<MediaInfo, 'ord'>>): Promise<number> {
     const refs = await rows<MediaRefTarget & { account_id: number }>(
       this.db,
@@ -531,7 +609,7 @@ async function lockOrCreateChat(tx: Tx, qqAccountId: number, scene: Scene, peerI
   );
   return one<LockedChat>(
     tx,
-    sql`select id, top_seq, read_inbox_max_seq from chats
+    sql`select id, top_seq, read_inbox_max_seq, notify_policy from chats
          where qq_account_id = ${qqAccountId} and scene = ${scene} and peer_id = ${peerId} for update`,
   );
 }
@@ -621,4 +699,28 @@ export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: numb
                                 and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${REPLY_TO_ME}) <> 0)
         where c.id = ${chatId}`,
   );
+}
+
+/**
+ * 会话的通知策略变了：进出"按需下载"（免打扰、群助手）。
+ * 变成按需：之后不需要原件（下一次保留清理时删掉，只留缩略图和预览图）；
+ * 不再按需：恢复保留原件，还没下载的按需媒体排进下载队列。
+ */
+export async function applyOnDemandPolicy(w: WriteContext, chatId: number, before: string, after: string): Promise<void> {
+  const was = ON_DEMAND_POLICIES.includes(before);
+  const now = ON_DEMAND_POLICIES.includes(after);
+  if (was === now) return;
+  const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
+  if (now) {
+    await w.tx.execute(sql`update media_refs set keep_original = false where chat_id = ${chatId} and kind in ${kinds} and keep_original is null`);
+    return;
+  }
+  await w.tx.execute(sql`update media_refs set keep_original = null where chat_id = ${chatId} and kind in ${kinds} and keep_original = false`);
+  const queued = await rows<MediaRefTarget>(
+    w.tx,
+    sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null
+         where chat_id = ${chatId} and fetch_state = 'on_demand'
+     returning chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal`,
+  );
+  for (const ref of queued) await updateMessageMedia(w, ref, { state: 'pending' });
 }

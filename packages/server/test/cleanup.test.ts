@@ -92,7 +92,8 @@ describe('manual cleanup', () => {
     expect(await blobState(sx.sha256)).toBe('present'); // 另一个会话还需要
     expect(await blobState(thumb.sha256)).toBe('present'); // 缩略图保留
     const signed = deps.signer.sign(e.sha256);
-    expect((await fetch(baseUrl + signed.url)).status).toBe(404);
+    // 原件不在了：下载接口会去 QQ 重新拿，测试里没有上游，所以是 410（已过期）。
+    expect((await fetch(baseUrl + signed.url)).status).toBe(410);
     await expect.poll(() => mediaStateOf(e.chatId, e.seq)).toBe('purged');
     expect(await mediaStateOf(sx.chatId, sx.seq)).toBe('stored');
     expect(await storage(e.chatId)).toMatchObject({ logicalBytes: 7000, exclusiveBytes: 0, blobCount: 1 });

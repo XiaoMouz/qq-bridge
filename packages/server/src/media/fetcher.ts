@@ -27,6 +27,8 @@ export interface FetcherOptions {
   offlineRetryMs?: number;
   /** 正在被查看的会话：它们的媒体优先下载（DialogService.SetActiveChat）。 */
   priorityChatIds?: () => readonly number[];
+  /** 下载好、派生版本也生成后调用（按需会话的图片在这里删掉原件）。 */
+  afterStored?: (sha256: string) => Promise<unknown>;
   logger?: Logger;
 }
 
@@ -46,8 +48,8 @@ export class MediaFetcher {
   private readonly rehydrating = new Map<string, Promise<RehydrateResult>>();
   private loop: Promise<void> | null = null;
   private wake: (() => void) | null = null;
-  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds'>> &
-    Pick<FetcherOptions, 'logger' | 'priorityChatIds'>;
+  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds' | 'afterStored'>> &
+    Pick<FetcherOptions, 'logger' | 'priorityChatIds' | 'afterStored'>;
 
   constructor(
     private readonly db: Db,
@@ -67,6 +69,7 @@ export class MediaFetcher {
       defaultMaxBytes: opts.defaultMaxBytes ?? 200 * 1024 * 1024,
       offlineRetryMs: opts.offlineRetryMs ?? 60_000,
       ...(opts.priorityChatIds ? { priorityChatIds: opts.priorityChatIds } : {}),
+      ...(opts.afterStored ? { afterStored: opts.afterStored } : {}),
       ...(opts.logger ? { logger: opts.logger } : {}),
     };
   }
@@ -315,6 +318,9 @@ export class MediaFetcher {
   private async complete(ref: PendingRef, stored: { sha256: string; size: number; mime: string | null }): Promise<void> {
     const extra = this.processor ? await this.processor.process(stored.sha256, ref.kind) : {};
     await this.ingest.mediaStored(ref.id, stored, extra);
+    await this.opts.afterStored?.(stored.sha256).catch((error: unknown) =>
+      this.opts.logger?.warn({ err: error, sha256: stored.sha256 }, 'after-store step failed'),
+    );
   }
 
   private async retryLater(ref: PendingRef, error: string): Promise<void> {

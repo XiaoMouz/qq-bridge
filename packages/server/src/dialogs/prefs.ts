@@ -4,6 +4,7 @@
 import { validateOutgoing, type OutgoingSegment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { maybeOne } from '../db/client.ts';
+import { applyOnDemandPolicy } from '../ingest/service.ts';
 import type { WriterRegistry } from '../sync/writer.ts';
 
 /** archived = 收进群助手（不提醒，会话列表里收进"群助手"）。 */
@@ -72,6 +73,7 @@ export class DialogPrefs {
       }
       if (settings.notifyPolicy !== undefined && !chat.notify_local && chat.notify_policy !== settings.notifyPolicy) {
         await w.tx.execute(sql`update chats set notify_policy = ${settings.notifyPolicy} where id = ${chatId}`);
+        await applyOnDemandPolicy(w, chatId, chat.notify_policy, settings.notifyPolicy);
         changed = true;
       }
       if (changed) w.touchDialog(chatId);
@@ -113,6 +115,7 @@ export class DialogPrefs {
         await w.tx.execute(sql`update chats set pinned = ${value as boolean}, pinned_at = ${value ? new Date() : null}, pinned_local = true where id = ${chatId}`);
       } else if (column === 'notify_policy') {
         await w.tx.execute(sql`update chats set notify_policy = ${value as string}, notify_local = true where id = ${chatId}`);
+        await applyOnDemandPolicy(w, chatId, chat.notify_policy, value as string);
       } else {
         await w.tx.execute(sql`update chats set ${sql.raw(column)} = ${value} where id = ${chatId}`);
       }

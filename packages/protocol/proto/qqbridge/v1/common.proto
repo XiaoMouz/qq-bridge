@@ -40,6 +40,8 @@ enum MediaState {
   MEDIA_STATE_SKIPPED = 5;
   // 原件已按保留策略清理，只剩缩略图与预览。
   MEDIA_STATE_PURGED = 6;
+  // 按需：这个会话设为不自动下载（免打扰、群助手里的群），客户端显示到 / 点开时用 RequestMedia 要。
+  MEDIA_STATE_ON_DEMAND = 7;
 }
 
 enum MessageState {

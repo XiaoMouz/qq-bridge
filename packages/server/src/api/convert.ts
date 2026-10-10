@@ -88,6 +88,7 @@ const MEDIA_STATES: Record<DomainMediaInfo['state'], MediaState> = {
   expired: MediaState.EXPIRED,
   skipped: MediaState.SKIPPED,
   purged: MediaState.PURGED,
+  on_demand: MediaState.ON_DEMAND,
 };
 
 function mediaInfo(m: DomainMediaInfo) {

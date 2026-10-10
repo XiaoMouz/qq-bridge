@@ -9,7 +9,7 @@ export type MediaKind = 'image' | 'video' | 'audio' | 'file' | 'sticker';
 export type MediaRole = 'attachment' | 'sticker' | 'group_file' | 'avatar' | 'upload';
 
 /** purged：原件已按存储策略清理，缩略图 / 预览图仍在。 */
-export type MediaState = 'pending' | 'stored' | 'failed' | 'expired' | 'skipped' | 'purged';
+export type MediaState = 'pending' | 'stored' | 'failed' | 'expired' | 'skipped' | 'purged' | 'on_demand';
 
 /**
  * 消息段里携带的媒体信息（对客户端可见的部分）。
