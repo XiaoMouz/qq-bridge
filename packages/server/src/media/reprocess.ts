@@ -65,3 +65,52 @@ export async function reprocessMedia(
   logger?.info(report, 'media reprocess finished');
   return report;
 }
+
+export interface DropCopiesReport {
+  videos: number;
+  purged: number;
+  freedBytes: number;
+  messagesUpdated: number;
+  skipped: number;
+}
+
+/**
+ * 删掉以前为视频另存的 faststart 副本（`cli media:drop-playable-copies`）：
+ * 改成直接播放原件后，副本只是原件的无损重新封装，留着白占一倍空间。
+ * 先把引用它的消息改回指向原件，再删副本；副本若还被别处直接引用（极少见）就不动。
+ */
+export async function dropPlayableCopies(
+  deps: { db: Db; media: MediaService; ingest: IngestService },
+  logger?: Logger,
+): Promise<DropCopiesReport> {
+  const report: DropCopiesReport = { videos: 0, purged: 0, freedBytes: 0, messagesUpdated: 0, skipped: 0 };
+  const pairs = await rows<{ sha256: string; copy: string }>(
+    deps.db,
+    sql`select v.sha256, v.variant_sha256 as copy
+          from blob_variants v join blobs b on b.sha256 = v.sha256
+         where v.variant = 'playable' and v.variant_sha256 <> v.sha256 and b.mime like 'video/%' and b.state = 'present'
+         order by v.sha256`,
+  );
+  for (const { sha256, copy } of pairs) {
+    report.videos += 1;
+    await deps.db.execute(sql`update blob_variants set variant_sha256 = ${sha256} where sha256 = ${sha256} and variant = 'playable'`);
+    report.messagesUpdated += await deps.ingest.patchMediaBySha(sha256, { playableSha256: sha256 });
+    const stillUsed = await rows(
+      deps.db,
+      sql`select 1 from media_refs where sha256 = ${copy}
+          union all select 1 from blob_variants where variant_sha256 = ${copy}
+          limit 1`,
+    );
+    if (stillUsed.length > 0) {
+      report.skipped += 1;
+      continue;
+    }
+    const { purged, size } = await deps.media.purgeOriginal(copy);
+    if (purged) {
+      report.purged += 1;
+      report.freedBytes += size;
+    }
+  }
+  logger?.info(report, 'playable copies dropped');
+  return report;
+}

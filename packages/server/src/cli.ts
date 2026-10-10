@@ -4,13 +4,15 @@
 //   pnpm cli set-password <用户名>          重设密码（同样从 OWNER_PASSWORD 读取）
 //   pnpm cli serve                         启动 API 服务
 //   pnpm cli media:reprocess               补处理已存档的媒体（纠正类型、补缩略图 / 语音可播放版本 / 视频封面）
+//   pnpm cli media:drop-playable-copies    删掉以前给视频另存的 faststart 副本（现在直接播原件）
+//   pnpm cli media:tier                    立即执行一次冷热分层（平时服务端每天自动跑）
 //   pnpm cli inbox:reprocess <ignored|failed>  重新处理收件箱里被忽略 / 失败的上游事件（映射新增支持后用）
 import { createDeps, startServer } from './app.ts';
 import { AuthService } from './auth/service.ts';
 import { loadConfig } from './config.ts';
 import { sql } from 'drizzle-orm';
 import { createDb, rows, runMigrations } from './db/client.ts';
-import { reprocessMedia } from './media/reprocess.ts';
+import { dropPlayableCopies, reprocessMedia } from './media/reprocess.ts';
 import { InboxProcessor } from './upstream/inbox.ts';
 
 async function main(argv: string[]): Promise<void> {
@@ -69,6 +71,36 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify(report));
       return;
     }
+    case 'media:drop-playable-copies': {
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      await runMigrations(db);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+      });
+      const report = await dropPlayableCopies(deps);
+      await db.$client.end();
+      console.log(JSON.stringify(report));
+      return;
+    }
+    case 'media:tier': {
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      await runMigrations(db);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+      });
+      const reports = await deps.tiering.runAll();
+      await db.$client.end();
+      console.log(JSON.stringify(reports));
+      return;
+    }
     case 'inbox:reprocess': {
       const state = args[0];
       if (state !== 'ignored' && state !== 'failed') throw new Error('usage: pnpm cli inbox:reprocess <ignored|failed>');
@@ -85,7 +117,7 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|inbox:reprocess>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:tier|inbox:reprocess>');
   }
 }
 

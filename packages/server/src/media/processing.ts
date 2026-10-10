@@ -16,7 +16,7 @@ import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { decode as decodeSilk } from 'silk-wasm';
 import { maybeOne, rows, type Db } from '../db/client.ts';
-import { ffmpegAvailable, probeStreams, runFfmpeg } from './ffmpeg.ts';
+import { ffmpegAvailable, runFfmpeg } from './ffmpeg.ts';
 import type { BlobRecord, MediaService } from './service.ts';
 import { deriveImage, MAX_DERIVE_BYTES } from './variants.ts';
 
@@ -152,7 +152,7 @@ export class MediaProcessor {
     // mp4 的索引可能在文件末尾，ffmpeg 需要能回退读取，所以给文件路径而不是管道。
     return this.withLocalFile(blob, async (file) => {
       const cover = known.thumbSha256 ? {} : await this.videoCover(sha256, file).catch((error) => this.failed(error, sha256, 'cover'));
-      const stream = known.playableSha256 ? {} : await this.faststart(sha256, blob, file).catch((error) => this.failed(error, sha256, 'faststart'));
+      const stream = known.playableSha256 ? {} : await this.faststart(sha256, blob).catch((error) => this.failed(error, sha256, 'faststart'));
       return { ...cover, ...stream };
     });
   }
@@ -165,36 +165,13 @@ export class MediaProcessor {
   }
 
   /**
-   * 索引已经在前面就直接用原件；否则只换封装（-c copy），把 moov 挪到开头。
-   * 只带第一条视频轨和 ffmpeg 认得的音频轨：有的视频带数据轨或 iPhone 空间音频（apac），
-   * 这些编码 ffmpeg 不认识（codec none），封装进 mp4 会失败。
+   * 视频直接用原件播放：服务端支持 Range，播放器遇到 moov 在末尾的文件会先单独取尾部的索引，
+   * 再从头边下边播（实测起播时间和 faststart 版本相同），不必另存一份重新封装的副本。
    */
-  private async faststart(sha256: string, blob: BlobRecord, file: string): Promise<DerivedInfo> {
+  private async faststart(sha256: string, blob: BlobRecord): Promise<DerivedInfo> {
     if (blob.mime !== 'video/mp4' && blob.mime !== 'video/quicktime') return {};
-    const layout = await moovLayout(file);
-    let playableSha256: string;
-    if (layout === 'front') {
-      playableSha256 = sha256;
-    } else if (layout === 'end') {
-      const out = path.join(os.tmpdir(), `qqbridge-${randomUUID()}.mp4`);
-      try {
-        const streams = await probeStreams(file, this.ff());
-        const video = streams.find((s) => s.type === 'video' && s.codec !== 'none');
-        const audio = streams.filter((s) => s.type === 'audio' && s.codec !== 'none');
-        const maps = video
-          ? [video, ...audio].flatMap((s) => ['-map', `0:${s.index}`])
-          : ['-map', '0:v:0', '-map', '0:a?']; // 解析不出流信息时退回原来的做法
-        await runFfmpeg(['-i', file, ...maps, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', '-y', out], this.ff());
-        const remuxed = await this.media.storeBlob(createReadStream(out), { kind: 'video', mime: 'video/mp4' });
-        playableSha256 = remuxed.sha256;
-      } finally {
-        await fs.rm(out, { force: true });
-      }
-    } else {
-      return {};
-    }
-    await upsertVariant(this.db, sha256, 'playable', playableSha256);
-    return { playableSha256 };
+    await upsertVariant(this.db, sha256, 'playable', sha256);
+    return { playableSha256: sha256 };
   }
 
   private failed(error: unknown, sha256: string, step: string): DerivedInfo {

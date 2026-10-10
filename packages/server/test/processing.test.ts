@@ -151,19 +151,10 @@ describe.skipIf(!hasFfmpeg)('MediaProcessor (ffmpeg)', () => {
     const cover = await sharp(await readBlob(info.thumbSha256!)).metadata();
     expect(cover).toMatchObject({ format: 'webp', width: 320, height: 240 });
 
-    // 流式播放版本：只换封装，moov 挪到开头，原件不动。
+    // 直接用原件播放（moov 在末尾也一样，靠 Range 取索引），不另存副本。
     expect(await moovLayout(out)).toBe('end');
-    expect(info.playableSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(info.playableSha256).not.toBe(stored.sha256);
-    const streamFile = path.join(root, 'stream.mp4');
-    await fs.writeFile(streamFile, await readBlob(info.playableSha256!));
-    expect(await moovLayout(streamFile)).toBe('front');
-    expect(Math.abs((await fs.stat(streamFile)).size - video.length)).toBeLessThan(1024); // 没有重新编码
-    expect(await processor.existing(stored.sha256)).toMatchObject({ playableSha256: info.playableSha256 });
-
-    // 已经是 faststart 的视频直接用原件。
-    const fast = await media.storeBlob(Readable.from([await fs.readFile(streamFile)]), { kind: 'video' });
-    expect((await processor.process(fast.sha256, 'video')).playableSha256).toBe(fast.sha256);
+    expect(info.playableSha256).toBe(stored.sha256);
+    expect(await processor.existing(stored.sha256)).toMatchObject({ playableSha256: stored.sha256 });
   });
 });
 
