@@ -42,7 +42,7 @@ struct MessageRow: View {
       case .message(let m):
         MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
       case .outgoing(let o):
-        OutgoingRow(entry: o)
+        OutgoingRow(entry: o, session: context.session)
       }
     }
     .frame(maxWidth: .infinity)
@@ -448,6 +448,7 @@ struct Reactions: View {
 /// 还在发件箱里的消息（发送中 / 失败）。
 struct OutgoingRow: View {
   let entry: Qqbridge_V1_OutboxEntry
+  let session: Session
 
   var body: some View {
     HStack(alignment: .bottom, spacing: 6) {
@@ -474,6 +475,17 @@ struct OutgoingRow: View {
       .padding(10)
       .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
       .foregroundStyle(.white)
+    }
+    .contextMenu {
+      if entry.state == .failed {
+        if !entry.error.isEmpty { Text(entry.error) }
+        Button("重新发送", systemImage: "arrow.clockwise") {
+          Task { try? await session.sender.resend(entry) }
+        }
+        Button("删除", systemImage: "trash", role: .destructive) {
+          try? session.store.deleteLocalOutbox(clientRandomId: entry.clientRandomID)
+        }
+      }
     }
   }
 }

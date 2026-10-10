@@ -96,6 +96,7 @@ public final class Session: Sendable {
       limits: cacheLimits
     )
     sender = Sender(api: api, store: store)
+    try? store.failStalePendingOutbox()
   }
 
   /// 登录并保存令牌。

@@ -15,9 +15,12 @@ public final class Sender: Sendable {
     self.store = store
   }
 
-  /// 生成新的 client_random_id（正的 63 位随机数）。
+  /// 服务端把 int8 当 JS number 处理，只接受 2^53 - 1 以内的值。
+  public static let maxClientRandomId: Int64 = (1 << 53) - 1
+
+  /// 生成新的 client_random_id（1 到 2^53 - 1 的随机数）。
   public static func newClientRandomId() -> Int64 {
-    Int64.random(in: 1...Int64.max)
+    Int64.random(in: 1...maxClientRandomId)
   }
 
   /// 发送一条消息。网络失败时按 1、2、4 秒重试三次（同一个 client_random_id）。
@@ -49,13 +52,25 @@ public final class Sender: Sendable {
         let entry = try await api.messages.sendMessage(request: req, headers: api.headers).get().entry
         try store.upsertLocalOutbox(entry)
         return entry
-      } catch let error as APIError where error.code == .unavailable || error.code == .deadlineExceeded || error.code == .unknown {
-        if attempt == 3 { throw error }
+      } catch let error as APIError where attempt < 3 && (error.code == .unavailable || error.code == .deadlineExceeded || error.code == .unknown) {
         try await Task.sleep(for: delay)
         delay *= 2
+      } catch {
+        // 服务端没收下：本地标成失败（红色感叹号），可以长按重发或删除，不会一直转圈。
+        pending.state = .failed
+        pending.error = (error as? APIError)?.message ?? "\(error)"
+        try? store.upsertLocalOutbox(pending)
+        throw error
       }
     }
     throw APIError(code: .unknown, message: "unreachable")
+  }
+
+  /// 重发一条失败的消息：换新的 client_random_id（旧的服务端可能根本没收下），删掉旧条目。
+  @discardableResult
+  public func resend(_ entry: Qqbridge_V1_OutboxEntry) async throws -> Qqbridge_V1_OutboxEntry {
+    try store.deleteLocalOutbox(clientRandomId: entry.clientRandomID)
+    return try await send(chatId: entry.chatID, segments: entry.segments, replyToSeq: entry.replyToSeq > 0 ? entry.replyToSeq : nil)
   }
 
   /// 纯文本消息。
@@ -71,5 +86,28 @@ extension LocalStore {
   /// 本地先放进发件箱（不动全局 pts；服务端的条目随后经同步覆盖）。
   public func upsertLocalOutbox(_ entry: Qqbridge_V1_OutboxEntry) throws {
     try db.write { db in try Self.upsert(outbox: entry, db) }
+  }
+
+  /// 启动时：上次没等到服务端回应就退出的"发送中"条目标成失败，可以长按重发。
+  /// 服务端收下的条目带 pts（经同步而来），不受影响。
+  public func failStalePendingOutbox(olderThan seconds: Int64 = 120) throws {
+    let cutoff = Int64(Date().timeIntervalSince1970) - seconds
+    try db.write { db in
+      let stale = try Data.fetchAll(
+        db,
+        sql: "select data from outbox where state = ? and createdAt < ?",
+        arguments: [Qqbridge_V1_OutboxState.pending.rawValue, cutoff]
+      ).map { try Qqbridge_V1_OutboxEntry(serializedBytes: $0) }
+      for var entry in stale where entry.pts == 0 {
+        entry.state = .failed
+        entry.error = "没有发出去"
+        try Self.upsert(outbox: entry, db)
+      }
+    }
+  }
+
+  /// 删掉本地发件箱里的一条（只用于服务端没收下的失败消息）。
+  public func deleteLocalOutbox(clientRandomId: Int64) throws {
+    try db.write { db in try db.execute(sql: "delete from outbox where clientRandomId = ?", arguments: [clientRandomId]) }
   }
 }
