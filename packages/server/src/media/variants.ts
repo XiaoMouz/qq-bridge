@@ -29,7 +29,8 @@ export async function deriveImage(input: Buffer): Promise<ImageDerivatives | nul
   const rotated = (meta.orientation ?? 1) >= 5;
   const width = rotated ? meta.height : meta.width;
   const height = rotated ? meta.width : meta.height;
-  const base = () => sharp(input, { animated: false }).rotate();
+  // failOn: 'none'：下载不完整的 JPEG 也照样出图（缺的部分是灰的），和 QQ 自己的显示一致。
+  const base = () => sharp(input, { animated: false, failOn: 'none' }).rotate();
 
   const thumb = await base()
     .resize({ width: THUMB_PX, height: THUMB_PX, fit: 'inside', withoutEnlargement: true })
