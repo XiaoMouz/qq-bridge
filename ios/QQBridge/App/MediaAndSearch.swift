@@ -11,43 +11,30 @@ struct MediaViewer: View {
   let session: Session
   let chatId: Int64
   @Environment(\.dismiss) private var dismiss
-  @State private var showOriginal = false
   @State private var player: AVPlayer?
   @State private var scale: CGFloat = 1
   @State private var videoFailed = false
   @State private var originalFailed = false
+  @State private var originalSha: String?
 
   var body: some View {
     ZStack(alignment: .topTrailing) {
       Color.black.ignoresSafeArea()
       switch target.kind {
       case .image:
+        // 先显示缩略图（QQ 给的，长边约 1280px），原图到了自动换上：手机上有就直接用，没有就向服务端要（服务端当场从 QQ 拉）。
         let media = target.media
-        // 先显示预览图（约 1280px），点"查看原图"再加载原件。
-        let sha = (showOriginal && !originalFailed) || media.previewSha256.isEmpty ? media.sha256 : media.previewSha256
-        CachedImage(sha256: sha.isEmpty ? media.thumbSha256 : sha, chatId: chatId, onFailure: { if showOriginal { originalFailed = true } }) {
-          // 原图加载中：先显示预览图（没有就缩略图），上面转圈。
-          CachedImage(sha256: media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256, chatId: chatId) {
-            ProgressView().tint(.white)
-          }
-          .aspectRatio(contentMode: .fit)
-          .overlay { if showOriginal { ProgressView().tint(.white).controlSize(.large) } }
+        let placeholderSha = media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256
+        CachedImage(sha256: originalSha, chatId: chatId, onFailure: { originalFailed = true }, animated: true) {
+          CachedImage(sha256: placeholderSha.isEmpty ? nil : placeholderSha, chatId: chatId) { ProgressView().tint(.white) }
+            .aspectRatio(contentMode: .fit)
+            .overlay { if !originalFailed { ProgressView().tint(.white).controlSize(.large) } }
         }
         .aspectRatio(contentMode: .fit)
         .scaleEffect(scale)
         .gesture(MagnifyGesture().onChanged { scale = max(1, $0.magnification) }.onEnded { _ in withAnimation { scale = 1 } })
         .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2.5 } }
         .onTapGesture { dismiss() }
-        // 原件已清理（按需会话只留了预览图）也能看原图：服务端当场从 QQ 拉。
-        if !showOriginal, !media.previewSha256.isEmpty, media.state == .stored || media.state == .purged {
-          VStack {
-            Spacer()
-            Button("查看原图（\(ByteCountFormatter.string(fromByteCount: Int64(media.size), countStyle: .file))）") { showOriginal = true }
-              .buttonStyle(.glass)
-              .padding(.bottom, 40)
-          }
-          .frame(maxWidth: .infinity)
-        }
         if originalFailed {
           VStack {
             Spacer()
@@ -75,6 +62,7 @@ struct MediaViewer: View {
       .padding()
     }
     .task {
+      if target.kind == .image { await loadOriginal() }
       guard target.kind == .video, target.media.state == .stored || target.media.state == .purged else { return }
       let sha = target.media.playableSha256.isEmpty ? target.media.sha256 : target.media.playableSha256
       if target.media.state == .purged {
@@ -91,6 +79,32 @@ struct MediaViewer: View {
       }
     }
     .onDisappear { player?.pause() }
+  }
+
+  /// 原图：服务端有（或清理过、能从 QQ 拉回）就直接按 sha256 取；从没下过的先让服务端当场从 QQ 拉。
+  private func loadOriginal() async {
+    let media = target.media
+    if !media.sha256.isEmpty {
+      originalSha = media.sha256
+      return
+    }
+    guard target.seq > 0 else {
+      originalFailed = media.thumbSha256.isEmpty
+      return
+    }
+    var ref = Qqbridge_V1_MediaRef()
+    ref.chatID = target.chatId
+    ref.seq = target.seq
+    ref.ord = media.ord
+    var req = Qqbridge_V1_RequestMediaRequest()
+    req.refs = [ref]
+    req.original = true
+    let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
+    if let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty {
+      originalSha = got.sha256
+    } else {
+      originalFailed = true
+    }
   }
 }
 
@@ -186,6 +200,9 @@ struct ForwardSegmentView: View {
 struct StickerPanel: View {
   let session: Session
   let onPick: (Qqbridge_V1_Sticker) -> Void
+  /// 点了 QQ 小黄脸（插进输入框）；nil 时不显示小黄脸页。
+  var onFace: ((Int, String) -> Void)? = nil
+  @State private var tab = 0
   @State private var stickers: [Qqbridge_V1_Sticker] = []
   @State private var prepared: [String: Qqbridge_V1_Sticker] = [:]
   @State private var requested: Set<String> = []
@@ -194,13 +211,25 @@ struct StickerPanel: View {
   var body: some View {
     NavigationStack {
       ScrollView {
+        if tab == 0, let onFace {
+          LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 10) {
+            ForEach(QQFace.pickable, id: \.id) { face in
+              Button { onFace(face.id, face.name) } label: {
+                QQFace.view(String(face.id), size: 32).frame(maxWidth: .infinity)
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel(face.name)
+            }
+          }
+          .padding()
+        } else {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
           ForEach(stickers, id: \.md5) { s in
             let ready = prepared[s.md5] ?? (s.sha256.isEmpty ? nil : s)
             Button {
               if let ready { onPick(ready) }
             } label: {
-              CachedImage(sha256: ready.map { $0.thumbSha256.isEmpty ? $0.sha256 : $0.thumbSha256 }) {
+              CachedImage(sha256: ready.map { $0.thumbSha256.isEmpty ? $0.sha256 : $0.thumbSha256 }, maxPixel: 240) {
                 RoundedRectangle(cornerRadius: 8).fill(.quaternary)
               }
               .aspectRatio(1, contentMode: .fit)
@@ -211,11 +240,26 @@ struct StickerPanel: View {
           }
         }
         .padding()
+        }
       }
-      .navigationTitle("我的表情 \(stickers.count)")
       .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        if onFace != nil {
+          ToolbarItem(placement: .principal) {
+            Picker("表情", selection: $tab) {
+              Text("QQ 表情").tag(0)
+              Text("我的表情 \(stickers.count)").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 240)
+          }
+        }
+      }
+      .navigationTitle(onFace == nil ? "我的表情 \(stickers.count)" : "")
       .overlay {
-        if let error { ContentUnavailableView("表情加载失败", systemImage: "face.dashed", description: Text(error)) } else if stickers.isEmpty { ProgressView() }
+        if tab == 1 || onFace == nil {
+          if let error { ContentUnavailableView("表情加载失败", systemImage: "face.dashed", description: Text(error)) } else if stickers.isEmpty { ProgressView() }
+        }
       }
       .refreshable { await load(refresh: true) }
       .task { await load(refresh: false) }
@@ -337,7 +381,7 @@ struct SharedMediaView: View {
         .overlay(alignment: .bottomTrailing) {
           if item.kind == .video { Image(systemName: "play.fill").foregroundStyle(.white).padding(6) }
         }
-        .onTapGesture { target = MediaTarget(kind: item.kind == .video ? .video : .image, media: media) }
+        .onTapGesture { target = MediaTarget(kind: item.kind == .video ? .video : .image, media: media, chatId: chatId, seq: item.seq) }
     }
   }
 

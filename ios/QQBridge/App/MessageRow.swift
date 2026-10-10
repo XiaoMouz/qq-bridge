@@ -197,7 +197,7 @@ enum Block {
   case text([Inline])
   case reply(Int64)
   case image(Qqbridge_V1_ImageSegment)
-  case sticker(sha256: String, summary: String)
+  case sticker(media: Qqbridge_V1_MediaInfo, summary: String)
   case record(Qqbridge_V1_RecordSegment)
   case video(Qqbridge_V1_VideoSegment)
   case file(Qqbridge_V1_FileSegment)
@@ -208,6 +208,7 @@ enum Block {
     switch self {
     case .sticker: true
     case .image(let i): i.sticker
+    case .text(let runs): Inline.jumboFaces(runs) != nil
     default: false
     }
   }
@@ -240,7 +241,7 @@ enum Block {
       case .reply(let r): out.insert(.reply(r.seq), at: 0)
       case .image(let i):
         flush()
-        out.append(i.sticker ? .sticker(sha256: i.media.thumbSha256.isEmpty ? i.media.sha256 : i.media.thumbSha256, summary: i.summary) : .image(i))
+        out.append(i.sticker ? .sticker(media: i.media, summary: i.summary) : .image(i))
       case .record(let r): flush(); out.append(.record(r))
       case .video(let v): flush(); out.append(.video(v))
       case .file(let f): flush(); out.append(.file(f))
@@ -248,7 +249,7 @@ enum Block {
       case .marketFace(let f):
         flush()
         if f.hasMedia, !f.media.sha256.isEmpty {
-          out.append(.sticker(sha256: f.media.thumbSha256.isEmpty ? f.media.sha256 : f.media.thumbSha256, summary: f.summary))
+          out.append(.sticker(media: f.media, summary: f.summary))
         } else {
           out.append(.text([.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary))]))
         }
@@ -279,18 +280,29 @@ struct BlockView: View {
   var body: some View {
     switch block {
     case .text(let runs):
-      Inline.compose(runs).textSelection(.enabled)
+      if let faces = Inline.jumboFaces(runs) {
+        // 只有 1–3 个 QQ 表情：放大显示，不要气泡（和 Telegram 的单 emoji 消息一样）。
+        let size: CGFloat = faces.count == 1 ? 72 : 52
+        HStack(spacing: 4) {
+          ForEach(faces.indices, id: \.self) { i in QQFace.inline(faces[i].id, name: faces[i].name, size: size) }
+        }
+      } else {
+        Inline.compose(runs).textSelection(.enabled)
+      }
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId, onNeedThumb: { requestMedia(i.media) })
         .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
-    case .sticker(let sha, let summary):
-      CachedImage(sha256: sha, chatId: context.chatId) {
+    case .sticker(let media, let summary):
+      // 表情用原图（会动）；原图还没有时先显示以前的缩略图，不常用会话里显示到时才向服务端要原图。
+      let sha = media.state == .stored && !media.sha256.isEmpty ? media.sha256 : (media.thumbSha256.isEmpty ? nil : media.thumbSha256)
+      CachedImage(sha256: sha, chatId: context.chatId, maxPixel: 420, animated: true) {
         Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
       }
       .aspectRatio(contentMode: .fit)
       .frame(maxWidth: 140, maxHeight: 140)
+      .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
       VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
         .contentShape(Rectangle())
@@ -395,7 +407,7 @@ struct MediaThumb: View {
     let ratio = min(max(w / h, 0.4), 2.5)
     let maxW: CGFloat = 220
     let size = ratio >= 1 ? CGSize(width: maxW, height: maxW / ratio) : CGSize(width: maxW * ratio, height: maxW)
-    CachedImage(sha256: displaySha, chatId: chatId, maxPixel: 720) {
+    CachedImage(sha256: displaySha, chatId: chatId, maxPixel: 720, animated: localOriginal) {
       ZStack {
         Rectangle().fill(.quaternary)
         if media.state == .expired || media.state == .failed {
@@ -548,6 +560,18 @@ enum Inline {
   case text(AttributedString)
   case face(String, name: String, large: Bool)
 
+  /// 整段只有 1–3 个 QQ 表情（可夹空白）时返回它们，用来放大显示。
+  static func jumboFaces(_ runs: [Inline]) -> [(id: String, name: String)]? {
+    var faces: [(id: String, name: String)] = []
+    for run in runs {
+      switch run {
+      case .face(let id, let name, _): faces.append((id, name))
+      case .text(let a): if !String(a.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+      }
+    }
+    return (1...3).contains(faces.count) ? faces : nil
+  }
+
   @MainActor static func compose(_ runs: [Inline]) -> Text {
     runs.reduce(Text(verbatim: "")) { acc, run in
       switch run {
@@ -582,6 +606,11 @@ enum QQFace {
     }
     return inline(id, size: size)
   }
+
+  /// 表情面板里可选的：本地有图、QQ 里没藏起来的（按编号排）。
+  @MainActor static let pickable: [(id: Int, name: String)] = names.keys.sorted()
+    .filter { Bundle.main.url(forResource: "s\($0)", withExtension: "png", subdirectory: "QQFaces") != nil }
+    .map { ($0, names[$0]!) }
 
   @MainActor private static var cache: [String: UIImage] = [:]
 

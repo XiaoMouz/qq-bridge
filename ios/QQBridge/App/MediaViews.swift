@@ -12,7 +12,8 @@ final class ImageMemoryCache {
   init() { cache.totalCostLimit = 64 * 1024 * 1024 }
   func get(_ key: String) -> UIImage? { cache.object(forKey: key as NSString) }
   func set(_ key: String, _ image: UIImage) {
-    cache.setObject(image, forKey: key as NSString, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
+    let frames = max(image.images?.count ?? 1, 1)
+    cache.setObject(image, forKey: key as NSString, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4) * frames)
   }
 }
 
@@ -24,13 +25,17 @@ struct CachedImage<Placeholder: View>: View {
   var onFailure: (() -> Void)? = nil
   /// 解码时缩到这个像素（长边）以内：列表里显示原图时不按原尺寸解码。nil = 原尺寸。
   var maxPixel: CGFloat? = nil
+  /// 动图（GIF / APNG / 动态 WebP）按帧播放；单帧的照常显示。
+  var animated = false
   @ViewBuilder var placeholder: () -> Placeholder
   @Environment(\.session) private var session
   @State private var image: UIImage?
 
   var body: some View {
     Group {
-      if let image {
+      if let image, image.images != nil {
+        AnimatedImageView(image: image)
+      } else if let image {
         Image(uiImage: image).resizable()
       } else {
         placeholder()
@@ -44,7 +49,7 @@ struct CachedImage<Placeholder: View>: View {
       image = nil
       return
     }
-    let key = maxPixel.map { "\(sha256)@\(Int($0))" } ?? sha256
+    let key = (maxPixel.map { "\(sha256)@\(Int($0))" } ?? sha256) + (animated ? "#a" : "")
     if let hit = ImageMemoryCache.shared.get(key) {
       image = hit
       return
@@ -52,7 +57,9 @@ struct CachedImage<Placeholder: View>: View {
     do {
       let file = try await session.media.file(for: sha256, chatId: chatId)
       let limit = maxPixel
+      let animate = animated
       let decoded = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        if animate, let moving = ImageDecoder.animated(file, maxPixel: limit ?? 1600) { return moving }
         if let limit { return ImageDecoder.downsampled(file, maxPixel: limit) }
         guard let img = UIImage(contentsOfFile: file.path) else { return nil }
         return await img.byPreparingForDisplay() ?? img
@@ -97,6 +104,43 @@ struct AvatarView: View {
 
 /// 按显示需要缩小解码（ImageIO 直接出小图，不先解出整张大图）。
 enum ImageDecoder {
+  /// 多帧图片解成会动的 UIImage（每帧缩到 maxPixel 以内，最多 200 帧）；单帧返回 nil。
+  static func animated(_ url: URL, maxPixel: CGFloat) -> UIImage? {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    let count = CGImageSourceGetCount(source)
+    guard count > 1 else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+    ]
+    var frames: [UIImage] = []
+    var total: Double = 0
+    for i in 0..<min(count, 200) {
+      guard let cg = CGImageSourceCreateThumbnailAtIndex(source, i, options as CFDictionary) else { continue }
+      frames.append(UIImage(cgImage: cg))
+      total += frameDelay(source, i)
+    }
+    guard frames.count > 1 else { return frames.first }
+    return UIImage.animatedImage(with: frames, duration: total)
+  }
+
+  /// 一帧的时长：GIF / PNG / WebP 各自的属性，没写或太短时按 0.1 秒（和浏览器一致）。
+  private static func frameDelay(_ source: CGImageSource, _ index: Int) -> Double {
+    guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] else { return 0.1 }
+    let dicts: [(CFString, CFString, CFString)] = [
+      (kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime),
+      (kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime),
+      (kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime),
+    ]
+    for (dict, unclamped, clamped) in dicts {
+      guard let d = props[dict] as? [CFString: Any] else { continue }
+      let value = (d[unclamped] as? Double) ?? (d[clamped] as? Double) ?? 0
+      return value < 0.011 ? 0.1 : value
+    }
+    return 0.1
+  }
+
   static func downsampled(_ url: URL, maxPixel: CGFloat) -> UIImage? {
     guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
     let options: [CFString: Any] = [
@@ -107,5 +151,37 @@ enum ImageDecoder {
     ]
     guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
     return UIImage(cgImage: cg)
+  }
+}
+
+/// 播放 UIImage 动图（SwiftUI 的 Image 不会动）。按图片比例适应给定的空间。
+struct AnimatedImageView: UIViewRepresentable {
+  let image: UIImage
+
+  func makeUIView(context: Context) -> UIImageView {
+    let view = UIImageView()
+    view.contentMode = .scaleAspectFit
+    view.clipsToBounds = true
+    view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    view.setContentHuggingPriority(.defaultLow, for: .vertical)
+    view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+    return view
+  }
+
+  func updateUIView(_ view: UIImageView, context: Context) {
+    if view.image !== image {
+      view.image = image
+      view.startAnimating()
+    }
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIImageView, context: Context) -> CGSize? {
+    let size = image.size
+    guard size.width > 0, size.height > 0 else { return nil }
+    let w = proposal.width ?? size.width
+    let h = proposal.height ?? size.height
+    let scale = min(w / size.width, h / size.height)
+    return CGSize(width: size.width * scale, height: size.height * scale)
   }
 }

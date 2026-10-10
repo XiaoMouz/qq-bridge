@@ -5,12 +5,13 @@ import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
 
-/// 输入框：文字里的 "@名字 " 记在 mentions 里，发送时按出现顺序拆成 @ 段。
+/// 输入框：文字里插入的 "@名字 " 和 "[表情名]" 按插入顺序记下来，发送时拆成 @ 段、表情段。
 @MainActor
 @Observable
 final class Composer {
   var text = ""
-  var mentions: [(userId: Int64, name: String)] = []
+  /// 插入过的 @ 和表情：显示用的文字 + 发送用的消息段。
+  private var tokens: [(text: String, segment: Qqbridge_V1_OutgoingSegment)] = []
   var replyTo: Qqbridge_V1_Message?
   /// 刚输入了 "@"：弹出选人。
   var pickingMention = false
@@ -18,17 +19,31 @@ final class Composer {
   func insertMention(userId: Int64, name: String, replacingTrailingAt: Bool = false) {
     if replacingTrailingAt, text.hasSuffix("@") { text.removeLast() }
     if !text.isEmpty, !text.hasSuffix(" ") { text += " " }
-    text += "@\(name) "
-    mentions.append((userId, name))
+    var seg = Qqbridge_V1_OutgoingSegment()
+    seg.mentionUserID = userId
+    append("@\(name)", seg, trailingSpace: true)
   }
 
   func mentionAll() {
     if text.hasSuffix("@") { text.removeLast() }
-    text += "@全体成员 "
-    mentions.append((0, "全体成员"))
+    var seg = Qqbridge_V1_OutgoingSegment()
+    seg.mentionAll = true
+    append("@全体成员", seg, trailingSpace: true)
   }
 
-  /// 拆成发送用的消息段：普通文字、@某人、@全体成员。
+  /// QQ 小黄脸：输入框里显示成 "[微笑]"。
+  func insertFace(id: Int, name: String) {
+    var seg = Qqbridge_V1_OutgoingSegment()
+    seg.faceID = String(id)
+    append("[\(name)]", seg, trailingSpace: false)
+  }
+
+  private func append(_ token: String, _ seg: Qqbridge_V1_OutgoingSegment, trailingSpace: Bool) {
+    text += token + (trailingSpace ? " " : "")
+    tokens.append((token, seg))
+  }
+
+  /// 拆成发送用的消息段：普通文字、@某人、@全体成员、表情（按出现顺序；被删掉的 @ / 表情就当普通文字）。
   func segments() -> [Qqbridge_V1_OutgoingSegment] {
     var out: [Qqbridge_V1_OutgoingSegment] = []
     var rest = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -38,15 +53,12 @@ final class Composer {
       seg.text = String(s)
       out.append(seg)
     }
-    for m in mentions {
-      let token = "@\(m.name)"
-      guard let range = rest.range(of: token) else { continue }
+    for t in tokens {
+      guard let range = rest.range(of: t.text) else { continue }
       addText(rest[..<range.lowerBound])
-      var seg = Qqbridge_V1_OutgoingSegment()
-      if m.userId == 0 { seg.mentionAll = true } else { seg.mentionUserID = m.userId }
-      out.append(seg)
+      out.append(t.segment)
       rest = rest[range.upperBound...]
-      if rest.hasPrefix(" ") { rest = rest.dropFirst() }
+      if t.text.hasPrefix("@"), rest.hasPrefix(" ") { rest = rest.dropFirst() }
     }
     addText(rest)
     return out
@@ -54,7 +66,7 @@ final class Composer {
 
   func reset() {
     text = ""
-    mentions = []
+    tokens = []
     replyTo = nil
   }
 }
@@ -183,6 +195,123 @@ final class MediaRequester {
       }
     }
     flushTask = nil
+  }
+}
+
+/// 录语音：按住麦克风开始，松开发送，左滑取消。录成 AAC（m4a），QQ 的 silk 由 NapCat 转。最长 60 秒（QQ 的上限）。
+@MainActor
+@Observable
+final class VoiceRecorder {
+  static let maxDuration: TimeInterval = 60
+  private(set) var recording = false
+  private(set) var elapsed: TimeInterval = 0
+  /// 最近的音量（0…1），录音条画波形用。
+  private(set) var levels: [CGFloat] = []
+  /// 手指已经左滑到取消区。
+  var willCancel = false
+  /// 录到上限自动结束时调用。
+  var onAutoFinish: (() -> Void)?
+  private var recorder: AVAudioRecorder?
+  private var timer: Timer?
+
+  enum StartError: Error { case denied, unavailable }
+
+  #if DEBUG
+  /// 调试：没有麦克风的机器（模拟器跑在没麦克风的 Mac 上）用假的音量走一遍录音条。QQB_FAKE_MIC=1 时启用。
+  private var fake: Date?
+  private static let fakeMic = ["1", "hold"].contains(ProcessInfo.processInfo.environment["QQB_FAKE_MIC"])
+  /// QQB_FAKE_MIC=hold：进入聊天页就开始假录音，不松手（截图看录音条用）。
+  static let holdFakeRecording = ProcessInfo.processInfo.environment["QQB_FAKE_MIC"] == "hold"
+  #endif
+
+  /// 开始录音。没有麦克风权限 / 录不了（例如没有麦克风）时抛错。
+  func start() async throws(StartError) {
+    guard !recording else { return }
+    #if DEBUG
+    if Self.fakeMic {
+      fake = Date()
+      recording = true
+      willCancel = false
+      elapsed = 0
+      levels = []
+      timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        MainActor.assumeIsolated {
+          guard let self, let fake = self.fake else { return }
+          self.elapsed = Date().timeIntervalSince(fake)
+          self.levels.append(CGFloat(0.2 + 0.7 * abs(sin(self.elapsed * 5)) * Double.random(in: 0.5...1)))
+          if self.levels.count > 120 { self.levels.removeFirst(self.levels.count - 120) }
+        }
+      }
+      return
+    }
+    #endif
+    guard await AVAudioApplication.requestRecordPermission() else { throw .denied }
+    let audio = AVAudioSession.sharedInstance()
+    try? audio.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
+    try? audio.setActive(true)
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
+    let settings: [String: Any] = [
+      AVFormatIDKey: kAudioFormatMPEG4AAC,
+      AVSampleRateKey: 24_000,
+      AVNumberOfChannelsKey: 1,
+      AVEncoderBitRateKey: 32_000,
+    ]
+    guard let r = try? AVAudioRecorder(url: url, settings: settings) else { throw .unavailable }
+    r.isMeteringEnabled = true
+    guard r.record() else { throw .unavailable }
+    recorder = r
+    recording = true
+    willCancel = false
+    elapsed = 0
+    levels = []
+    timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.tick() }
+    }
+  }
+
+  private func tick() {
+    guard let r = recorder else { return }
+    r.updateMeters()
+    let db = r.averagePower(forChannel: 0)  // -160…0 dB，人声大多在 -50 以上
+    levels.append(CGFloat(max(0, min(1, (db + 50) / 50))))
+    if levels.count > 120 { levels.removeFirst(levels.count - 120) }
+    elapsed = r.currentTime
+    if elapsed >= Self.maxDuration { onAutoFinish?() }
+  }
+
+  /// 结束并返回录好的文件和时长；太短（不到 1 秒）返回 nil。
+  func finish() -> (url: URL, duration: TimeInterval)? {
+    #if DEBUG
+    if fake != nil { fake = nil; reset(); return nil }  // 假录音不发送
+    #endif
+    guard let r = recorder else { return nil }
+    let duration = r.currentTime
+    r.stop()
+    reset()
+    guard duration >= 1 else {
+      try? FileManager.default.removeItem(at: r.url)
+      return nil
+    }
+    return (r.url, duration)
+  }
+
+  func cancel() {
+    #if DEBUG
+    if fake != nil { fake = nil; reset(); return }
+    #endif
+    guard let r = recorder else { return }
+    r.stop()
+    r.deleteRecording()
+    reset()
+  }
+
+  private func reset() {
+    timer?.invalidate()
+    timer = nil
+    recorder = nil
+    recording = false
+    willCancel = false
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
   }
 }
 

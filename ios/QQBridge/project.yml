@@ -33,6 +33,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: QQ Bridge
+        NSMicrophoneUsageDescription: 按住麦克风录语音消息
+        NSPhotoLibraryUsageDescription: 选择要发送的照片
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}

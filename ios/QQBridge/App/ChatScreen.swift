@@ -30,6 +30,7 @@ struct ChatScreen: View {
   @State private var forwardMessage: Qqbridge_V1_Message?
   @State private var showInfo = false
   @State private var showStickers = false
+  @State private var recorder = VoiceRecorder()
   @State private var photoItem: PhotosPickerItem?
   @State private var showPhotos = false
   @State private var atBottom = true
@@ -117,13 +118,16 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .sheet(isPresented: $showStickers) {
-      StickerPanel(session: session) { sticker in
+      StickerPanel(session: session, onPick: { sticker in
         showStickers = false
         sendSticker(sticker)
-      }
+      }, onFace: { id, name in composer.insertFace(id: id, name: name) })
       .presentationDetents([.medium, .large])
     }
     .task { await open() }
+    #if DEBUG
+    .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
+    #endif
     .task(id: limit) {
       do {
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
@@ -141,8 +145,7 @@ struct ChatScreen: View {
     .onChange(of: composer.text) { old, new in
       // 群里输入 "@"：弹出选人。
       if isGroup, new.hasSuffix("@"), new.count == old.count + 1 { composer.pickingMention = true }
-      // 删掉了某个 "@名字"：对应的 @ 也不要了。
-      composer.mentions.removeAll { !new.contains("@\($0.name)") }
+      // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
     }
     .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
     .onChange(of: photoItem) { _, item in
@@ -182,29 +185,45 @@ struct ChatScreen: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
       }
-      HStack(alignment: .bottom, spacing: 8) {
-        Menu {
-          // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
-          Button("照片", systemImage: "photo") { showPhotos = true }
-          Button("表情", systemImage: "face.smiling") { showStickers = true }
-          if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
-        } label: {
-          Image(systemName: "plus").font(.body.weight(.semibold)).frame(width: 40, height: 40)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        TextField("消息", text: $composer.text, axis: .vertical)
-          .lineLimit(1...6)
-          .focused($inputFocused)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 10)
+      HStack(alignment: .bottom, spacing: 6) {
+        if recorder.recording {
+          RecordingBar(recorder: recorder)
+        } else {
+          // 左：附件（和 Telegram 一样是图标，不占大圆按钮）。
+          Menu {
+            // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
+            Button("照片", systemImage: "photo") { showPhotos = true }
+            if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
+          } label: {
+            Image(systemName: "paperclip").font(.title3).frame(width: 36, height: 40)
+          }
+          .tint(.secondary)
+          // 中：输入框占满，右侧嵌着表情按钮。
+          HStack(alignment: .bottom, spacing: 4) {
+            TextField("消息", text: $composer.text, axis: .vertical)
+              .lineLimit(1...6)
+              .focused($inputFocused)
+              .padding(.vertical, 10)
+            Button { showStickers = true } label: {
+              Image(systemName: "face.smiling").font(.title3).foregroundStyle(.secondary).frame(width: 30, height: 40)
+            }
+          }
+          .padding(.leading, 14)
+          .padding(.trailing, 6)
           .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
-        Button(action: sendText) {
-          Image(systemName: "arrow.up").font(.body.weight(.semibold)).frame(width: 40, height: 40)
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .disabled(composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        // 右：有字时发送，没字时按住录语音。
+        if hasText, !recorder.recording {
+          Button(action: sendText) {
+            Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white)
+              .frame(width: 34, height: 34)
+              .background(Circle().fill(Color.accentColor))
+          }
+          .buttonStyle(.plain)
+          .frame(width: 36, height: 40)
+        } else {
+          MicButton(recorder: recorder, onStart: startRecording, onFinish: finishRecording)
+        }
       }
       .padding(.horizontal, 12)
     }
@@ -287,6 +306,40 @@ struct ChatScreen: View {
   }
 
   // MARK: 发送
+
+  private var hasText: Bool { !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+  private func startRecording() {
+    recorder.onAutoFinish = { finishRecording(cancelled: false) }
+    Task {
+      do {
+        try await recorder.start()
+      } catch {
+        sendError = (error as? VoiceRecorder.StartError) == .denied ? "没有麦克风权限：请在系统设置里允许 QQ Bridge 使用麦克风" : "录不了音：没有找到可用的麦克风"
+      }
+    }
+  }
+
+  private func finishRecording(cancelled: Bool) {
+    if cancelled || recorder.willCancel {
+      recorder.cancel()
+      return
+    }
+    guard let (url, duration) = recorder.finish() else { return }
+    Task {
+      defer { try? FileManager.default.removeItem(at: url) }
+      do {
+        let data = try Data(contentsOf: url)
+        let uploaded = try await session.api.upload(data, mime: "audio/mp4", name: "voice.m4a")
+        var seg = Qqbridge_V1_OutgoingSegment()
+        seg.record.sha256 = uploaded.sha256
+        seg.record.durationSec = UInt32(duration.rounded())
+        try await session.sender.send(chatId: chatId, segments: [seg])
+      } catch {
+        sendError = "语音发送失败：\(error)"
+      }
+    }
+  }
 
   private func sendText() {
     let segments = composer.segments()
