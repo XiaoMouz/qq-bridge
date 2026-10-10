@@ -11,9 +11,12 @@ import { DialogPrefs } from '../src/dialogs/prefs.ts';
 import { MediaService } from '../src/media/service.ts';
 import { StickerService } from '../src/media/stickers.ts';
 import { LocalFsBackend } from '../src/media/store.ts';
+import { getDifference } from '../src/sync/difference.ts';
+import { mapRawMessage } from '../src/upstream/napcat/map.ts';
 import { QqSettingsSync } from '../src/upstream/settings-sync.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { createTestAccount, services, textMessage, type TestAccount } from './helpers/fixtures.ts';
+import { el, raw } from './helpers/napcat.ts';
 
 let t: TestDb;
 let root: string;
@@ -57,6 +60,32 @@ describe('unread counters', () => {
 });
 
 describe('QQ settings sync', () => {
+  it('turns a raw QQ reply to my message into a reply badge, not an @, and clears it on read', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const from = (await getDifference(t.db, acc.accountId, 0)).pts;
+    const push = async (r: ReturnType<typeof raw>) => {
+      const action = mapRawMessage(r, { selfUin: acc.uin, source: 'realtime' });
+      if (action.type !== 'message') throw new Error(action.type);
+      await ingest.ingestMessage(acc.qqAccountId, action.message);
+    };
+    await push(raw({ chatType: 2, peer: '990002', seq: 10, sender: String(acc.uin), elements: [el.text('我发的')] }));
+    // 新版 QQ 把被回复者的 QQ 号放在 senderUid 里（senderUin 为空），两种都要认。
+    const viaUid = el.reply(10, '');
+    viaUid.replyElement = { ...viaUid.replyElement, senderUin: '0', senderUid: String(acc.uin) } as typeof viaUid.replyElement;
+    await push(raw({ chatType: 2, peer: '990002', seq: 11, sender: '20002', elements: [viaUid, el.text('回你')] }));
+    await push(raw({ chatType: 2, peer: '990002', seq: 12, sender: '20002', elements: [el.reply(10, String(acc.uin)), el.text('再回你')] }));
+    await push(raw({ chatType: 2, peer: '990002', seq: 13, sender: '20002', elements: [el.reply(10, '30003'), el.text('回别人')] }));
+
+    expect(await chat(acc, 990002)).toMatchObject({ unread_count: 3, unread_mentions: 0, unread_mention_all: 0, unread_replies: 2 });
+    // 客户端经增量同步拿到的会话行也带着"回复我"的计数，和 @ 分开。
+    const dialog = (await getDifference(t.db, acc.accountId, from)).dialogs.find((d) => d.peerId === 990002);
+    expect(dialog).toMatchObject({ unreadCount: 3, unreadMentions: 0, unreadMentionAll: 0, unreadReplies: 2 });
+
+    await ingest.markRead(acc.accountId, (await chat(acc, 990002)).id, 13);
+    expect(await chat(acc, 990002)).toMatchObject({ unread_count: 0, unread_replies: 0 });
+  });
+
   it('imports pins, group message settings and friend do-not-disturb, but never overrides local choices', async () => {
     const { ingest, writers } = services(t.db);
     const acc = await createTestAccount(t.db, ingest);
