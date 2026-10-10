@@ -74,7 +74,8 @@ describe('QQ settings sync', () => {
     const viaUid = el.reply(10, '');
     viaUid.replyElement = { ...viaUid.replyElement, senderUin: '0', senderUid: String(acc.uin) } as typeof viaUid.replyElement;
     await push(raw({ chatType: 2, peer: '990002', seq: 11, sender: '20002', elements: [viaUid, el.text('回你')] }));
-    await push(raw({ chatType: 2, peer: '990002', seq: 12, sender: '20002', elements: [el.reply(10, String(acc.uin)), el.text('再回你')] }));
+    // 和真实的 QQ 回复一样带着 "@被回复人"：只算回复我，不算 @我。
+    await push(raw({ chatType: 2, peer: '990002', seq: 12, sender: '20002', elements: [el.reply(10, String(acc.uin)), el.at(String(acc.uin), 'me'), el.text('再回你')] }));
     await push(raw({ chatType: 2, peer: '990002', seq: 13, sender: '20002', elements: [el.reply(10, '30003'), el.text('回别人')] }));
 
     expect(await chat(acc, 990002)).toMatchObject({ unread_count: 3, unread_mentions: 0, unread_mention_all: 0, unread_replies: 2 });
