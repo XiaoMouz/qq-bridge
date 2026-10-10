@@ -35,6 +35,7 @@ targets:
         CFBundleDisplayName: QQ Bridge
         NSMicrophoneUsageDescription: 按住麦克风录语音消息
         NSPhotoLibraryUsageDescription: 选择要发送的照片
+        NSPhotoLibraryAddUsageDescription: 把聊天里的图片保存到相册
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}

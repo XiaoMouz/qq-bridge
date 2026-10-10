@@ -55,27 +55,43 @@ export class ForwardService {
     if (cached && fresh) return { id: cached.id, state: cached.state, nodes: cached.nodes };
 
     let parentMsgId = message.qq_msg_id;
+    let resId: string | undefined;
     if (path.length > 0) {
       const parent = await this.level(message, chatId, seq, path.slice(0, -1));
       const node = parent.nodes[path[path.length - 1]!];
-      if (!node || !node.segments.some((s) => s.type === 'forward')) throw new InteractionError('not_found', `no nested forward at ${key}`);
+      const nested = node?.segments.find((s): s is Extract<Segment, { type: 'forward' }> => s.type === 'forward');
+      if (!node || !nested) throw new InteractionError('not_found', `no nested forward at ${key}`);
       parentMsgId = node.msgId;
+      resId = nested.forwardId;
+    } else {
+      const row = await maybeOne<{ segments: Segment[] }>(this.db, sql`select segments from messages where chat_id = ${chatId} and seq = ${seq}`);
+      resId = row?.segments.find((s): s is Extract<Segment, { type: 'forward' }> => s.type === 'forward')?.forwardId;
     }
-    if (!message.qq_msg_id || !parentMsgId) throw new InteractionError('unsupported', 'message has no QQ id');
+    if ((!message.qq_msg_id || !parentMsgId) && !resId) throw new InteractionError('unsupported', 'message has no QQ id');
 
     const hub = this.upstream();
     if (!hub?.isConnected(message.qq_account_id)) {
       if (cached) return { id: cached.id, state: cached.state, nodes: cached.nodes };
       throw new InteractionError('offline', 'QQ is offline');
     }
-    const res = await hub.call<{ result?: number; messages?: NtRawMessage[] }>(message.qq_account_id, 'x.forward', {
-      chatType: message.scene === 'group' ? 2 : 1,
-      peerUin: String(message.peer_id),
-      ...(message.peer_uid ? { peerUid: message.peer_uid } : {}),
-      rootMsgId: message.qq_msg_id,
-      parentMsgId,
-    });
-    const raws = res?.result ? [] : (res?.messages ?? []);
+    let raws: NtRawMessage[] = [];
+    if (message.qq_msg_id && parentMsgId) {
+      const res = await hub
+        .call<{ result?: number; messages?: NtRawMessage[] }>(message.qq_account_id, 'x.forward', {
+          chatType: message.scene === 'group' ? 2 : 1,
+          peerUin: String(message.peer_id),
+          ...(message.peer_uid ? { peerUid: message.peer_uid } : {}),
+          rootMsgId: message.qq_msg_id,
+          parentMsgId,
+        })
+        .catch(() => null);
+      raws = res?.result ? [] : (res?.messages ?? []);
+    }
+    // 卡片形式的聊天记录（com.tencent.multimsg）和拉不到的嵌套记录：按 resid 直接拉。
+    if (raws.length === 0 && resId) {
+      const res = await hub.call<{ messages?: NtRawMessage[] }>(message.qq_account_id, 'x.forward_by_resid', { resId }).catch(() => null);
+      raws = res?.messages ?? [];
+    }
     const nodes: ForwardNodeInput[] = [];
     for (const raw of raws) {
       const action = mapRawMessage(raw, { selfUin: message.uin, source: 'backfill' });

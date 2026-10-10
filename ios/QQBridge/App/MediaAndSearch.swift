@@ -12,37 +12,22 @@ struct MediaViewer: View {
   let chatId: Int64
   @Environment(\.dismiss) private var dismiss
   @State private var player: AVPlayer?
-  @State private var scale: CGFloat = 1
   @State private var videoFailed = false
-  @State private var originalFailed = false
-  @State private var originalSha: String?
 
   var body: some View {
+    if target.kind == .image {
+      ImageViewer(target: target, session: session, chatId: chatId)
+    } else {
+      videoBody
+    }
+  }
+
+  private var videoBody: some View {
     ZStack(alignment: .topTrailing) {
       Color.black.ignoresSafeArea()
       switch target.kind {
       case .image:
-        // 先显示缩略图（QQ 给的，长边约 1280px），原图到了自动换上：手机上有就直接用，没有就向服务端要（服务端当场从 QQ 拉）。
-        let media = target.media
-        let placeholderSha = media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256
-        CachedImage(sha256: originalSha, chatId: chatId, onFailure: { originalFailed = true }, animated: true) {
-          CachedImage(sha256: placeholderSha.isEmpty ? nil : placeholderSha, chatId: chatId) { ProgressView().tint(.white) }
-            .aspectRatio(contentMode: .fit)
-            .overlay { if !originalFailed { ProgressView().tint(.white).controlSize(.large) } }
-        }
-        .aspectRatio(contentMode: .fit)
-        .scaleEffect(scale)
-        .gesture(MagnifyGesture().onChanged { scale = max(1, $0.magnification) }.onEnded { _ in withAnimation { scale = 1 } })
-        .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2.5 } }
-        .onTapGesture { dismiss() }
-        if originalFailed {
-          VStack {
-            Spacer()
-            Text("原图已过期，QQ 上也拿不到了").font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
-              .glassEffect(.regular, in: Capsule()).padding(.bottom, 40)
-          }
-          .frame(maxWidth: .infinity)
-        }
+        EmptyView()
       case .video:
         if let player {
           VideoPlayer(player: player).ignoresSafeArea()
@@ -62,7 +47,6 @@ struct MediaViewer: View {
       .padding()
     }
     .task {
-      if target.kind == .image { await loadOriginal() }
       guard target.kind == .video, target.media.state == .stored || target.media.state == .purged else { return }
       let sha = target.media.playableSha256.isEmpty ? target.media.sha256 : target.media.playableSha256
       if target.media.state == .purged {
@@ -81,31 +65,6 @@ struct MediaViewer: View {
     .onDisappear { player?.pause() }
   }
 
-  /// 原图：服务端有（或清理过、能从 QQ 拉回）就直接按 sha256 取；从没下过的先让服务端当场从 QQ 拉。
-  private func loadOriginal() async {
-    let media = target.media
-    if !media.sha256.isEmpty {
-      originalSha = media.sha256
-      return
-    }
-    guard target.seq > 0 else {
-      originalFailed = media.thumbSha256.isEmpty
-      return
-    }
-    var ref = Qqbridge_V1_MediaRef()
-    ref.chatID = target.chatId
-    ref.seq = target.seq
-    ref.ord = media.ord
-    var req = Qqbridge_V1_RequestMediaRequest()
-    req.refs = [ref]
-    req.original = true
-    let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
-    if let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty {
-      originalSha = got.sha256
-    } else {
-      originalFailed = true
-    }
-  }
 }
 
 // MARK: - 合并转发
@@ -119,6 +78,17 @@ struct ForwardView: View {
   @State private var nodes: [Qqbridge_V1_ForwardNode] = []
   @State private var unavailable = false
   @State private var loading = true
+
+  static func downloading(_ node: Qqbridge_V1_ForwardNode) -> Bool {
+    node.segments.contains { seg in
+      switch seg.kind {
+      case .image(let i): i.media.state == .pending
+      case .video(let v): v.media.state == .pending
+      case .marketFace(let f): f.media.state == .pending
+      default: false
+      }
+    }
+  }
 
   var body: some View {
     List {
@@ -150,13 +120,18 @@ struct ForwardView: View {
       req.chatID = chatId
       req.seq = seq
       req.path = path
-      if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get() {
-        nodes = res.nodes
-        unavailable = res.unavailable
-      } else {
-        unavailable = true
+      // 里面的图片 / 表情还在下载时每 2 秒再拉一次（最多 1 分钟），下好就显示。
+      for round in 0..<30 {
+        if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get() {
+          nodes = res.nodes
+          unavailable = res.unavailable
+        } else if round == 0 {
+          unavailable = true
+        }
+        loading = false
+        guard nodes.contains(where: Self.downloading) else { break }
+        try? await Task.sleep(for: .seconds(2))
       }
-      loading = false
     }
   }
 }
@@ -174,6 +149,13 @@ struct ForwardSegmentView: View {
     case .text(let t): Text(t.text).textSelection(.enabled)
     case .mention(let m): Text("@\(m.name.isEmpty ? String(m.userID) : m.name)").bold()
     case .face(let f): QQFace.inline(f.faceID, name: f.name)
+    case .image(let i) where i.sticker:
+      // 表情：和聊天里一样，原图、会动、不加底。
+      CachedImage(sha256: i.media.state == .stored ? i.media.sha256 : (i.media.thumbSha256.isEmpty ? nil : i.media.thumbSha256), chatId: chatId, maxPixel: 420, animated: true) {
+        Text(i.summary.isEmpty ? "[表情]" : i.summary).font(.caption).foregroundStyle(.secondary)
+      }
+      .aspectRatio(contentMode: .fit)
+      .frame(maxWidth: 140, maxHeight: 140)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId)
         .onTapGesture { media = MediaTarget(kind: .image, media: i.media) }

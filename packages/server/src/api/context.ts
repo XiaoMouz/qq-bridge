@@ -6,6 +6,7 @@ import type { NapcatWebUi } from '../admin/napcat-webui.ts';
 import type { CallService } from '../calls/service.ts';
 import type { ContactService } from '../contacts/service.ts';
 import type { ForwardService } from '../messages/forwards.ts';
+import type { MessageForwarder } from '../messages/forwarding.ts';
 import type { MessageInteractions } from '../messages/interactions.ts';
 import type { Db } from '../db/client.ts';
 import type { DialogPrefs } from '../dialogs/prefs.ts';
@@ -36,6 +37,7 @@ export interface ApiDeps {
   uploads: UploadService;
   processor: MediaProcessor;
   outbox: OutboxService;
+  forwarder: MessageForwarder;
   dialogPrefs: DialogPrefs;
   cleaner: MediaCleaner;
   /** 上游（NapCat 插件）；没有配置 UPSTREAM_TOKEN 时为 null。发送、撤回、已读回写都经过它。 */

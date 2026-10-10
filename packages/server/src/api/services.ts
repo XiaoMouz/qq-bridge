@@ -1,4 +1,5 @@
 // ConnectRPC 服务实现（proto 定义见 packages/protocol/proto/qqbridge/v1）。
+import { ForwardError } from '../messages/forwarding.ts';
 import type { MessageInitShape } from '@bufbuild/protobuf';
 import { Code, ConnectError, type ConnectRouter, type ServiceImpl } from '@connectrpc/connect';
 import {
@@ -332,6 +333,24 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         }
       }
       return { chatPts: BigInt(res.chatPts), messages: res.messages.map(messageToProto), events: res.events.map(chatEventToProto) };
+    },
+    async forwardMessages(req, ctx) {
+      const auth = requireAuth(ctx);
+      try {
+        const entries = await deps.forwarder.forward(auth.accountId, auth.deviceId, {
+          fromChatId: toSafeNumber(req.fromChatId, 'from_chat_id'),
+          seqs: req.seqs.map((s) => toSafeNumber(s, 'seq')),
+          toChatIds: req.toChatIds.map((c) => toSafeNumber(c, 'to_chat_id')),
+          bundle: req.bundle,
+        });
+        return { entries: entries.map(outboxToProto) };
+      } catch (error) {
+        if (error instanceof ForwardError || error instanceof OutboxError) {
+          const code = { invalid: Code.InvalidArgument, not_found: Code.NotFound, media_missing: Code.FailedPrecondition }[error.code];
+          throw new ConnectError(error.message, code);
+        }
+        throw error;
+      }
     },
     async sendMessage(req, ctx) {
       const auth = requireAuth(ctx);

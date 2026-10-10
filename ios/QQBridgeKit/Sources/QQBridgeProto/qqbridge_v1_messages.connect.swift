@@ -41,6 +41,13 @@ public protocol Qqbridge_V1_MessageServiceClientInterface: Sendable {
     /// 会话里的共享媒体（图片、视频、文件……），按消息倒序分页。
     @available(iOS 13, *)
     func `listSharedMedia`(request: Qqbridge_V1_ListSharedMediaRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListSharedMediaResponse>
+
+    /// 转发：把一个会话里的几条消息转发到一个或几个会话。
+    /// - bundle = false：逐条转发（按原来的顺序，每条一个新消息，看起来像自己发的）；
+    /// - bundle = true：打包成 QQ 的"聊天记录"（合并转发），保留每条的发送者号码和昵称。
+    /// 原图还没下载的会先从 QQ 拉；拉不到的图片用缩略图，再不行就换成"[图片]"文字。
+    @available(iOS 13, *)
+    func `forwardMessages`(request: Qqbridge_V1_ForwardMessagesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ForwardMessagesResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MessageServiceClientInterface`.
@@ -86,6 +93,11 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
         return await self.client.unary(path: "/qqbridge.v1.MessageService/ListSharedMedia", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `forwardMessages`(request: Qqbridge_V1_ForwardMessagesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ForwardMessagesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/ForwardMessages", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let getHistory = Connect.MethodSpec(name: "GetHistory", service: "qqbridge.v1.MessageService", type: .unary)
@@ -95,6 +107,7 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
             public static let react = Connect.MethodSpec(name: "React", service: "qqbridge.v1.MessageService", type: .unary)
             public static let getForward = Connect.MethodSpec(name: "GetForward", service: "qqbridge.v1.MessageService", type: .unary)
             public static let listSharedMedia = Connect.MethodSpec(name: "ListSharedMedia", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let forwardMessages = Connect.MethodSpec(name: "ForwardMessages", service: "qqbridge.v1.MessageService", type: .unary)
         }
     }
 }

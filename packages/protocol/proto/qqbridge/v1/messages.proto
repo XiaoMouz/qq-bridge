@@ -22,6 +22,11 @@ service MessageService {
   rpc GetForward(GetForwardRequest) returns (GetForwardResponse);
   // 会话里的共享媒体（图片、视频、文件……），按消息倒序分页。
   rpc ListSharedMedia(ListSharedMediaRequest) returns (ListSharedMediaResponse);
+  // 转发：把一个会话里的几条消息转发到一个或几个会话。
+  // - bundle = false：逐条转发（按原来的顺序，每条一个新消息，看起来像自己发的）；
+  // - bundle = true：打包成 QQ 的"聊天记录"（合并转发），保留每条的发送者号码和昵称。
+  // 原图还没下载的会先从 QQ 拉；拉不到的图片用缩略图，再不行就换成"[图片]"文字。
+  rpc ForwardMessages(ForwardMessagesRequest) returns (ForwardMessagesResponse);
 }
 
 message ReactRequest {
@@ -155,4 +160,16 @@ message GetHistoryResponse {
   repeated Message messages = 2;
   // 这一页时间范围内的服务事件（最新一页包含最后一条消息之后的事件）。
   repeated ChatEvent events = 3;
+}
+
+message ForwardMessagesRequest {
+  int64 from_chat_id = 1;
+  repeated int64 seqs = 2;
+  repeated int64 to_chat_ids = 3;
+  bool bundle = 4;
+}
+
+message ForwardMessagesResponse {
+  // 放进发件箱的条目（之后按发件箱状态同步）。
+  repeated OutboxEntry entries = 1;
 }

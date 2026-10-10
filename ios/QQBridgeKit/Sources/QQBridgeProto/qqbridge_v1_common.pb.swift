@@ -1252,6 +1252,15 @@ public nonisolated struct Qqbridge_V1_OutgoingSegment: Sendable {
     set {kind = .file(newValue)}
   }
 
+  /// 合并转发（打包转发）：由服务端 ForwardMessages 生成，客户端只读（显示发件箱时用）。
+  public var forward: Qqbridge_V1_OutgoingForward {
+    get {
+      if case .forward(let v)? = kind {return v}
+      return Qqbridge_V1_OutgoingForward()
+    }
+    set {kind = .forward(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Kind: Equatable, Sendable {
@@ -1264,8 +1273,38 @@ public nonisolated struct Qqbridge_V1_OutgoingSegment: Sendable {
     case record(Qqbridge_V1_OutgoingMedia)
     case video(Qqbridge_V1_OutgoingMedia)
     case file(Qqbridge_V1_OutgoingMedia)
+    /// 合并转发（打包转发）：由服务端 ForwardMessages 生成，客户端只读（显示发件箱时用）。
+    case forward(Qqbridge_V1_OutgoingForward)
 
   }
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_OutgoingForward: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var nodes: [Qqbridge_V1_OutgoingForwardNode] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_OutgoingForwardNode: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var userID: Int64 = 0
+
+  public var nickname: String = String()
+
+  public var segments: [Qqbridge_V1_OutgoingSegment] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -2956,7 +2995,7 @@ nonisolated extension Qqbridge_V1_OutgoingMedia: SwiftProtobuf.Message, SwiftPro
 
 nonisolated extension Qqbridge_V1_OutgoingSegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OutgoingSegment"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{3}mention_user_id\0\u{3}mention_all\0\u{3}face_id\0\u{1}image\0\u{1}record\0\u{1}video\0\u{1}file\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}text\0\u{3}mention_user_id\0\u{3}mention_all\0\u{3}face_id\0\u{1}image\0\u{1}record\0\u{1}video\0\u{1}file\0\u{1}forward\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3048,6 +3087,19 @@ nonisolated extension Qqbridge_V1_OutgoingSegment: SwiftProtobuf.Message, SwiftP
           self.kind = .file(v)
         }
       }()
+      case 9: try {
+        var v: Qqbridge_V1_OutgoingForward?
+        var hadOneofValue = false
+        if let current = self.kind {
+          hadOneofValue = true
+          if case .forward(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.kind = .forward(v)
+        }
+      }()
       default: break
       }
     }
@@ -3091,6 +3143,10 @@ nonisolated extension Qqbridge_V1_OutgoingSegment: SwiftProtobuf.Message, SwiftP
       guard case .file(let v)? = self.kind else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
+    case .forward?: try {
+      guard case .forward(let v)? = self.kind else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -3098,6 +3154,76 @@ nonisolated extension Qqbridge_V1_OutgoingSegment: SwiftProtobuf.Message, SwiftP
 
   public static func ==(lhs: Qqbridge_V1_OutgoingSegment, rhs: Qqbridge_V1_OutgoingSegment) -> Bool {
     if lhs.kind != rhs.kind {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_OutgoingForward: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".OutgoingForward"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}nodes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.nodes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.nodes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.nodes, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_OutgoingForward, rhs: Qqbridge_V1_OutgoingForward) -> Bool {
+    if lhs.nodes != rhs.nodes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_OutgoingForwardNode: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".OutgoingForwardNode"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{1}nickname\0\u{1}segments\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.nickname) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.segments) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.userID != 0 {
+      try visitor.visitSingularInt64Field(value: self.userID, fieldNumber: 1)
+    }
+    if !self.nickname.isEmpty {
+      try visitor.visitSingularStringField(value: self.nickname, fieldNumber: 2)
+    }
+    if !self.segments.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.segments, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_OutgoingForwardNode, rhs: Qqbridge_V1_OutgoingForwardNode) -> Bool {
+    if lhs.userID != rhs.userID {return false}
+    if lhs.nickname != rhs.nickname {return false}
+    if lhs.segments != rhs.segments {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

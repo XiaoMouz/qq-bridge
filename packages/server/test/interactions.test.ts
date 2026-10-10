@@ -149,7 +149,9 @@ describe('ForwardService', () => {
     await ingest.ingestMessage(acc.qqAccountId, { ...textMessage('group', 940005, 1, 20002, { extra: [{ type: 'forward', forwardId: 'gone' }] }), qqMsgId: '1' });
     const chat = await chatIdOf(acc, 940005);
     expect((await forwards.get(acc.accountId, chat, 1, [])).state).toBe('unavailable');
+    // 第一次：按 msgId 拉不到，再按 resid 试一次；之后一段时间内直接用"拿不到"的缓存，不再问 QQ。
+    expect(hub.calls.map((c) => c.action)).toEqual(['x.forward', 'x.forward_by_resid']);
     await forwards.get(acc.accountId, chat, 1, []);
-    expect(hub.calls).toHaveLength(1);
+    expect(hub.calls).toHaveLength(2);
   });
 });

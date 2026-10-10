@@ -21,6 +21,9 @@ struct ChatScreen: View {
   @State private var members = GroupMembers()
   @State private var avatars = AvatarBook()
   @State private var requester = MediaRequester()
+  @State private var selection = MessageSelection()
+  /// 要转发的消息和方式（选好会话后发给服务端）。
+  @State private var pendingForward: PendingForward?
   @State private var voice = VoicePlayer()
   @State private var actions = ChatActions()
   @State private var sendError: String?
@@ -59,6 +62,7 @@ struct ChatScreen: View {
         members: members,
         avatars: avatars,
         requester: requester,
+        selection: selection,
         voice: voice,
         actions: actions,
         session: session
@@ -66,7 +70,15 @@ struct ChatScreen: View {
       onReachTop: loadOlder,
       onBottomChange: { atBottom = $0; markReadIfNeeded() }
     )
-    .safeAreaBar(edge: .bottom) { inputArea }
+    .safeAreaBar(edge: .bottom) {
+      if selection.active { selectionBar } else { inputArea }
+    }
+    .sheet(item: $pendingForward) { pending in
+      ChatPicker(session: session) { target in
+        pendingForward = nil
+        Task { await forward(pending, to: target) }
+      }
+    }
     .toolbar(.hidden, for: .tabBar)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -80,7 +92,11 @@ struct ChatScreen: View {
         .buttonStyle(.plain)
       }
       ToolbarItem(placement: .topBarTrailing) {
-        Button("详情", systemImage: isGroup ? "person.3" : "person.crop.circle") { showInfo = true }
+        if selection.active {
+          Button("取消") { selection.end() }
+        } else {
+          Button("详情", systemImage: isGroup ? "person.3" : "person.crop.circle") { showInfo = true }
+        }
       }
     }
     .navigationDestination(isPresented: $showInfo) {
@@ -166,6 +182,41 @@ struct ChatScreen: View {
     if model.isTyping(chatId) { return "正在输入…" }
     if isGroup, let count = peer?.memberCount, count > 0 { return "\(count) 人" }
     return nil
+  }
+
+  // MARK: 多选
+
+  private var selectionBar: some View {
+    HStack(spacing: 10) {
+      Text("已选 \(selection.seqs.count) 条").font(.subheadline).foregroundStyle(.secondary)
+      Spacer()
+      Button("逐条转发", systemImage: "arrowshape.turn.up.right") {
+        pendingForward = PendingForward(seqs: selection.seqs.sorted(), bundle: false)
+      }
+      .buttonStyle(.glass)
+      Button("合并转发", systemImage: "tray.full") {
+        pendingForward = PendingForward(seqs: selection.seqs.sorted(), bundle: true)
+      }
+      .buttonStyle(.glassProminent)
+    }
+    .disabled(selection.seqs.isEmpty)
+    .padding(.horizontal, 14)
+    .padding(.vertical, 10)
+  }
+
+  private func forward(_ pending: PendingForward, to target: Int64) async {
+    var req = Qqbridge_V1_ForwardMessagesRequest()
+    req.fromChatID = chatId
+    req.seqs = pending.seqs
+    req.toChatIds = [target]
+    req.bundle = pending.bundle
+    do {
+      let res = try await session.api.messages.forwardMessages(request: req, headers: session.api.headers).get()
+      for entry in res.entries { try? session.store.upsertLocalOutbox(entry) }
+      selection.end()
+    } catch {
+      sendError = "转发失败：\(error)"
+    }
   }
 
   // MARK: 输入区
@@ -282,6 +333,7 @@ struct ChatScreen: View {
       }
     }
     actions.openMedia = { mediaTarget = $0 }
+    actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }
     actions.openFile = { file in
       Task {
         // 原件可能已清理（按需会话），下载接口会当场从 QQ 拉回；拿不到就提示。
@@ -429,4 +481,10 @@ extension [ChatItem] {
     for item in reversed() { if case .message(let m) = item { return m.seq } }
     return nil
   }
+}
+
+struct PendingForward: Identifiable {
+  let seqs: [Int64]
+  let bundle: Bool
+  var id: String { "\(bundle):\(seqs)" }
 }

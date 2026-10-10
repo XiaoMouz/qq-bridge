@@ -196,6 +196,14 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       return { result: res?.result ?? 0, errMsg: res?.errMsg ?? '', messages: Array.isArray(res?.msgList) ? res.msgList : [] };
     },
 
+    /** 按 resid 拉合并转发的内容（用卡片发的聊天记录、或 getMultiMsg 拿不到的嵌套记录）。 */
+    'x.forward_by_resid': async (params: { resId?: string }) => {
+      if (!params?.resId) throw new Error('x.forward_by_resid: resId is required');
+      const fetch = requireFn<(resId: string) => Promise<unknown[]>>(ctx.core?.apis?.PacketApi?.pkt?.operation, 'FetchForwardMsg', 'PacketApi');
+      const messages = await fetch(String(params.resId));
+      return { result: 0, messages: Array.isArray(messages) ? messages : [] };
+    },
+
     /** 媒体换新下载链接（QQ 的链接带 rkey，会过期）。拿不到返回 url = null。 */
     'x.media_url': async (locator: MediaLocator) => {
       if (!locator || typeof locator.elementType !== 'number') throw new Error('x.media_url: locator is required');

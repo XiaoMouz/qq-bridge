@@ -211,7 +211,8 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
   const media: IncomingMedia[] = [];
   const locatorBase = { chatType: raw.chatType, peerUid: raw.peerUid ?? '', msgId: raw.msgId ?? '' };
 
-  for (const el of raw.elements ?? []) {
+  for (const original of raw.elements ?? []) {
+    const el = withElementType(original);
     const locator = { ...locatorBase, elementId: el.elementId, elementType: el.elementType };
     const ord = media.length;
     switch (el.elementType) {
@@ -366,7 +367,9 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
       }
       case NtElementType.ARK: {
         const json = el.arkElement?.bytesData ?? '';
-        segments.push({ type: 'light_app', appName: arkAppName(json), json });
+        const multi = multiMsgArk(json);
+        // 用卡片发出的合并转发（例如自己从这里打包转发出去的）：和普通的聊天记录一样能点开。
+        segments.push(multi ?? { type: 'light_app', appName: arkAppName(json), json });
         break;
       }
       case NtElementType.MARKDOWN:
@@ -526,3 +529,46 @@ function ignore(reason: string): UpstreamAction {
 }
 
 export type { NtElement };
+
+/** com.tencent.multimsg 卡片（合并转发）→ 聊天记录段；不是这种卡片或缺 resid 时返回 null。 */
+export function multiMsgArk(json: string): Extract<Segment, { type: 'forward' }> | null {
+  try {
+    const card = JSON.parse(json) as {
+      app?: string;
+      meta?: { detail?: { resid?: string; source?: string; summary?: string; news?: { text?: string }[] } };
+    };
+    const detail = card.meta?.detail;
+    if (card.app !== 'com.tencent.multimsg' || !detail?.resid) return null;
+    const preview = (detail.news ?? []).map((n) => n.text ?? '').filter(Boolean).slice(0, 4);
+    return {
+      type: 'forward',
+      forwardId: detail.resid,
+      ...(detail.source ? { title: detail.source } : {}),
+      ...(preview.length > 0 ? { preview } : {}),
+      ...(detail.summary ? { summary: detail.summary } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 按 resid 拉回的合并转发（NapCat 自己解析的包）元素类型都是 0：按带了哪种内容补上类型。 */
+const ELEMENT_FIELDS: [keyof NtElement, number][] = [
+  ['textElement', NtElementType.TEXT],
+  ['picElement', NtElementType.PIC],
+  ['fileElement', NtElementType.FILE],
+  ['pttElement', NtElementType.PTT],
+  ['videoElement', NtElementType.VIDEO],
+  ['faceElement', NtElementType.FACE],
+  ['replyElement', NtElementType.REPLY],
+  ['arkElement', NtElementType.ARK],
+  ['marketFaceElement', NtElementType.MFACE],
+  ['markdownElement', NtElementType.MARKDOWN],
+  ['multiForwardMsgElement', NtElementType.MULTIFORWARD],
+];
+
+function withElementType(el: NtElement): NtElement {
+  if (el.elementType) return el;
+  const hit = ELEMENT_FIELDS.find(([field]) => (el as unknown as Record<string, unknown>)[field as string] != null);
+  return hit ? { ...el, elementType: hit[1] } : el;
+}

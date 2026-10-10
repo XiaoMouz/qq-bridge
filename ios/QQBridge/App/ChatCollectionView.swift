@@ -38,6 +38,8 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var firstLoad = true
   /// 贴底：打开会话后、用户自己往上滑之前，内容高度变了（图片加载完撑开单元格）也保持在最底部。
   private var stickToBottom = true
+  /// 多选中：来了新消息也不自动滚到底（免得正在点的那条跑掉）。
+  private var selecting: Bool { messageContext?.selection.active ?? false }
   private var contentSizeObservation: NSKeyValueObservation?
 
   override func viewDidLoad() {
@@ -56,7 +58,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     contentSizeObservation = collectionView.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
       guard change.oldValue != change.newValue else { return }
       MainActor.assumeIsolated {
-        guard let self, self.stickToBottom, !self.collectionView.isTracking else { return }
+        guard let self, self.stickToBottom, !self.collectionView.isTracking, !self.selecting else { return }
         self.scrollToBottom(animated: false)
       }
     }
@@ -100,7 +102,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
       } else if prepended {
         // 在顶部插入了更早的消息：保持离底部的距离不变，看到的内容就不会跳。
         self.collectionView.contentOffset.y = self.collectionView.contentSize.height - offsetFromBottom
-      } else if (nearBottom || self.stickToBottom), ids.last != oldIds.last {
+      } else if !self.selecting, nearBottom || self.stickToBottom, ids.last != oldIds.last {
         self.scrollToBottom(animated: !self.stickToBottom)
       }
     }

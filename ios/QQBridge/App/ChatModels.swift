@@ -81,6 +81,8 @@ final class ChatActions {
   var recall: (Qqbridge_V1_Message) -> Void = { _ in }
   var openMedia: (MediaTarget) -> Void = { _ in }
   var openFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
+  /// 转发这一条（选会话）。
+  var forward: (Qqbridge_V1_Message) -> Void = { _ in }
   var playVoice: (Qqbridge_V1_RecordSegment) -> Void = { _ in }
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
 }
@@ -312,6 +314,30 @@ final class VoiceRecorder {
     recording = false
     willCancel = false
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+  }
+}
+
+/// 多选：长按"多选"进入，点消息勾选 / 取消，底部按钮逐条转发或合并转发。
+@MainActor
+@Observable
+final class MessageSelection {
+  var active = false
+  private(set) var seqs: Set<Int64> = []
+
+  func start(with seq: Int64) {
+    active = true
+    seqs = [seq]
+  }
+
+  func toggle(_ seq: Int64) {
+    if seqs.contains(seq) { seqs.remove(seq) } else { seqs.insert(seq) }
+  }
+
+  func contains(_ seq: Int64) -> Bool { seqs.contains(seq) }
+
+  func end() {
+    active = false
+    seqs = []
   }
 }
 

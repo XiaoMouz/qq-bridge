@@ -8,7 +8,18 @@ export type OutgoingSegment =
   | { type: 'image'; sha256: string; summary?: string; sticker?: boolean }
   | { type: 'record'; sha256: string; durationSec?: number }
   | { type: 'video'; sha256: string }
-  | { type: 'file'; sha256: string; name: string };
+  | { type: 'file'; sha256: string; name: string }
+  /** 合并转发（打包）：每个节点带原发送者的 QQ 号和昵称，QQ 里显示成"聊天记录"。必须单独成条。 */
+  | { type: 'forward'; nodes: ForwardNode[] };
+
+export interface ForwardNode {
+  userId: number;
+  nickname: string;
+  /** 节点内容：不能再套合并转发，也不放语音 / 视频 / 文件以外的独立段限制。 */
+  segments: OutgoingSegment[];
+}
+
+export const MAX_FORWARD_NODES = 100;
 
 export interface OutgoingMessage {
   segments: OutgoingSegment[];
@@ -17,7 +28,7 @@ export interface OutgoingMessage {
 }
 
 /** QQ 要求单独成条的内容：语音、视频、文件。 */
-const STANDALONE = new Set<OutgoingSegment['type']>(['record', 'video', 'file']);
+const STANDALONE = new Set<OutgoingSegment['type']>(['record', 'video', 'file', 'forward']);
 const SHA256 = /^[0-9a-f]{64}$/;
 export const MAX_OUTGOING_TEXT = 5000;
 export const MAX_OUTGOING_SEGMENTS = 50;
@@ -51,6 +62,16 @@ export function validateOutgoing(msg: OutgoingMessage): string | null {
         if (!SHA256.test(seg.sha256)) return 'invalid file sha256';
         if (!seg.name.trim() || seg.name.length > 255 || /[/\\\0]/.test(seg.name)) return 'invalid file name';
         break;
+      case 'forward': {
+        if (seg.nodes.length === 0 || seg.nodes.length > MAX_FORWARD_NODES) return `forward needs 1–${MAX_FORWARD_NODES} nodes`;
+        for (const node of seg.nodes) {
+          if (!Number.isSafeInteger(node.userId) || node.userId <= 0) return 'invalid forward node sender';
+          if (node.segments.some((s) => s.type === 'forward')) return 'nested forward';
+          const inner = validateOutgoing({ segments: node.segments });
+          if (inner) return `forward node: ${inner}`;
+        }
+        break;
+      }
       default:
         return 'unknown segment';
     }
@@ -66,6 +87,9 @@ export function validateOutgoing(msg: OutgoingMessage): string | null {
 /** 消息里引用到的媒体（发送前要确认服务端都已有这些内容）。 */
 export function outgoingMedia(segments: readonly OutgoingSegment[]): string[] {
   const shas: string[] = [];
-  for (const seg of segments) if ('sha256' in seg) shas.push(seg.sha256);
+  for (const seg of segments) {
+    if ('sha256' in seg) shas.push(seg.sha256);
+    if (seg.type === 'forward') for (const node of seg.nodes) shas.push(...outgoingMedia(node.segments));
+  }
   return [...new Set(shas)];
 }

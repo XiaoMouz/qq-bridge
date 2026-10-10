@@ -12,6 +12,7 @@ struct MessageContext {
   let members: GroupMembers
   let avatars: AvatarBook
   let requester: MediaRequester
+  let selection: MessageSelection
   let voice: VoicePlayer
   let actions: ChatActions
   let session: Session
@@ -41,7 +42,21 @@ struct MessageRow: View {
       case .message(let m) where m.state == .recalled:
         Notice(text: m.senderID == context.selfUin ? "你撤回了一条消息" : "\(context.name(of: m.senderID)) 撤回了一条消息")
       case .message(let m):
-        MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
+        if context.selection.active {
+          // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
+          HStack(spacing: 8) {
+            Image(systemName: context.selection.contains(m.seq) ? "checkmark.circle.fill" : "circle")
+              .font(.title3)
+              .foregroundStyle(context.selection.contains(m.seq) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+              .padding(.leading, 12)
+            MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
+              .allowsHitTesting(false)
+          }
+          .contentShape(Rectangle())
+          .onTapGesture { context.selection.toggle(m.seq) }
+        } else {
+          MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
+        }
       case .outgoing(let o):
         OutgoingRow(entry: o, session: context.session)
       }
@@ -120,6 +135,8 @@ struct MessageBubbleRow: View {
 
   @ViewBuilder private var menu: some View {
     Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
+    Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
+    Button("多选", systemImage: "checkmark.circle") { context.selection.start(with: message.seq) }
     if !message.text.isEmpty {
       Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
     }
@@ -534,6 +551,7 @@ struct OutgoingRow: View {
         case .faceID(let f): QQFace.text(f)
         case .mentionUserID(let u): "@\(u) "
         case .mentionAll: "@全体成员 "
+        case .forward(let f): "[聊天记录] \(f.nodes.count) 条"
         case .none: ""
         }
       }.joined())

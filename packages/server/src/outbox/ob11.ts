@@ -69,6 +69,15 @@ export function toOb11(msg: OutgoingMessage, url: MediaUrl, mimes: ReadonlyMap<s
       case 'file':
         out.push({ type: 'file', data: { file: url(seg.sha256, seg.name), name: seg.name } });
         break;
+      case 'forward':
+        // NapCat 的 send_*_msg 收到 node 段就发成合并转发；自定义节点保留原发送者的号码和昵称。
+        for (const node of seg.nodes) {
+          out.push({
+            type: 'node',
+            data: { user_id: String(node.userId), nickname: node.nickname, content: toOb11({ segments: node.segments }, url, mimes) },
+          });
+        }
+        break;
     }
   }
   return out;

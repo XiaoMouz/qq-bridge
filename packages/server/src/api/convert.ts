@@ -338,6 +338,15 @@ export function outgoingToProto(seg: DomainOutgoingSegment): MessageInitShape<ty
       return { kind: { case: 'video', value: { sha256: seg.sha256 } } };
     case 'file':
       return { kind: { case: 'file', value: { sha256: seg.sha256, name: seg.name } } };
+    case 'forward':
+      return {
+        kind: {
+          case: 'forward',
+          value: {
+            nodes: seg.nodes.map((n) => ({ userId: BigInt(n.userId), nickname: n.nickname, segments: n.segments.map(outgoingToProto) })),
+          },
+        },
+      };
   }
 }
 

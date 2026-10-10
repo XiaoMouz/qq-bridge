@@ -323,7 +323,19 @@ message OutgoingSegment {
     OutgoingMedia record = 6;
     OutgoingMedia video = 7;
     OutgoingMedia file = 8;
+    // 合并转发（打包转发）：由服务端 ForwardMessages 生成，客户端只读（显示发件箱时用）。
+    OutgoingForward forward = 9;
   }
+}
+
+message OutgoingForward {
+  repeated OutgoingForwardNode nodes = 1;
+}
+
+message OutgoingForwardNode {
+  int64 user_id = 1;
+  string nickname = 2;
+  repeated OutgoingSegment segments = 3;
 }
 
 enum OutboxState {

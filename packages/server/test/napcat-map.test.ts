@@ -167,6 +167,25 @@ describe('NapCat mapping', () => {
     expect(plainText(segments)).toBe('[给你一拳]签到成功');
   });
 
+  it('maps a merged-forward card (com.tencent.multimsg) to a forward that can be opened', () => {
+    const card = JSON.stringify({
+      app: 'com.tencent.multimsg',
+      meta: { detail: { resid: 'RES123', source: '群聊的聊天记录', summary: '查看2条转发消息', news: [{ text: 'A: 你好' }, { text: 'B: [图片]' }] } },
+    });
+    const action = mapRawMessage(raw({ chatType: 2, peer: '123456', seq: 88, sender: '20002', elements: [el.ark(card)] }), { selfUin: SELF, source: 'realtime' });
+    if (action.type !== 'message') throw new Error(action.type);
+    expect(action.message.segments).toEqual([
+      { type: 'forward', forwardId: 'RES123', title: '群聊的聊天记录', preview: ['A: 你好', 'B: [图片]'], summary: '查看2条转发消息' },
+    ]);
+  });
+
+  it('fills in element types that packet-parsed forwards leave at 0', () => {
+    const text = { ...el.text('军团还是联盟'), elementType: 0 };
+    const action = mapRawMessage(raw({ chatType: 2, peer: '123456', seq: 89, sender: '20002', elements: [text] }), { selfUin: SELF, source: 'backfill' });
+    if (action.type !== 'message') throw new Error(action.type);
+    expect(action.message.segments).toEqual([{ type: 'text', text: '军团还是联盟' }]);
+  });
+
   it('maps history messages without OneBot segments: no URL, but a locator to fetch one later', () => {
     const r = raw({ chatType: 2, peer: '123456', seq: 100, sender: '20002', elements: [el.pic({ md5: MD5_B, size: 10, w: 1, h: 1, sticker: true })] });
     const action = mapRawMessage(r, { selfUin: SELF, source: 'backfill' });

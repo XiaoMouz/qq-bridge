@@ -27,6 +27,7 @@ import { AdminService } from './admin/service.ts';
 import { NapcatWebUi } from './admin/napcat-webui.ts';
 import { ContactService } from './contacts/service.ts';
 import { TierManager } from './media/tiering.ts';
+import { MessageForwarder } from './messages/forwarding.ts';
 import { StickerService } from './media/stickers.ts';
 import { ForwardService } from './messages/forwards.ts';
 import { MessageInteractions } from './messages/interactions.ts';
@@ -63,6 +64,7 @@ export function createDeps(
     uploads: new UploadService(db, media, path.join(root, 'uploads'), opts.uploadMaxBytes, processor),
     processor,
     outbox: new OutboxService(db, writers),
+    forwarder: null as unknown as MessageForwarder,
     dialogPrefs: new DialogPrefs(writers),
     cleaner: new MediaCleaner(db, media, logger.child({ component: 'cleanup' })),
     upstream: null,
@@ -88,7 +90,8 @@ export function createDeps(
     signer: new MediaUrlSigner(opts.mediaUrlSecret),
     activeChats: new ActiveChats(),
     logger,
-  };
+  };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow);
+
   return deps;
 }
 
