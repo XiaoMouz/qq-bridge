@@ -596,6 +596,9 @@ public nonisolated struct Qqbridge_V1_FaceSegment: Sendable {
 
   public var isLarge: Bool = false
 
+  /// QQ 给的表情名（如「微笑」），客户端本地没有这个表情时显示。
+  public var name: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -997,6 +1000,7 @@ public nonisolated struct Qqbridge_V1_Dialog: @unchecked Sendable {
     set {_uniqueStorage()._unreadCount = newValue}
   }
 
+  /// 未读里 @我 的条数。
   public var unreadMentions: UInt32 {
     get {_storage._unreadMentions}
     set {_uniqueStorage()._unreadMentions = newValue}
@@ -1047,6 +1051,30 @@ public nonisolated struct Qqbridge_V1_Dialog: @unchecked Sendable {
   public var hasDraft: Bool {_storage._draft != nil}
   /// Clears the value of `draft`. Subsequent reads from it will return its default value.
   public mutating func clearDraft() {_uniqueStorage()._draft = nil}
+
+  /// 未读里 @全体成员 的条数（不含同时 @我 的）。
+  public var unreadMentionAll: UInt32 {
+    get {_storage._unreadMentionAll}
+    set {_uniqueStorage()._unreadMentionAll = newValue}
+  }
+
+  /// 未读里回复我的条数。
+  public var unreadReplies: UInt32 {
+    get {_storage._unreadReplies}
+    set {_uniqueStorage()._unreadReplies = newValue}
+  }
+
+  /// @全体成员 是否提醒。
+  public var mentionAllNotify: Bool {
+    get {_storage._mentionAllNotify}
+    set {_uniqueStorage()._mentionAllNotify = newValue}
+  }
+
+  /// 置顶时间（unix 秒）；置顶会话按它倒序排。
+  public var pinnedAt: Int64 {
+    get {_storage._pinnedAt}
+    set {_uniqueStorage()._pinnedAt = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1758,7 +1786,7 @@ nonisolated extension Qqbridge_V1_MentionAllSegment: SwiftProtobuf.Message, Swif
 
 nonisolated extension Qqbridge_V1_FaceSegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FaceSegment"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}face_id\0\u{3}is_large\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}face_id\0\u{3}is_large\0\u{1}name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1768,6 +1796,7 @@ nonisolated extension Qqbridge_V1_FaceSegment: SwiftProtobuf.Message, SwiftProto
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.faceID) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.isLarge) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.name) }()
       default: break
       }
     }
@@ -1780,12 +1809,16 @@ nonisolated extension Qqbridge_V1_FaceSegment: SwiftProtobuf.Message, SwiftProto
     if self.isLarge != false {
       try visitor.visitSingularBoolField(value: self.isLarge, fieldNumber: 2)
     }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_FaceSegment, rhs: Qqbridge_V1_FaceSegment) -> Bool {
     if lhs.faceID != rhs.faceID {return false}
     if lhs.isLarge != rhs.isLarge {return false}
+    if lhs.name != rhs.name {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2516,7 +2549,7 @@ nonisolated extension Qqbridge_V1_ChatEvent: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Dialog"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{3}qq_account_id\0\u{1}scene\0\u{3}peer_id\0\u{3}top_seq\0\u{3}top_time\0\u{3}unread_count\0\u{3}unread_mentions\0\u{3}read_inbox_max_seq\0\u{1}pinned\0\u{3}notify_policy\0\u{3}chat_pts\0\u{3}dialog_pts\0\u{3}top_message\0\u{1}draft\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{3}qq_account_id\0\u{1}scene\0\u{3}peer_id\0\u{3}top_seq\0\u{3}top_time\0\u{3}unread_count\0\u{3}unread_mentions\0\u{3}read_inbox_max_seq\0\u{1}pinned\0\u{3}notify_policy\0\u{3}chat_pts\0\u{3}dialog_pts\0\u{3}top_message\0\u{1}draft\0\u{3}unread_mention_all\0\u{3}unread_replies\0\u{3}mention_all_notify\0\u{3}pinned_at\0")
 
   fileprivate class _StorageClass {
     var _chatID: Int64 = 0
@@ -2534,6 +2567,10 @@ nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._
     var _dialogPts: Int64 = 0
     var _topMessage: Qqbridge_V1_Message? = nil
     var _draft: Qqbridge_V1_Draft? = nil
+    var _unreadMentionAll: UInt32 = 0
+    var _unreadReplies: UInt32 = 0
+    var _mentionAllNotify: Bool = false
+    var _pinnedAt: Int64 = 0
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -2559,6 +2596,10 @@ nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._
       _dialogPts = source._dialogPts
       _topMessage = source._topMessage
       _draft = source._draft
+      _unreadMentionAll = source._unreadMentionAll
+      _unreadReplies = source._unreadReplies
+      _mentionAllNotify = source._mentionAllNotify
+      _pinnedAt = source._pinnedAt
     }
   }
 
@@ -2592,6 +2633,10 @@ nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._
         case 13: try { try decoder.decodeSingularInt64Field(value: &_storage._dialogPts) }()
         case 14: try { try decoder.decodeSingularMessageField(value: &_storage._topMessage) }()
         case 15: try { try decoder.decodeSingularMessageField(value: &_storage._draft) }()
+        case 16: try { try decoder.decodeSingularUInt32Field(value: &_storage._unreadMentionAll) }()
+        case 17: try { try decoder.decodeSingularUInt32Field(value: &_storage._unreadReplies) }()
+        case 18: try { try decoder.decodeSingularBoolField(value: &_storage._mentionAllNotify) }()
+        case 19: try { try decoder.decodeSingularInt64Field(value: &_storage._pinnedAt) }()
         default: break
         }
       }
@@ -2649,6 +2694,18 @@ nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._
       try { if let v = _storage._draft {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 15)
       } }()
+      if _storage._unreadMentionAll != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._unreadMentionAll, fieldNumber: 16)
+      }
+      if _storage._unreadReplies != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._unreadReplies, fieldNumber: 17)
+      }
+      if _storage._mentionAllNotify != false {
+        try visitor.visitSingularBoolField(value: _storage._mentionAllNotify, fieldNumber: 18)
+      }
+      if _storage._pinnedAt != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._pinnedAt, fieldNumber: 19)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -2673,6 +2730,10 @@ nonisolated extension Qqbridge_V1_Dialog: SwiftProtobuf.Message, SwiftProtobuf._
         if _storage._dialogPts != rhs_storage._dialogPts {return false}
         if _storage._topMessage != rhs_storage._topMessage {return false}
         if _storage._draft != rhs_storage._draft {return false}
+        if _storage._unreadMentionAll != rhs_storage._unreadMentionAll {return false}
+        if _storage._unreadReplies != rhs_storage._unreadReplies {return false}
+        if _storage._mentionAllNotify != rhs_storage._mentionAllNotify {return false}
+        if _storage._pinnedAt != rhs_storage._pinnedAt {return false}
         return true
       }
       if !storagesAreEqual {return false}

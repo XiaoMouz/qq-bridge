@@ -130,6 +130,49 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       return { peer, result: res?.result ?? 0, errMsg: res?.errMsg ?? '', messages: msgList };
     },
 
+    /**
+     * QQ 里的会话设置（一次拿全，不逐个请求）：群的消息设置（cmdUinMsgMask：1 接收并提醒、2 收进群助手、3 屏蔽、4 接收不提醒）
+     * 与置顶；最近会话的置顶、免打扰和未读数（服务端据此同步"在别的设备上已读"）。
+     */
+    'x.chat_settings': async () => {
+      const apis = (ctx.core as any)?.apis ?? {};
+      const groups: any[] = (await requireFn<(force: boolean) => Promise<any[]>>(apis.GroupApi, 'getGroups', 'GroupApi')(false)) ?? [];
+      const snapshot = await requireFn<(n: number) => Promise<any>>(apis.UserApi, 'getRecentContactListSnapShot', 'UserApi')(500);
+      const recent: any[] = Array.isArray(snapshot?.info?.changedList) ? snapshot.info.changedList : [];
+      return {
+        groups: groups.map((g) => ({
+          groupCode: String(g.groupCode ?? ''),
+          msgMask: Number(g.cmdUinMsgMask ?? 0),
+          isTop: Boolean(g.isTop),
+          toppedAtMs: String(g.toppedTimestamp ?? '0'),
+        })),
+        recent: recent.map((c) => ({
+          chatType: Number(c.chatType),
+          peerUin: String(c.peerUin ?? ''),
+          topFlag: Number(c.topFlag ?? 0),
+          topFlagTime: String(c.topFlagTime ?? '0'),
+          isMsgDisturb: Boolean(c.isMsgDisturb),
+          unreadCnt: String(c.unreadCnt ?? '0'),
+          msgSeq: String(c.msgSeq ?? '0'),
+        })),
+      };
+    },
+
+    /** 我收藏的表情（一次拿全）：md5、公开的图片地址、是否商城表情、描述。 */
+    'x.fav_emojis': async (params: { count?: number }) => {
+      const res = await requireFn<(n: number) => Promise<any>>(msgApi(ctx.core), 'fetchFavEmojiList', 'MsgApi')(clamp(params?.count, 1, 2000, 2000));
+      const list: any[] = Array.isArray(res?.emojiInfoList) ? res.emojiInfoList : [];
+      return {
+        total: Number(res?.totalCnt ?? list.length),
+        emojis: list.map((e) => ({
+          md5: String(e.md5 ?? '').toLowerCase(),
+          url: String(e.url ?? ''),
+          isMarkFace: Boolean(e.isMarkFace),
+          desc: String(e.desc ?? ''),
+        })),
+      };
+    },
+
     /** 表情回应：加或取消自己对某条消息（按 seq）的回应。 */
     'x.react': async (params: { chatType?: number; peerUid?: string; peerUin?: string; seq?: string; emojiId?: string; add?: boolean }) => {
       if (!params?.seq || !params.emojiId) throw new Error('x.react: seq and emojiId are required');

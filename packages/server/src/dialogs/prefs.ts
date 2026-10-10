@@ -1,11 +1,13 @@
-// 会话偏好：置顶、通知策略、草稿。都只是服务端与各客户端之间的状态（不改 QQ 里的设置），
-// 改动经单写者分配 dialog_pts，所有设备都会收到会话更新。
+// 会话偏好：置顶、通知策略（含 @全体成员 是否提醒）、草稿。改动经单写者分配 dialog_pts，所有设备都会收到会话更新。
+// 置顶和通知策略最初从 QQ 同步（QqSettingsSync）；在本 App 里改过之后记 *_local，之后以这里为准，QQ 的设置不再覆盖。
+// NapCat 没有改 QQ 置顶 / 群消息设置的接口，所以这里的改动不回写 QQ。
 import { validateOutgoing, type OutgoingSegment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { maybeOne } from '../db/client.ts';
 import type { WriterRegistry } from '../sync/writer.ts';
 
-export const NOTIFY_POLICIES = ['default', 'all', 'mentions', 'muted'] as const;
+/** archived = 收进群助手（不提醒，会话列表里收进"群助手"）。 */
+export const NOTIFY_POLICIES = ['default', 'all', 'mentions', 'muted', 'archived'] as const;
 export type NotifyPolicy = (typeof NOTIFY_POLICIES)[number];
 
 export interface Draft {
@@ -40,6 +42,43 @@ export class DialogPrefs {
     return this.change(accountId, chatId, 'notify_policy', policy);
   }
 
+  setMentionAllNotify(accountId: number, chatId: number, enabled: boolean): Promise<boolean> {
+    return this.change(accountId, chatId, 'mention_all_notify', enabled);
+  }
+
+  /**
+   * 从 QQ 同步来的置顶与通知设置：用户在本 App 里改过的那一项不覆盖。返回是否有变化。
+   * pinnedAt 为 QQ 的置顶时间（没有就用现在）。
+   */
+  applyFromQq(
+    accountId: number,
+    chatId: number,
+    settings: { pinned?: boolean; pinnedAt?: Date | null; notifyPolicy?: NotifyPolicy },
+  ): Promise<boolean> {
+    return this.writers.forAccount(accountId).run(async (w) => {
+      const chat = await maybeOne<{ pinned: boolean; pinned_at: Date | string | null; notify_policy: string; pinned_local: boolean; notify_local: boolean }>(
+        w.tx,
+        sql`select pinned, pinned_at, notify_policy, pinned_local, notify_local from chats where id = ${chatId} for update`,
+      );
+      if (!chat) return false;
+      let changed = false;
+      if (settings.pinned !== undefined && !chat.pinned_local) {
+        const at = settings.pinned ? (settings.pinnedAt ?? (chat.pinned_at ? new Date(chat.pinned_at) : new Date())) : null;
+        const sameAt = (at?.getTime() ?? null) === (chat.pinned_at ? new Date(chat.pinned_at).getTime() : null);
+        if (chat.pinned !== settings.pinned || !sameAt) {
+          await w.tx.execute(sql`update chats set pinned = ${settings.pinned}, pinned_at = ${at} where id = ${chatId}`);
+          changed = true;
+        }
+      }
+      if (settings.notifyPolicy !== undefined && !chat.notify_local && chat.notify_policy !== settings.notifyPolicy) {
+        await w.tx.execute(sql`update chats set notify_policy = ${settings.notifyPolicy} where id = ${chatId}`);
+        changed = true;
+      }
+      if (changed) w.touchDialog(chatId);
+      return changed;
+    });
+  }
+
   /** segments 为空表示清除草稿。 */
   saveDraft(accountId: number, chatId: number, segments: OutgoingSegment[], replyToSeq?: number, nowSec = Math.floor(Date.now() / 1000)) {
     if (segments.length === 0) return this.change(accountId, chatId, 'draft', null);
@@ -52,18 +91,28 @@ export class DialogPrefs {
     return this.change(accountId, chatId, 'draft', draft);
   }
 
-  private change(accountId: number, chatId: number, column: 'pinned' | 'notify_policy' | 'draft', value: unknown): Promise<boolean> {
+  private change(
+    accountId: number,
+    chatId: number,
+    column: 'pinned' | 'notify_policy' | 'mention_all_notify' | 'draft',
+    value: unknown,
+  ): Promise<boolean> {
     return this.writers.forAccount(accountId).run(async (w) => {
-      const chat = await maybeOne<{ pinned: boolean; notify_policy: string; draft: Draft | null }>(
+      const chat = await maybeOne<{ pinned: boolean; notify_policy: string; mention_all_notify: boolean; draft: Draft | null }>(
         w.tx,
-        sql`select c.pinned, c.notify_policy, c.draft from chats c join qq_accounts q on q.id = c.qq_account_id
+        sql`select c.pinned, c.notify_policy, c.mention_all_notify, c.draft from chats c join qq_accounts q on q.id = c.qq_account_id
              where c.id = ${chatId} and q.account_id = ${accountId} for update of c`,
       );
       if (!chat) throw new DialogPrefsError('not_found', `chat ${chatId} not found`);
-      const current = column === 'pinned' ? chat.pinned : column === 'notify_policy' ? chat.notify_policy : chat.draft;
+      const current = column === 'draft' ? chat.draft : chat[column];
       if (column === 'draft' ? sameDraft(current as Draft | null, value as Draft | null) : current === value) return false;
       if (column === 'draft') {
         await w.tx.execute(sql`update chats set draft = ${value === null ? null : JSON.stringify(value)}::jsonb where id = ${chatId}`);
+      } else if (column === 'pinned') {
+        // 本地改过置顶：之后 QQ 的置顶不再覆盖。
+        await w.tx.execute(sql`update chats set pinned = ${value as boolean}, pinned_at = ${value ? new Date() : null}, pinned_local = true where id = ${chatId}`);
+      } else if (column === 'notify_policy') {
+        await w.tx.execute(sql`update chats set notify_policy = ${value as string}, notify_local = true where id = ${chatId}`);
       } else {
         await w.tx.execute(sql`update chats set ${sql.raw(column)} = ${value} where id = ${chatId}`);
       }

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/dialogs.proto.
  */
 export const file_qqbridge_v1_dialogs: GenFile = /*@__PURE__*/
-  fileDesc("ChlxcWJyaWRnZS92MS9kaWFsb2dzLnByb3RvEgtxcWJyaWRnZS52MSJUChJMaXN0RGlhbG9nc1JlcXVlc3QSDQoFbGltaXQYASABKA0SFgoOYmVmb3JlX2NoYXRfaWQYAiABKAMSFwoPYmVmb3JlX3RvcF90aW1lGAMgASgDIkgKE0xpc3REaWFsb2dzUmVzcG9uc2USCwoDcHRzGAEgASgDEiQKB2RpYWxvZ3MYAiADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2ciMwoPTWFya1JlYWRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSDwoHbWF4X3NlcRgCIAEoAyIjChBNYXJrUmVhZFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiJwoUU2V0QWN0aXZlQ2hhdFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAyIXChVTZXRBY3RpdmVDaGF0UmVzcG9uc2UiMwoQU2V0UGlubmVkUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEg4KBnBpbm5lZBgCIAEoCCIkChFTZXRQaW5uZWRSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIIjkKFlNldE5vdGlmeVBvbGljeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIOCgZwb2xpY3kYAiABKAkiKgoXU2V0Tm90aWZ5UG9saWN5UmVzcG9uc2USDwoHY2hhbmdlZBgBIAEoCCJpChBTYXZlRHJhZnRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSLgoIc2VnbWVudHMYAiADKAsyHC5xcWJyaWRnZS52MS5PdXRnb2luZ1NlZ21lbnQSFAoMcmVwbHlfdG9fc2VxGAMgASgDIiQKEVNhdmVEcmFmdFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiIwoQU2V0VHlwaW5nUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDIiEKEVNldFR5cGluZ1Jlc3BvbnNlEgwKBHNlbnQYASABKAgyxAQKDURpYWxvZ1NlcnZpY2USUAoLTGlzdERpYWxvZ3MSHy5xcWJyaWRnZS52MS5MaXN0RGlhbG9nc1JlcXVlc3QaIC5xcWJyaWRnZS52MS5MaXN0RGlhbG9nc1Jlc3BvbnNlEkcKCE1hcmtSZWFkEhwucXFicmlkZ2UudjEuTWFya1JlYWRSZXF1ZXN0Gh0ucXFicmlkZ2UudjEuTWFya1JlYWRSZXNwb25zZRJKCglTZXRQaW5uZWQSHS5xcWJyaWRnZS52MS5TZXRQaW5uZWRSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuU2V0UGlubmVkUmVzcG9uc2USXAoPU2V0Tm90aWZ5UG9saWN5EiMucXFicmlkZ2UudjEuU2V0Tm90aWZ5UG9saWN5UmVxdWVzdBokLnFxYnJpZGdlLnYxLlNldE5vdGlmeVBvbGljeVJlc3BvbnNlEkoKCVNhdmVEcmFmdBIdLnFxYnJpZGdlLnYxLlNhdmVEcmFmdFJlcXVlc3QaHi5xcWJyaWRnZS52MS5TYXZlRHJhZnRSZXNwb25zZRJWCg1TZXRBY3RpdmVDaGF0EiEucXFicmlkZ2UudjEuU2V0QWN0aXZlQ2hhdFJlcXVlc3QaIi5xcWJyaWRnZS52MS5TZXRBY3RpdmVDaGF0UmVzcG9uc2USSgoJU2V0VHlwaW5nEh0ucXFicmlkZ2UudjEuU2V0VHlwaW5nUmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNldFR5cGluZ1Jlc3BvbnNlYgZwcm90bzM", [file_qqbridge_v1_common]);
+  fileDesc("ChlxcWJyaWRnZS92MS9kaWFsb2dzLnByb3RvEgtxcWJyaWRnZS52MSJUChJMaXN0RGlhbG9nc1JlcXVlc3QSDQoFbGltaXQYASABKA0SFgoOYmVmb3JlX2NoYXRfaWQYAiABKAMSFwoPYmVmb3JlX3RvcF90aW1lGAMgASgDIkgKE0xpc3REaWFsb2dzUmVzcG9uc2USCwoDcHRzGAEgASgDEiQKB2RpYWxvZ3MYAiADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2ciMwoPTWFya1JlYWRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSDwoHbWF4X3NlcRgCIAEoAyIjChBNYXJrUmVhZFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiJwoUU2V0QWN0aXZlQ2hhdFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAyIXChVTZXRBY3RpdmVDaGF0UmVzcG9uc2UiMwoQU2V0UGlubmVkUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEg4KBnBpbm5lZBgCIAEoCCIkChFTZXRQaW5uZWRSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIIjkKFlNldE5vdGlmeVBvbGljeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIOCgZwb2xpY3kYAiABKAkiKgoXU2V0Tm90aWZ5UG9saWN5UmVzcG9uc2USDwoHY2hhbmdlZBgBIAEoCCJpChBTYXZlRHJhZnRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSLgoIc2VnbWVudHMYAiADKAsyHC5xcWJyaWRnZS52MS5PdXRnb2luZ1NlZ21lbnQSFAoMcmVwbHlfdG9fc2VxGAMgASgDIiQKEVNhdmVEcmFmdFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiIwoQU2V0VHlwaW5nUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDIiEKEVNldFR5cGluZ1Jlc3BvbnNlEgwKBHNlbnQYASABKAgiPgoaU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIPCgdlbmFibGVkGAIgASgIIi4KG1NldE1lbnRpb25BbGxOb3RpZnlSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIMq4FCg1EaWFsb2dTZXJ2aWNlElAKC0xpc3REaWFsb2dzEh8ucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXF1ZXN0GiAucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXNwb25zZRJHCghNYXJrUmVhZBIcLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVxdWVzdBodLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVzcG9uc2USSgoJU2V0UGlubmVkEh0ucXFicmlkZ2UudjEuU2V0UGlubmVkUmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNldFBpbm5lZFJlc3BvbnNlElwKD1NldE5vdGlmeVBvbGljeRIjLnFxYnJpZGdlLnYxLlNldE5vdGlmeVBvbGljeVJlcXVlc3QaJC5xcWJyaWRnZS52MS5TZXROb3RpZnlQb2xpY3lSZXNwb25zZRJoChNTZXRNZW50aW9uQWxsTm90aWZ5EicucXFicmlkZ2UudjEuU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QaKC5xcWJyaWRnZS52MS5TZXRNZW50aW9uQWxsTm90aWZ5UmVzcG9uc2USSgoJU2F2ZURyYWZ0Eh0ucXFicmlkZ2UudjEuU2F2ZURyYWZ0UmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNhdmVEcmFmdFJlc3BvbnNlElYKDVNldEFjdGl2ZUNoYXQSIS5xcWJyaWRnZS52MS5TZXRBY3RpdmVDaGF0UmVxdWVzdBoiLnFxYnJpZGdlLnYxLlNldEFjdGl2ZUNoYXRSZXNwb25zZRJKCglTZXRUeXBpbmcSHS5xcWJyaWRnZS52MS5TZXRUeXBpbmdSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuU2V0VHlwaW5nUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.ListDialogsRequest
@@ -293,6 +293,45 @@ export const SetTypingResponseSchema: GenMessage<SetTypingResponse> = /*@__PURE_
   messageDesc(file_qqbridge_v1_dialogs, 13);
 
 /**
+ * @generated from message qqbridge.v1.SetMentionAllNotifyRequest
+ */
+export type SetMentionAllNotifyRequest = Message<"qqbridge.v1.SetMentionAllNotifyRequest"> & {
+  /**
+   * @generated from field: int64 chat_id = 1;
+   */
+  chatId: bigint;
+
+  /**
+   * @generated from field: bool enabled = 2;
+   */
+  enabled: boolean;
+};
+
+/**
+ * Describes the message qqbridge.v1.SetMentionAllNotifyRequest.
+ * Use `create(SetMentionAllNotifyRequestSchema)` to create a new message.
+ */
+export const SetMentionAllNotifyRequestSchema: GenMessage<SetMentionAllNotifyRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_dialogs, 14);
+
+/**
+ * @generated from message qqbridge.v1.SetMentionAllNotifyResponse
+ */
+export type SetMentionAllNotifyResponse = Message<"qqbridge.v1.SetMentionAllNotifyResponse"> & {
+  /**
+   * @generated from field: bool changed = 1;
+   */
+  changed: boolean;
+};
+
+/**
+ * Describes the message qqbridge.v1.SetMentionAllNotifyResponse.
+ * Use `create(SetMentionAllNotifyResponseSchema)` to create a new message.
+ */
+export const SetMentionAllNotifyResponseSchema: GenMessage<SetMentionAllNotifyResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_dialogs, 15);
+
+/**
  * @generated from service qqbridge.v1.DialogService
  */
 export const DialogService: GenService<{
@@ -327,7 +366,8 @@ export const DialogService: GenService<{
     output: typeof SetPinnedResponseSchema;
   },
   /**
-   * 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all / mentions / muted。
+   * 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all（接收并提醒）/ mentions / muted（接收不提醒）
+   * / archived（收进群助手：不提醒，会话列表里收进"群助手"）。最初从 QQ 的群消息设置同步过来，在这里改过之后以这里为准。
    *
    * @generated from rpc qqbridge.v1.DialogService.SetNotifyPolicy
    */
@@ -335,6 +375,16 @@ export const DialogService: GenService<{
     methodKind: "unary";
     input: typeof SetNotifyPolicyRequestSchema;
     output: typeof SetNotifyPolicyResponseSchema;
+  },
+  /**
+   * @全体成员 是否提醒（默认提醒）。
+   *
+   * @generated from rpc qqbridge.v1.DialogService.SetMentionAllNotify
+   */
+  setMentionAllNotify: {
+    methodKind: "unary";
+    input: typeof SetMentionAllNotifyRequestSchema;
+    output: typeof SetMentionAllNotifyResponseSchema;
   },
   /**
    * 保存草稿（segments 为空表示清除），经 pts 同步到其他设备。

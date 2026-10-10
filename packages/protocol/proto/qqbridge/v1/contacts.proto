@@ -17,6 +17,8 @@ service ContactService {
   rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
   // 立即从 QQ 刷新好友列表和群列表（例如用户下拉刷新联系人页）。
   rpc RefreshContacts(RefreshContactsRequest) returns (RefreshContactsResponse);
+  // 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
+  rpc GetAvatars(GetAvatarsRequest) returns (GetAvatarsResponse);
 }
 
 message ListFriendsRequest {}
@@ -100,4 +102,17 @@ message RefreshContactsRequest {}
 message RefreshContactsResponse {
   uint32 friends = 1;
   uint32 groups = 2;
+}
+
+message GetAvatarsRequest {
+  repeated int64 user_ids = 1;
+}
+
+message UserAvatar {
+  int64 user_id = 1;
+  string sha256 = 2;
+}
+
+message GetAvatarsResponse {
+  repeated UserAvatar avatars = 1;
 }

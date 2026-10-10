@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/contacts.proto.
  */
 export const file_qqbridge_v1_contacts: GenFile = /*@__PURE__*/
-  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0IjkKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiEwoRTGlzdEdyb3Vwc1JlcXVlc3QiNwoSTGlzdEdyb3Vwc1Jlc3BvbnNlEiEKBmdyb3VwcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiOQoVR2V0VXNlclByb2ZpbGVSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCCJtCgtVc2VyUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchILCgNzZXgYAiABKAkSCwoDYWdlGAMgASgNEg0KBWxldmVsGAQgASgNEhQKDHJlZnJlc2hlZF9hdBgFIAEoAyJSChZHZXRVc2VyUHJvZmlsZVJlc3BvbnNlEikKB3Byb2ZpbGUYASABKAsyGC5xcWJyaWRnZS52MS5Vc2VyUHJvZmlsZRINCgVzdGFsZRgCIAEoCCI7ChZHZXRHcm91cFByb2ZpbGVSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgicQoMR3JvdXBQcm9maWxlEh8KBHBlZXIYASABKAsyES5xcWJyaWRnZS52MS5QZWVyEhgKEG1heF9tZW1iZXJfY291bnQYAiABKA0SEAoIb3duZXJfaWQYAyABKAMSFAoMcmVmcmVzaGVkX2F0GAQgASgDIlQKF0dldEdyb3VwUHJvZmlsZVJlc3BvbnNlEioKB3Byb2ZpbGUYASABKAsyGS5xcWJyaWRnZS52MS5Hcm91cFByb2ZpbGUSDQoFc3RhbGUYAiABKAgikwEKC0dyb3VwTWVtYmVyEg8KB3VzZXJfaWQYASABKAMSEAoIbmlja25hbWUYAiABKAkSDAoEY2FyZBgDIAEoCRIMCgRyb2xlGAQgASgJEg0KBXRpdGxlGAUgASgJEg0KBWxldmVsGAYgASgJEhEKCWpvaW5lZF9hdBgHIAEoAxIUCgxsYXN0X3NlbnRfYXQYCCABKAMiWwoXTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCBIOCgZvZmZzZXQYAyABKAUSDQoFbGltaXQYBCABKAUiYwoYTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlEikKB21lbWJlcnMYASADKAsyGC5xcWJyaWRnZS52MS5Hcm91cE1lbWJlchINCgV0b3RhbBgCIAEoDRINCgVzdGFsZRgDIAEoCCIYChZSZWZyZXNoQ29udGFjdHNSZXF1ZXN0IjoKF1JlZnJlc2hDb250YWN0c1Jlc3BvbnNlEg8KB2ZyaWVuZHMYASABKA0SDgoGZ3JvdXBzGAIgASgNMqkECg5Db250YWN0U2VydmljZRJQCgtMaXN0RnJpZW5kcxIfLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVzcG9uc2USTQoKTGlzdEdyb3VwcxIeLnFxYnJpZGdlLnYxLkxpc3RHcm91cHNSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1Jlc3BvbnNlElkKDkdldFVzZXJQcm9maWxlEiIucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXF1ZXN0GiMucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXNwb25zZRJcCg9HZXRHcm91cFByb2ZpbGUSIy5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXF1ZXN0GiQucXFicmlkZ2UudjEuR2V0R3JvdXBQcm9maWxlUmVzcG9uc2USXwoQTGlzdEdyb3VwTWVtYmVycxIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cE1lbWJlcnNSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlElwKD1JlZnJlc2hDb250YWN0cxIjLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1JlcXVlc3QaJC5xcWJyaWRnZS52MS5SZWZyZXNoQ29udGFjdHNSZXNwb25zZWIGcHJvdG8z", [file_qqbridge_v1_common]);
+  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0IjkKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiEwoRTGlzdEdyb3Vwc1JlcXVlc3QiNwoSTGlzdEdyb3Vwc1Jlc3BvbnNlEiEKBmdyb3VwcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiOQoVR2V0VXNlclByb2ZpbGVSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCCJtCgtVc2VyUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchILCgNzZXgYAiABKAkSCwoDYWdlGAMgASgNEg0KBWxldmVsGAQgASgNEhQKDHJlZnJlc2hlZF9hdBgFIAEoAyJSChZHZXRVc2VyUHJvZmlsZVJlc3BvbnNlEikKB3Byb2ZpbGUYASABKAsyGC5xcWJyaWRnZS52MS5Vc2VyUHJvZmlsZRINCgVzdGFsZRgCIAEoCCI7ChZHZXRHcm91cFByb2ZpbGVSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgicQoMR3JvdXBQcm9maWxlEh8KBHBlZXIYASABKAsyES5xcWJyaWRnZS52MS5QZWVyEhgKEG1heF9tZW1iZXJfY291bnQYAiABKA0SEAoIb3duZXJfaWQYAyABKAMSFAoMcmVmcmVzaGVkX2F0GAQgASgDIlQKF0dldEdyb3VwUHJvZmlsZVJlc3BvbnNlEioKB3Byb2ZpbGUYASABKAsyGS5xcWJyaWRnZS52MS5Hcm91cFByb2ZpbGUSDQoFc3RhbGUYAiABKAgikwEKC0dyb3VwTWVtYmVyEg8KB3VzZXJfaWQYASABKAMSEAoIbmlja25hbWUYAiABKAkSDAoEY2FyZBgDIAEoCRIMCgRyb2xlGAQgASgJEg0KBXRpdGxlGAUgASgJEg0KBWxldmVsGAYgASgJEhEKCWpvaW5lZF9hdBgHIAEoAxIUCgxsYXN0X3NlbnRfYXQYCCABKAMiWwoXTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCBIOCgZvZmZzZXQYAyABKAUSDQoFbGltaXQYBCABKAUiYwoYTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlEikKB21lbWJlcnMYASADKAsyGC5xcWJyaWRnZS52MS5Hcm91cE1lbWJlchINCgV0b3RhbBgCIAEoDRINCgVzdGFsZRgDIAEoCCIYChZSZWZyZXNoQ29udGFjdHNSZXF1ZXN0IjoKF1JlZnJlc2hDb250YWN0c1Jlc3BvbnNlEg8KB2ZyaWVuZHMYASABKA0SDgoGZ3JvdXBzGAIgASgNIiUKEUdldEF2YXRhcnNSZXF1ZXN0EhAKCHVzZXJfaWRzGAEgAygDIi0KClVzZXJBdmF0YXISDwoHdXNlcl9pZBgBIAEoAxIOCgZzaGEyNTYYAiABKAkiPgoSR2V0QXZhdGFyc1Jlc3BvbnNlEigKB2F2YXRhcnMYASADKAsyFy5xcWJyaWRnZS52MS5Vc2VyQXZhdGFyMvgECg5Db250YWN0U2VydmljZRJQCgtMaXN0RnJpZW5kcxIfLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVzcG9uc2USTQoKTGlzdEdyb3VwcxIeLnFxYnJpZGdlLnYxLkxpc3RHcm91cHNSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1Jlc3BvbnNlElkKDkdldFVzZXJQcm9maWxlEiIucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXF1ZXN0GiMucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXNwb25zZRJcCg9HZXRHcm91cFByb2ZpbGUSIy5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXF1ZXN0GiQucXFicmlkZ2UudjEuR2V0R3JvdXBQcm9maWxlUmVzcG9uc2USXwoQTGlzdEdyb3VwTWVtYmVycxIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cE1lbWJlcnNSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlElwKD1JlZnJlc2hDb250YWN0cxIjLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1JlcXVlc3QaJC5xcWJyaWRnZS52MS5SZWZyZXNoQ29udGFjdHNSZXNwb25zZRJNCgpHZXRBdmF0YXJzEh4ucXFicmlkZ2UudjEuR2V0QXZhdGFyc1JlcXVlc3QaHy5xcWJyaWRnZS52MS5HZXRBdmF0YXJzUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.ListFriendsRequest
@@ -388,6 +388,62 @@ export const RefreshContactsResponseSchema: GenMessage<RefreshContactsResponse> 
   messageDesc(file_qqbridge_v1_contacts, 14);
 
 /**
+ * @generated from message qqbridge.v1.GetAvatarsRequest
+ */
+export type GetAvatarsRequest = Message<"qqbridge.v1.GetAvatarsRequest"> & {
+  /**
+   * @generated from field: repeated int64 user_ids = 1;
+   */
+  userIds: bigint[];
+};
+
+/**
+ * Describes the message qqbridge.v1.GetAvatarsRequest.
+ * Use `create(GetAvatarsRequestSchema)` to create a new message.
+ */
+export const GetAvatarsRequestSchema: GenMessage<GetAvatarsRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 15);
+
+/**
+ * @generated from message qqbridge.v1.UserAvatar
+ */
+export type UserAvatar = Message<"qqbridge.v1.UserAvatar"> & {
+  /**
+   * @generated from field: int64 user_id = 1;
+   */
+  userId: bigint;
+
+  /**
+   * @generated from field: string sha256 = 2;
+   */
+  sha256: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.UserAvatar.
+ * Use `create(UserAvatarSchema)` to create a new message.
+ */
+export const UserAvatarSchema: GenMessage<UserAvatar> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 16);
+
+/**
+ * @generated from message qqbridge.v1.GetAvatarsResponse
+ */
+export type GetAvatarsResponse = Message<"qqbridge.v1.GetAvatarsResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.UserAvatar avatars = 1;
+   */
+  avatars: UserAvatar[];
+};
+
+/**
+ * Describes the message qqbridge.v1.GetAvatarsResponse.
+ * Use `create(GetAvatarsResponseSchema)` to create a new message.
+ */
+export const GetAvatarsResponseSchema: GenMessage<GetAvatarsResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 17);
+
+/**
  * 联系人与资料（docs/design.md 4.8 ContactService）。服务端不在后台逐个爬取资料，只在需要时取：
  * - 好友列表、群列表各一次请求拿全，每天刷新一次（也可 RefreshContacts 手动刷新）；
  * - 头像在打开会话（DialogService.SetActiveChat）时按需下载，一天最多一次；
@@ -446,6 +502,16 @@ export const ContactService: GenService<{
     methodKind: "unary";
     input: typeof RefreshContactsRequestSchema;
     output: typeof RefreshContactsResponseSchema;
+  },
+  /**
+   * 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
+   *
+   * @generated from rpc qqbridge.v1.ContactService.GetAvatars
+   */
+  getAvatars: {
+    methodKind: "unary";
+    input: typeof GetAvatarsRequestSchema;
+    output: typeof GetAvatarsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_qqbridge_v1_contacts, 0);

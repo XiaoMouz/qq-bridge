@@ -23,9 +23,14 @@ public protocol Qqbridge_V1_DialogServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `setPinned`(request: Qqbridge_V1_SetPinnedRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetPinnedResponse>
 
-    /// 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all / mentions / muted。
+    /// 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all（接收并提醒）/ mentions / muted（接收不提醒）
+    /// / archived（收进群助手：不提醒，会话列表里收进"群助手"）。最初从 QQ 的群消息设置同步过来，在这里改过之后以这里为准。
     @available(iOS 13, *)
     func `setNotifyPolicy`(request: Qqbridge_V1_SetNotifyPolicyRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetNotifyPolicyResponse>
+
+    /// @全体成员 是否提醒（默认提醒）。
+    @available(iOS 13, *)
+    func `setMentionAllNotify`(request: Qqbridge_V1_SetMentionAllNotifyRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetMentionAllNotifyResponse>
 
     /// 保存草稿（segments 为空表示清除），经 pts 同步到其他设备。
     @available(iOS 13, *)
@@ -70,6 +75,11 @@ public final class Qqbridge_V1_DialogServiceClient: Qqbridge_V1_DialogServiceCli
     }
 
     @available(iOS 13, *)
+    public func `setMentionAllNotify`(request: Qqbridge_V1_SetMentionAllNotifyRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_SetMentionAllNotifyResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.DialogService/SetMentionAllNotify", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `saveDraft`(request: Qqbridge_V1_SaveDraftRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_SaveDraftResponse> {
         return await self.client.unary(path: "/qqbridge.v1.DialogService/SaveDraft", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -90,6 +100,7 @@ public final class Qqbridge_V1_DialogServiceClient: Qqbridge_V1_DialogServiceCli
             public static let markRead = Connect.MethodSpec(name: "MarkRead", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setPinned = Connect.MethodSpec(name: "SetPinned", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setNotifyPolicy = Connect.MethodSpec(name: "SetNotifyPolicy", service: "qqbridge.v1.DialogService", type: .unary)
+            public static let setMentionAllNotify = Connect.MethodSpec(name: "SetMentionAllNotify", service: "qqbridge.v1.DialogService", type: .unary)
             public static let saveDraft = Connect.MethodSpec(name: "SaveDraft", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setActiveChat = Connect.MethodSpec(name: "SetActiveChat", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setTyping = Connect.MethodSpec(name: "SetTyping", service: "qqbridge.v1.DialogService", type: .unary)

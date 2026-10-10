@@ -123,10 +123,23 @@ export const chats = pgTable(
     topSeq: ref('top_seq'),
     topTime: ts('top_time'),
     unreadCount: integer('unread_count').notNull().default(0),
+    /** 未读里 @我 的条数。 */
     unreadMentions: integer('unread_mentions').notNull().default(0),
+    /** 未读里 @全体成员 的条数（不含同时 @我 的）。 */
+    unreadMentionAll: integer('unread_mention_all').notNull().default(0),
+    /** 未读里回复我的条数。 */
+    unreadReplies: integer('unread_replies').notNull().default(0),
     readInboxMaxSeq: ref('read_inbox_max_seq').notNull().default(0),
     pinned: boolean('pinned').notNull().default(false),
+    /** 置顶时间（置顶会话按它倒序排）。 */
+    pinnedAt: ts('pinned_at'),
+    /** default / all / mentions / muted / archived（收进群助手）。 */
     notifyPolicy: text('notify_policy').notNull().default('default'),
+    /** @全体成员 是否提醒。 */
+    mentionAllNotify: boolean('mention_all_notify').notNull().default(true),
+    /** 用户在本 App 里改过置顶 / 通知设置：之后从 QQ 同步的设置不再覆盖它。 */
+    pinnedLocal: boolean('pinned_local').notNull().default(false),
+    notifyLocal: boolean('notify_local').notNull().default(false),
     draft: jsonb('draft'),
     chatPts: ref('chat_pts').notNull().default(0),
     dialogPts: ref('dialog_pts').notNull(),

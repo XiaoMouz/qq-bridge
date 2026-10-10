@@ -114,6 +114,8 @@ message MentionAllSegment {}
 message FaceSegment {
   string face_id = 1;
   bool is_large = 2;
+  // QQ 给的表情名（如「微笑」），客户端本地没有这个表情时显示。
+  string name = 3;
 }
 
 message ReplySegment {
@@ -242,6 +244,7 @@ message Dialog {
   int64 top_seq = 5;
   int64 top_time = 6;
   uint32 unread_count = 7;
+  // 未读里 @我 的条数。
   uint32 unread_mentions = 8;
   int64 read_inbox_max_seq = 9;
   bool pinned = 10;
@@ -253,6 +256,14 @@ message Dialog {
   Message top_message = 14;
   // 草稿（多设备同步）；没有草稿时不设置。
   Draft draft = 15;
+  // 未读里 @全体成员 的条数（不含同时 @我 的）。
+  uint32 unread_mention_all = 16;
+  // 未读里回复我的条数。
+  uint32 unread_replies = 17;
+  // @全体成员 是否提醒。
+  bool mention_all_notify = 18;
+  // 置顶时间（unix 秒）；置顶会话按它倒序排。
+  int64 pinned_at = 19;
 }
 
 // 草稿：文本、@、表情和回复对象（媒体不存草稿）。

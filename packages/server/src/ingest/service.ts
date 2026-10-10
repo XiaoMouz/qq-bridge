@@ -26,7 +26,7 @@ import { NotFoundError } from '../sync/difference.ts';
 import { CHAT_EVENT_COLUMNS, MESSAGE_COLUMNS, PEER_COLUMNS, toChatEvent, toMessage, toPeer } from '../sync/rows.ts';
 import type { WriteContext, WriterRegistry } from '../sync/writer.ts';
 
-const MENTION_MASK = MessageFlag.mentionsMe | MessageFlag.mentionAll;
+const { mentionsMe: MENTION_ME, mentionAll: MENTION_ALL, replyToMe: REPLY_TO_ME } = MessageFlag;
 
 interface QqAccountInfo {
   accountId: number;
@@ -151,7 +151,9 @@ export class IngestService {
               top_seq = case when top_seq is null or ${msg.seq} >= top_seq then ${msg.seq} else top_seq end,
               top_time = case when top_seq is null or ${msg.seq} >= top_seq then ${time}::timestamptz else top_time end,
               unread_count = unread_count + ${countsUnread ? 1 : 0},
-              unread_mentions = unread_mentions + ${countsUnread && (flags & MENTION_MASK) !== 0 ? 1 : 0}
+              unread_mentions = unread_mentions + ${countsUnread && (flags & MENTION_ME) !== 0 ? 1 : 0},
+              unread_mention_all = unread_mention_all + ${countsUnread && (flags & MENTION_ALL) !== 0 && (flags & MENTION_ME) === 0 ? 1 : 0},
+              unread_replies = unread_replies + ${countsUnread && (flags & REPLY_TO_ME) !== 0 ? 1 : 0}
             where id = ${chat.id}`,
       );
       // 本人在其他设备上发言：视为已读到这里（与 Telegram 行为一致）。
@@ -606,7 +608,14 @@ export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: numb
                              and m.sender_uin <> ${selfUin} and m.state = 'normal'),
           unread_mentions = (select count(*)::int from messages m
                               where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${MENTION_MASK}) <> 0)
+                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${MENTION_ME}) <> 0),
+          unread_mention_all = (select count(*)::int from messages m
+                              where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
+                                and m.sender_uin <> ${selfUin} and m.state = 'normal'
+                                and (m.flags & ${MENTION_ALL}) <> 0 and (m.flags & ${MENTION_ME}) = 0),
+          unread_replies = (select count(*)::int from messages m
+                              where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
+                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${REPLY_TO_ME}) <> 0)
         where c.id = ${chatId}`,
   );
 }

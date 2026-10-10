@@ -233,14 +233,17 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
         if ((faceIndex === 358 || faceIndex === 359) && f.resultId) {
           segments.push({ type: 'unknown', original: faceIndex === 358 ? 'dice' : 'rps', data: { faceIndex, result: f.resultId } });
         } else {
-          segments.push({ type: 'face', faceId: String(faceIndex), ...(f.faceType === 3 || f.faceType === 4 ? { isLarge: true } : {}) });
+          const name = typeof f.faceText === 'string' ? f.faceText.replace(/^\//, '') : '';
+          segments.push({ type: 'face', faceId: String(faceIndex), ...(f.faceType === 3 || f.faceType === 4 ? { isLarge: true } : {}), ...(name ? { name } : {}) });
         }
         break;
       }
       case NtElementType.REPLY: {
         const r = el.replyElement ?? {};
         const replySeq = int(r.replayMsgSeq);
-        if (replySeq) segments.push({ type: 'reply', seq: replySeq, ...(int(r.senderUin) ? { senderId: int(r.senderUin) } : {}) });
+        // 被回复的人：QQ 把号码放在 senderUid 里（不是 uid 字符串，那个在 senderUidStr），senderUin 通常是空的。
+        const replyTo = int(r.senderUin) || int(r.senderUid);
+        if (replySeq) segments.push({ type: 'reply', seq: replySeq, ...(replyTo ? { senderId: replyTo } : {}) });
         break;
       }
       case NtElementType.PIC: {
@@ -367,7 +370,12 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
         break;
       }
       case NtElementType.MARKDOWN:
-        segments.push({ type: 'markdown', content: el.markdownElement?.content ?? '' });
+        // 机器人 markdown 开头常带一个空链接 "[](%7B...%7D)" 当元数据，不是正文。
+        segments.push({ type: 'markdown', content: (el.markdownElement?.content ?? '').replace(/^\[\]\([^)]*\)\s*/, '') });
+        break;
+      case NtElementType.INLINE_KEYBOARD:
+        // 按钮只在 QQ 里能点，存档保留原文，预览和正文里不显示。
+        segments.push({ type: 'unknown', original: 'keyboard', data: el });
         break;
       default:
         // 未知类型保留原文，绝不丢弃（以后支持了可以从 raw 重新映射）。

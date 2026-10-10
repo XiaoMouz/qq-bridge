@@ -149,6 +149,46 @@ export class ContactService {
     })().catch((error: unknown) => this.o.logger?.debug({ err: error, chatId }, 'avatar refresh failed'));
   }
 
+  /** 一批人的头像：超过一天没检查过（或从没有过）的才下载，最多 4 个并发。返回 userId → sha256。 */
+  async avatars(accountId: number, userIds: number[]): Promise<Map<number, string>> {
+    const qq = await this.qqAccountOf(accountId);
+    const ids = [...new Set(userIds)].slice(0, 50);
+    if (ids.length === 0) return new Map();
+    const list = sql.join(ids.map((i) => sql`${i}`), sql`, `);
+    const known = await rows<{ peer_id: number; avatar_sha256: string | null; checked: string | null }>(
+      this.db,
+      sql`select peer_id, avatar_sha256, extra->>'avatarCheckedAt' as checked from peers
+           where qq_account_id = ${qq} and kind = 'user' and peer_id in (${list})`,
+    );
+    const byId = new Map(known.map((k) => [Number(k.peer_id), k]));
+    const stale = ids.filter((id) => {
+      const k = byId.get(id);
+      return !k?.checked || Date.now() - Number(k.checked) > this.o.avatarMaxAgeMs;
+    });
+    for (let i = 0; i < stale.length; i += 4) {
+      await Promise.all(
+        stale.slice(i, i + 4).map(async (id) => {
+          const key = `${qq}:user:${id}`;
+          if (this.avatarInFlight.has(key)) return;
+          this.avatarInFlight.add(key);
+          try {
+            if (!byId.has(id)) await this.ingest.upsertPeer(qq, { kind: 'user', peerId: id }); // 没资料的群友：先建一行
+            await this.refreshAvatar(qq, 'user', id);
+          } catch (error) {
+            this.o.logger?.warn({ err: error, id }, 'avatar refresh failed');
+          } finally {
+            this.avatarInFlight.delete(key);
+          }
+        }),
+      );
+    }
+    const after = await rows<{ peer_id: number; avatar_sha256: string | null }>(
+      this.db,
+      sql`select peer_id, avatar_sha256 from peers where qq_account_id = ${qq} and kind = 'user' and peer_id in (${list})`,
+    );
+    return new Map(after.filter((a) => a.avatar_sha256).map((a) => [Number(a.peer_id), a.avatar_sha256!]));
+  }
+
   /** 只下载头像（不经 QQ 协议，直接从头像服务取），变了才更新。 */
   async refreshAvatar(qqAccountId: number, kind: 'user' | 'group', peerId: number): Promise<void> {
     const sha256 = await this.avatar(avatarUrl(kind, peerId));
@@ -400,7 +440,7 @@ export class ContactService {
       await this.processor?.process(blob.sha256, 'image');
       return blob.sha256;
     } catch (error) {
-      this.o.logger?.debug({ err: error, url }, 'avatar fetch failed');
+      this.o.logger?.warn({ err: error, url }, 'avatar fetch failed');
       return null;
     }
   }

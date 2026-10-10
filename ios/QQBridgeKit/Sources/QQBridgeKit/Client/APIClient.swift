@@ -41,7 +41,7 @@ extension ResponseMessage {
 /// 一台已登录设备的客户端：持有设备令牌，所有请求自动带上。
 public final class APIClient: SyncAPI {
   public let config: ServerConfig
-  private let token: String
+  let token: String
   private let client: ProtocolClient
 
   public let auth: Qqbridge_V1_AuthServiceClient

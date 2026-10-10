@@ -11,8 +11,11 @@ service DialogService {
   rpc MarkRead(MarkReadRequest) returns (MarkReadResponse);
   // 置顶（只在本服务的客户端之间同步，不改 QQ 里的置顶）。
   rpc SetPinned(SetPinnedRequest) returns (SetPinnedResponse);
-  // 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all / mentions / muted。
+  // 通知策略：default（私聊全部推送，群聊只推 @我 和回复我的）/ all（接收并提醒）/ mentions / muted（接收不提醒）
+  // / archived（收进群助手：不提醒，会话列表里收进"群助手"）。最初从 QQ 的群消息设置同步过来，在这里改过之后以这里为准。
   rpc SetNotifyPolicy(SetNotifyPolicyRequest) returns (SetNotifyPolicyResponse);
+  // @全体成员 是否提醒（默认提醒）。
+  rpc SetMentionAllNotify(SetMentionAllNotifyRequest) returns (SetMentionAllNotifyResponse);
   // 保存草稿（segments 为空表示清除），经 pts 同步到其他设备。
   rpc SaveDraft(SaveDraftRequest) returns (SaveDraftResponse);
   // 告诉服务端这台设备正在看哪个会话（chat_id = 0 表示退出会话）。服务端据此优先下载该会话的媒体。
@@ -84,4 +87,13 @@ message SetTypingRequest {
 message SetTypingResponse {
   // false：群聊、QQ 离线或被限流，没有发出去。
   bool sent = 1;
+}
+
+message SetMentionAllNotifyRequest {
+  int64 chat_id = 1;
+  bool enabled = 2;
+}
+
+message SetMentionAllNotifyResponse {
+  bool changed = 1;
 }

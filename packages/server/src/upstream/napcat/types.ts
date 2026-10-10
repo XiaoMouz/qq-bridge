@@ -16,6 +16,8 @@ export const NtElementType = {
   MFACE: 11,
   MARKDOWN: 14,
   MULTIFORWARD: 16,
+  /** 机器人消息下面的按钮（inlineKeyboardElement）。 */
+  INLINE_KEYBOARD: 17,
   ONLINE_FILE: 23,
   ONLINE_FOLDER: 30,
 } as const;
@@ -26,7 +28,7 @@ export interface NtElement {
   textElement?: { content?: string; atType?: number; atUid?: string; atNtUid?: string };
   faceElement?: { faceIndex?: number; faceType?: number; faceText?: string; resultId?: string };
   marketFaceElement?: { emojiPackageId?: number; faceName?: string; emojiId?: string; key?: string };
-  replyElement?: { replayMsgSeq?: string; replayMsgId?: string; senderUin?: string };
+  replyElement?: { replayMsgSeq?: string; replayMsgId?: string; senderUin?: string; senderUid?: string };
   picElement?: {
     md5HexStr?: string;
     fileSize?: number | string;

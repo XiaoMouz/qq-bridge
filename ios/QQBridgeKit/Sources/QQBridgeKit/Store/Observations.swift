@@ -20,6 +20,10 @@ public struct DialogItem: Sendable, Identifiable, Equatable {
   }
 
   public var isGroup: Bool { dialog.scene == .group }
+  /// 收进群助手的群。
+  public var isArchived: Bool { dialog.notifyPolicy == "archived" }
+  /// 接收但不提醒（含收进群助手、免打扰）。
+  public var isMuted: Bool { ["muted", "archived"].contains(dialog.notifyPolicy) }
 }
 
 /// 聊天页里的一项：消息、服务事件（灰条），或者还在发件箱里的消息。
@@ -60,11 +64,17 @@ extension LocalStore {
           """,
         arguments: [Qqbridge_V1_Scene.group.rawValue, Qqbridge_V1_PeerKind.group.rawValue, Qqbridge_V1_PeerKind.user.rawValue, limit]
       )
-      return try rows.map { row in
+      let items = try rows.map { row in
         DialogItem(
           dialog: try Qqbridge_V1_Dialog(serializedBytes: row["dialog"] as Data),
           peer: try (row["peer"] as Data?).map { try Qqbridge_V1_Peer(serializedBytes: $0) }
         )
+      }
+      // 置顶的按置顶时间倒序（最近置顶的在最上面），其余按最后一条消息时间倒序。
+      return items.sorted { a, b in
+        if a.dialog.pinned != b.dialog.pinned { return a.dialog.pinned }
+        if a.dialog.pinned, a.dialog.pinnedAt != b.dialog.pinnedAt { return a.dialog.pinnedAt > b.dialog.pinnedAt }
+        return a.dialog.topTime > b.dialog.topTime
       }
     }
     .removeDuplicates()

@@ -9,9 +9,17 @@ struct MessageContext {
   let qqAccountId: Int64
   let chatId: Int64
   let store: LocalStore
+  let members: GroupMembers
+  let avatars: AvatarBook
+  let voice: VoicePlayer
+  let actions: ChatActions
+  let session: Session
 
+  /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
+  @MainActor
   func name(of userId: Int64) -> String {
     if userId == selfUin { return "我" }
+    if isGroup, let n = members.displayName(userId) { return n }
     return (try? store.userName(qqAccountId: qqAccountId, userId: userId)) ?? String(userId)
   }
 }
@@ -68,11 +76,16 @@ struct Notice: View {
   }
 }
 
+/// 常用的表情回应（QQ 的 emoji 回应用码点做 id）。
+let quickReactions: [(id: String, label: String)] = [
+  ("128077", "👍"), ("10084", "❤️"), ("128514", "😂"), ("128558", "😮"), ("128546", "😢"), ("127881", "🎉"),
+]
+
 struct MessageBubbleRow: View {
   let message: Qqbridge_V1_Message
   let context: MessageContext
+
   let showsSender: Bool
-  @Environment(\.session) private var session
 
   private var outgoing: Bool { message.senderID == context.selfUin }
 
@@ -81,26 +94,75 @@ struct MessageBubbleRow: View {
       if outgoing { Spacer(minLength: 48) }
       if context.isGroup, !outgoing {
         if showsSender {
-          let name = context.name(of: message.senderID)
-          AvatarView(
-            sha256: (try? context.store.peer(qqAccountId: context.qqAccountId, kind: .user, peerId: message.senderID))?.avatarSha256,
-            title: name,
-            seed: message.senderID,
-            size: 34
-          )
+          SenderAvatar(userId: message.senderID, context: context)
         } else {
           Color.clear.frame(width: 34, height: 1)
         }
       }
       VStack(alignment: outgoing ? .trailing : .leading, spacing: 3) {
         if showsSender {
-          Text(context.name(of: message.senderID)).font(.caption).foregroundStyle(.secondary)
+          HStack(spacing: 4) {
+            Text(context.name(of: message.senderID)).font(.caption).foregroundStyle(.secondary)
+            if let m = context.members.byId[message.senderID] {
+              if m.role == "owner" { RoleTag(text: "群主", color: .orange) } else if m.role == "admin" { RoleTag(text: "管理员", color: .green) }
+              if !m.title.isEmpty { RoleTag(text: m.title, color: .purple) }
+            }
+          }
         }
         MessageContent(message: message, context: context, outgoing: outgoing)
-        if !message.reactions.isEmpty { Reactions(reactions: message.reactions) }
+          .contextMenu { menu }
+        if !message.reactions.isEmpty { Reactions(message: message, context: context) }
       }
       if !outgoing { Spacer(minLength: 48) }
     }
+  }
+
+  @ViewBuilder private var menu: some View {
+    Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
+    if !message.text.isEmpty {
+      Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+    }
+    if context.isGroup, !outgoing {
+      Button("@\(context.name(of: message.senderID))", systemImage: "at") { context.actions.mention(message.senderID) }
+    }
+    if context.isGroup {
+      Menu("回应", systemImage: "face.smiling") {
+        ForEach(quickReactions, id: \.id) { r in
+          Button(r.label) { context.actions.react(message, r.id) }
+        }
+      }
+    }
+    if outgoing, Date().timeIntervalSince1970 - Double(message.time) < 120 {
+      Button("撤回", systemImage: "arrow.uturn.backward", role: .destructive) { context.actions.recall(message) }
+    }
+  }
+}
+
+/// 群友头像：点开看资料，长按 @ 他。头像按需向服务端要（显示到谁要谁的）。
+struct SenderAvatar: View {
+  let userId: Int64
+  let context: MessageContext
+
+  var body: some View {
+    let name = context.name(of: userId)
+    let sha = context.avatars.sha256[userId]
+      ?? (try? context.store.peer(qqAccountId: context.qqAccountId, kind: .user, peerId: userId))?.avatarSha256
+    AvatarView(sha256: sha, title: name, seed: userId, size: 34)
+      .onAppear { context.avatars.want(userId, session: context.session) }
+      .onTapGesture { context.actions.showProfile(userId) }
+      .onLongPressGesture(minimumDuration: 0.4) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        context.actions.mention(userId)
+      }
+  }
+}
+
+struct RoleTag: View {
+  let text: String
+  let color: Color
+  var body: some View {
+    Text(text).font(.system(size: 9, weight: .semibold)).padding(.horizontal, 4).padding(.vertical, 1)
+      .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 3)).foregroundStyle(color)
   }
 }
 
@@ -115,7 +177,7 @@ struct MessageContent: View {
     let bare = blocks.count == 1 && blocks[0].isBare
     VStack(alignment: .leading, spacing: 6) {
       ForEach(blocks.indices, id: \.self) { i in
-        BlockView(block: blocks[i], context: context, outgoing: outgoing)
+        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message)
       }
     }
     .padding(bare ? 0 : 10)
@@ -131,7 +193,7 @@ struct MessageContent: View {
 
 /// 排版块：相邻的文字、@、表情合成一段富文本，其余各成一块。
 enum Block {
-  case text(AttributedString)
+  case text([Inline])
   case reply(Int64)
   case image(Qqbridge_V1_ImageSegment)
   case sticker(sha256: String, summary: String)
@@ -149,12 +211,18 @@ enum Block {
     }
   }
 
-  static func make(_ segments: [Qqbridge_V1_Segment], context: MessageContext) -> [Block] {
+  @MainActor static func make(_ segments: [Qqbridge_V1_Segment], context: MessageContext) -> [Block] {
     var out: [Block] = []
+    var runs: [Inline] = []
     var text = AttributedString()
-    func flush() {
-      if !text.characters.isEmpty { out.append(.text(text)) }
+    func cut() {
+      if !text.characters.isEmpty { runs.append(.text(text)) }
       text = AttributedString()
+    }
+    func flush() {
+      cut()
+      if !runs.isEmpty { out.append(.text(runs)) }
+      runs = []
     }
     for seg in segments {
       switch seg.kind {
@@ -167,7 +235,7 @@ enum Block {
         var a = AttributedString("@全体成员 ")
         a.font = .body.bold()
         text += a
-      case .face(let f): text += AttributedString(QQFace.text(f.faceID))
+      case .face(let f): cut(); runs.append(.face(f.faceID, name: f.name, large: f.isLarge))
       case .reply(let r): out.insert(.reply(r.seq), at: 0)
       case .image(let i):
         flush()
@@ -181,12 +249,19 @@ enum Block {
         if f.hasMedia, !f.media.sha256.isEmpty {
           out.append(.sticker(sha256: f.media.thumbSha256.isEmpty ? f.media.sha256 : f.media.thumbSha256, summary: f.summary))
         } else {
-          out.append(.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary)))
+          out.append(.text([.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary))]))
         }
       case .lightApp(let a): flush(); out.append(.card(CardText.from(json: a.json, app: a.appName)))
       case .xml: flush(); out.append(.card("[卡片消息]"))
       case .markdown(let m): text += (try? AttributedString(markdown: m.content)) ?? AttributedString(m.content)
-      case .unknown, .none: text += AttributedString("[暂不支持的消息]")
+      case .unknown(let u):
+        switch u.original {
+        case "keyboard": break  // 机器人按钮：只能在 QQ 里点
+        case "dice": text += AttributedString("[骰子]")
+        case "rps": text += AttributedString("[猜拳]")
+        default: text += AttributedString("[暂不支持的消息]")
+        }
+      case .none: break
       }
     }
     flush()
@@ -198,15 +273,17 @@ struct BlockView: View {
   let block: Block
   let context: MessageContext
   let outgoing: Bool
+  var message: Qqbridge_V1_Message? = nil
 
   var body: some View {
     switch block {
-    case .text(let t):
-      Text(t).textSelection(.enabled)
+    case .text(let runs):
+      Inline.compose(runs).textSelection(.enabled)
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId)
+        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media)) }
     case .sticker(let sha, let summary):
       CachedImage(sha256: sha, chatId: context.chatId) {
         Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
@@ -214,9 +291,12 @@ struct BlockView: View {
       .aspectRatio(contentMode: .fit)
       .frame(maxWidth: 140, maxHeight: 140)
     case .record(let r):
-      VoiceBubble(record: r)
+      VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
+        .contentShape(Rectangle())
+        .onTapGesture { context.actions.playVoice(r) }
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId)
+        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .video, media: v.media)) }
         .overlay {
           Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
         }
@@ -244,6 +324,8 @@ struct BlockView: View {
         Text(f.summary.isEmpty ? "查看聊天记录" : f.summary).font(.caption2).opacity(0.7)
       }
       .frame(minWidth: 180, alignment: .leading)
+      .contentShape(Rectangle())
+      .onTapGesture { if let m = message { context.actions.openForward(m) } }
     case .card(let text):
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
     }
@@ -281,15 +363,16 @@ struct MediaThumb: View {
   }
 }
 
-/// 语音：波形 + 时长（播放下一步做）。
+/// 语音：波形 + 时长，点一下播放 / 停止。
 struct VoiceBubble: View {
   let record: Qqbridge_V1_RecordSegment
+  var playing = false
 
   var body: some View {
     let bars = Array(record.media.waveform)
     let seconds = Int(record.durationSec)
     HStack(spacing: 8) {
-      Image(systemName: "play.fill")
+      Image(systemName: playing ? "stop.fill" : "play.fill")
       HStack(alignment: .center, spacing: 2) {
         ForEach(0..<max(bars.count, 1), id: \.self) { i in
           let v = bars.isEmpty ? 0.3 : CGFloat(bars[i]) / 255
@@ -339,18 +422,24 @@ struct ReplyQuote: View {
 }
 
 struct Reactions: View {
-  let reactions: [Qqbridge_V1_Reaction]
+  let message: Qqbridge_V1_Message
+  let context: MessageContext
   var body: some View {
     HStack(spacing: 4) {
-      ForEach(reactions, id: \.emojiID) { r in
-        HStack(spacing: 2) {
-          Text(QQFace.text(r.emojiID))
-          Text("\(r.count)").monospacedDigit()
+      ForEach(message.reactions, id: \.emojiID) { r in
+        Button {
+          if context.isGroup { context.actions.react(message, r.emojiID) }
+        } label: {
+          HStack(spacing: 2) {
+            QQFace.view(r.emojiID)
+            Text("\(r.count)").monospacedDigit()
+          }
+          .font(.caption)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 3)
+          .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
         }
-        .font(.caption)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+        .buttonStyle(.plain)
       }
     }
   }
@@ -389,11 +478,60 @@ struct OutgoingRow: View {
   }
 }
 
-/// QQ 小黄脸：先用文字代替（以后换成图）。emoji 回应的 id 是码点。
+/// 一段富文本里的一截：文字或小黄脸。
+enum Inline {
+  case text(AttributedString)
+  case face(String, name: String, large: Bool)
+
+  @MainActor static func compose(_ runs: [Inline]) -> Text {
+    runs.reduce(Text(verbatim: "")) { acc, run in
+      switch run {
+      case .text(let a): Text("\(acc)\(Text(a))")
+      case .face(let id, let name, let large): Text("\(acc)\(QQFace.inline(id, name: name, size: large ? 64 : 20))")
+      }
+    }
+  }
+}
+
+/// QQ 小黄脸：图和名字取自 QQ 自带的表情资源（Resources/QQFaces、QQFaceNames.swift）；
+/// 新出的表情本地没有就显示名字或编号。emoji 回应的 id 是码点。
 enum QQFace {
-  static func text(_ id: String) -> String {
+  /// 纯文字场景（引用、预览）：[微笑]。
+  static func text(_ id: String, name: String = "") -> String {
     if let code = Int(id), code > 0x2000, let scalar = Unicode.Scalar(code) { return String(Character(scalar)) }
-    return "[表情\(id)]"
+    if !name.isEmpty { return "[\(name)]" }
+    if let code = Int(id), let name = names[code] { return "[\(name)]" }
+    return "[表情]"
+  }
+
+  /// 行内：有图用图（按正文字号缩放），没有就退回文字。
+  @MainActor static func inline(_ id: String, name: String = "", size: CGFloat = 20) -> Text {
+    guard let image = image(id, size: size) else { return Text(verbatim: text(id, name: name)) }
+    return Text(Image(uiImage: image)).baselineOffset(-4)
+  }
+
+  /// 单独显示（回应等）：图或文字。
+  @MainActor static func view(_ id: String, size: CGFloat = 16) -> Text {
+    if image(id, size: size) == nil, Int(id).map({ $0 <= 0x2000 && names[$0] == nil }) ?? false {
+      return Text(Image(systemName: "face.smiling"))  // 本地没有的新表情：通用图标
+    }
+    return inline(id, size: size)
+  }
+
+  @MainActor private static var cache: [String: UIImage] = [:]
+
+  @MainActor static func image(_ id: String, size: CGFloat) -> UIImage? {
+    let key = "\(id)@\(size)"
+    if let hit = cache[key] { return hit }
+    guard Int(id) != nil,
+          let url = Bundle.main.url(forResource: "s\(id)", withExtension: "png", subdirectory: "QQFaces"),
+          let source = UIImage(contentsOfFile: url.path)
+    else { return nil }
+    let scaled = UIGraphicsImageRenderer(size: CGSize(width: size, height: size)).image { _ in
+      source.draw(in: CGRect(x: 0, y: 0, width: size, height: size))
+    }
+    cache[key] = scaled
+    return scaled
   }
 }
 
@@ -415,7 +553,7 @@ enum CardText {
 
 /// 服务事件的一句话描述。
 enum EventText {
-  static func describe(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> String {
+  @MainActor static func describe(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> String {
     let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
     let actor = e.actorID == 0 ? "" : context.name(of: e.actorID)
     let target = e.targetID == 0 ? "" : context.name(of: e.targetID)

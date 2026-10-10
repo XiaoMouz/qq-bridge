@@ -40,7 +40,8 @@ export type Segment =
   | { type: 'text'; text: string }
   | { type: 'mention'; userId: number; name?: string }
   | { type: 'mention_all' }
-  | { type: 'face'; faceId: string; isLarge?: boolean }
+  /** name：QQ 给的表情名（如「微笑」），客户端本地没有这个表情时用来显示。 */
+  | { type: 'face'; faceId: string; isLarge?: boolean; name?: string }
   | { type: 'reply'; seq: number; senderId?: number }
   | { type: 'image'; media: MediaInfo; width?: number; height?: number; summary?: string; subType?: 'normal' | 'sticker' }
   | { type: 'record'; media: MediaInfo; durationSec?: number }

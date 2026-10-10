@@ -27,6 +27,10 @@ service MediaService {
   rpc GetChatStorage(GetChatStorageRequest) returns (GetChatStorageResponse);
   // 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
   rpc RunTiering(RunTieringRequest) returns (RunTieringResponse);
+  // 我在 QQ 里收藏的表情（顺序与 QQ 一致，最新收藏的在前）。服务端缓存 10 分钟，refresh = true 时重新向 QQ 拉。
+  rpc ListStickers(ListStickersRequest) returns (ListStickersResponse);
+  // 准备一批表情的图片：服务端按 md5 找已有内容，没有就下载存下（去重），返回 sha256 与缩略图。表情面板滚动到哪准备到哪。
+  rpc PrepareStickers(PrepareStickersRequest) returns (PrepareStickersResponse);
 }
 
 message PrepareUploadRequest {
@@ -252,4 +256,32 @@ message RunTieringResponse {
   uint32 by_age = 5;
   uint32 by_chat_quota = 6;
   uint32 by_global_quota = 7;
+}
+
+message Sticker {
+  string md5 = 1;
+  // 已准备好的原图 / 缩略图（还没准备时为空，调 PrepareStickers）。
+  string sha256 = 2;
+  string thumb_sha256 = 3;
+  string desc = 4;
+  // QQ 商城表情（发出去是表情包样式）。
+  bool market = 5;
+}
+
+message ListStickersRequest {
+  bool refresh = 1;
+}
+
+message ListStickersResponse {
+  repeated Sticker stickers = 1;
+}
+
+message PrepareStickersRequest {
+  // 一次最多 60 个。
+  repeated string md5 = 1;
+}
+
+message PrepareStickersResponse {
+  // 准备好了的（下载失败的不在里面）。
+  repeated Sticker stickers = 1;
 }

@@ -34,6 +34,10 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     /// 立即从 QQ 刷新好友列表和群列表（例如用户下拉刷新联系人页）。
     @available(iOS 13, *)
     func `refreshContacts`(request: Qqbridge_V1_RefreshContactsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RefreshContactsResponse>
+
+    /// 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
+    @available(iOS 13, *)
+    func `getAvatars`(request: Qqbridge_V1_GetAvatarsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_GetAvatarsResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_ContactServiceClientInterface`.
@@ -74,6 +78,11 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
         return await self.client.unary(path: "/qqbridge.v1.ContactService/RefreshContacts", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `getAvatars`(request: Qqbridge_V1_GetAvatarsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_GetAvatarsResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/GetAvatars", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let listFriends = Connect.MethodSpec(name: "ListFriends", service: "qqbridge.v1.ContactService", type: .unary)
@@ -82,6 +91,7 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let getGroupProfile = Connect.MethodSpec(name: "GetGroupProfile", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupMembers = Connect.MethodSpec(name: "ListGroupMembers", service: "qqbridge.v1.ContactService", type: .unary)
             public static let refreshContacts = Connect.MethodSpec(name: "RefreshContacts", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let getAvatars = Connect.MethodSpec(name: "GetAvatars", service: "qqbridge.v1.ContactService", type: .unary)
         }
     }
 }

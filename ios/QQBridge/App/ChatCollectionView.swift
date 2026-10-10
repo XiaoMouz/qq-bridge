@@ -10,6 +10,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   let items: [ChatItem]
   let context: MessageContext
   let onReachTop: () -> Void
+  /// 是否停在最底部（标已读用）。
+  var onBottomChange: (Bool) -> Void = { _ in }
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
     ChatCollectionController()
@@ -18,6 +20,7 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   func updateUIViewController(_ controller: ChatCollectionController, context _: Context) {
     controller.messageContext = context
     controller.onReachTop = onReachTop
+    controller.onBottomChange = onBottomChange
     controller.apply(items)
   }
 }
@@ -26,6 +29,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
 final class ChatCollectionController: UIViewController, UICollectionViewDelegate {
   var messageContext: MessageContext?
   var onReachTop: (() -> Void)?
+  var onBottomChange: ((Bool) -> Void)?
+  private var reportedBottom: Bool?
 
   private var collectionView: UICollectionView!
   private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -120,6 +125,11 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
     if !firstLoad, scrollView.isTracking || scrollView.isDecelerating, scrollView.contentOffset.y < 400 { onReachTop?() }
+    let bottom = isNearBottom
+    if bottom != reportedBottom {
+      reportedBottom = bottom
+      onBottomChange?(bottom)
+    }
   }
 
   func scrollViewWillBeginDragging(_: UIScrollView) {

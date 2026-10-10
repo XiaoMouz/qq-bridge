@@ -116,7 +116,7 @@ export function segmentToProto(seg: Segment): MessageInitShape<typeof SegmentSch
     case 'mention_all':
       return { kind: { case: 'mentionAll', value: {} } };
     case 'face':
-      return { kind: { case: 'face', value: { faceId: seg.faceId, isLarge: Boolean(seg.isLarge) } } };
+      return { kind: { case: 'face', value: { faceId: seg.faceId, isLarge: Boolean(seg.isLarge), name: seg.name ?? '' } } };
     case 'reply':
       return { kind: { case: 'reply', value: { seq: big(seg.seq), senderId: big(seg.senderId) } } };
     case 'image':
@@ -245,9 +245,13 @@ export function dialogToProto(d: DialogRow): Dialog {
     topTime: unix(d.topTime),
     unreadCount: d.unreadCount,
     unreadMentions: d.unreadMentions,
+    unreadMentionAll: d.unreadMentionAll,
+    unreadReplies: d.unreadReplies,
     readInboxMaxSeq: big(d.readInboxMaxSeq),
     pinned: d.pinned,
+    pinnedAt: unix(d.pinnedAt),
     notifyPolicy: d.notifyPolicy,
+    mentionAllNotify: d.mentionAllNotify,
     chatPts: big(d.chatPts),
     dialogPts: big(d.dialogPts),
     ...(d.topMessage ? { topMessage: messageToProto(d.topMessage) } : {}),

@@ -54,6 +54,14 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     /// 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
     @available(iOS 13, *)
     func `runTiering`(request: Qqbridge_V1_RunTieringRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RunTieringResponse>
+
+    /// 我在 QQ 里收藏的表情（顺序与 QQ 一致，最新收藏的在前）。服务端缓存 10 分钟，refresh = true 时重新向 QQ 拉。
+    @available(iOS 13, *)
+    func `listStickers`(request: Qqbridge_V1_ListStickersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListStickersResponse>
+
+    /// 准备一批表情的图片：服务端按 md5 找已有内容，没有就下载存下（去重），返回 sha256 与缩略图。表情面板滚动到哪准备到哪。
+    @available(iOS 13, *)
+    func `prepareStickers`(request: Qqbridge_V1_PrepareStickersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_PrepareStickersResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MediaServiceClientInterface`.
@@ -119,6 +127,16 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
         return await self.client.unary(path: "/qqbridge.v1.MediaService/RunTiering", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `listStickers`(request: Qqbridge_V1_ListStickersRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListStickersResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/ListStickers", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `prepareStickers`(request: Qqbridge_V1_PrepareStickersRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_PrepareStickersResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/PrepareStickers", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let prepareUpload = Connect.MethodSpec(name: "PrepareUpload", service: "qqbridge.v1.MediaService", type: .unary)
@@ -132,6 +150,8 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
             public static let deleteStoragePolicy = Connect.MethodSpec(name: "DeleteStoragePolicy", service: "qqbridge.v1.MediaService", type: .unary)
             public static let getChatStorage = Connect.MethodSpec(name: "GetChatStorage", service: "qqbridge.v1.MediaService", type: .unary)
             public static let runTiering = Connect.MethodSpec(name: "RunTiering", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let listStickers = Connect.MethodSpec(name: "ListStickers", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let prepareStickers = Connect.MethodSpec(name: "PrepareStickers", service: "qqbridge.v1.MediaService", type: .unary)
         }
     }
 }

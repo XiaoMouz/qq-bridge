@@ -82,9 +82,13 @@ export interface DialogRow {
   topTime: Date | null;
   unreadCount: number;
   unreadMentions: number;
+  unreadMentionAll: number;
+  unreadReplies: number;
   readInboxMaxSeq: number;
   pinned: boolean;
+  pinnedAt: Date | null;
   notifyPolicy: string;
+  mentionAllNotify: boolean;
   draft: unknown;
   /** 会话内消息流已分配到的序号。 */
   chatPts: number;
@@ -94,7 +98,7 @@ export interface DialogRow {
 }
 
 export const DIALOG_COLUMNS = sql.raw(
-  'id, qq_account_id, scene, peer_id, top_seq, top_time, unread_count, unread_mentions, read_inbox_max_seq, pinned, notify_policy, draft, chat_pts, dialog_pts',
+  'id, qq_account_id, scene, peer_id, top_seq, top_time, unread_count, unread_mentions, unread_mention_all, unread_replies, read_inbox_max_seq, pinned, pinned_at, notify_policy, mention_all_notify, draft, chat_pts, dialog_pts',
 );
 
 export function toDialog(r: DbRow, topMessage: MessageRow | null): DialogRow {
@@ -107,9 +111,13 @@ export function toDialog(r: DbRow, topMessage: MessageRow | null): DialogRow {
     topTime: toDate(r.top_time),
     unreadCount: r.unread_count,
     unreadMentions: r.unread_mentions,
+    unreadMentionAll: r.unread_mention_all ?? 0,
+    unreadReplies: r.unread_replies ?? 0,
     readInboxMaxSeq: r.read_inbox_max_seq,
     pinned: r.pinned,
+    pinnedAt: toDate(r.pinned_at),
     notifyPolicy: r.notify_policy,
+    mentionAllNotify: r.mention_all_notify ?? true,
     draft: r.draft ?? null,
     chatPts: r.chat_pts,
     dialogPts: r.dialog_pts,

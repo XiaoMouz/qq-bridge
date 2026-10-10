@@ -146,6 +146,27 @@ describe('NapCat mapping', () => {
     expect(media[1]!.locator).toMatchObject({ elementType: 5, fileUuid: `video-${MD5_B.slice(0, 6)}` });
   });
 
+  it('keeps face names, hides bot keyboards and strips the markdown metadata link', () => {
+    const r = raw({
+      chatType: 2,
+      peer: '123456',
+      seq: 77,
+      sender: '20002',
+      elements: [
+        { ...el.face(474, 3), faceElement: { faceIndex: 474, faceType: 3, faceText: '/给你一拳' } },
+        { elementType: 14, elementId: '9001', markdownElement: { content: '[](%7B%22version%22%3A2%7D)\n# 签到成功' } },
+        { elementType: 17, elementId: '9002' },
+      ],
+    });
+    const action = mapRawMessage(r, { selfUin: SELF, source: 'realtime' });
+    if (action.type !== 'message') throw new Error(action.type);
+    const { segments } = action.message;
+    expect(segments[0]).toEqual({ type: 'face', faceId: '474', isLarge: true, name: '给你一拳' });
+    expect(segments[1]).toEqual({ type: 'markdown', content: '# 签到成功' });
+    expect(segments[2]).toMatchObject({ type: 'unknown', original: 'keyboard' });
+    expect(plainText(segments)).toBe('[给你一拳]# 签到成功');
+  });
+
   it('maps history messages without OneBot segments: no URL, but a locator to fetch one later', () => {
     const r = raw({ chatType: 2, peer: '123456', seq: 100, sender: '20002', elements: [el.pic({ md5: MD5_B, size: 10, w: 1, h: 1, sticker: true })] });
     const action = mapRawMessage(r, { selfUin: SELF, source: 'backfill' });

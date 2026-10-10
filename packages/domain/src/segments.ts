@@ -10,6 +10,8 @@ export const MessageFlag = {
   mentionsMe: 1 << 5,
   mentionAll: 1 << 6,
   sticker: 1 << 7,
+  /** 回复了我发的消息。 */
+  replyToMe: 1 << 8,
 } as const;
 
 const URL_PATTERN = /https?:\/\/[^\s]+/i;
@@ -39,6 +41,9 @@ export function messageFlags(segments: readonly Segment[], selfUin: number): num
       case 'mention_all':
         flags |= MessageFlag.mentionAll;
         break;
+      case 'reply':
+        if (seg.senderId === selfUin) flags |= MessageFlag.replyToMe;
+        break;
       case 'text':
         if (URL_PATTERN.test(seg.text)) flags |= MessageFlag.link;
         break;
@@ -64,7 +69,7 @@ export function plainText(segments: readonly Segment[]): string {
         case 'mention_all':
           return '@全体成员';
         case 'face':
-          return '[表情]';
+          return seg.name ? `[${seg.name}]` : '[表情]';
         case 'reply':
           return '';
         case 'image':
@@ -86,7 +91,7 @@ export function plainText(segments: readonly Segment[]): string {
         case 'markdown':
           return seg.content;
         case 'unknown':
-          return `[${seg.original}]`;
+          return seg.original === 'keyboard' ? '' : `[${seg.original}]`;
       }
     })
     .join('')

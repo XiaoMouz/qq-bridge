@@ -18,7 +18,12 @@ targets:
   QQBridge:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - App
+      # QQ 自带的小黄脸静态图（sNNN.png），按文件夹原样打包。
+      - path: Resources/QQFaces
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: QQBridgeKit
         product: QQBridgeKit

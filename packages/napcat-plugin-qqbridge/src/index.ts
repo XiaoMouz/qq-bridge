@@ -10,6 +10,7 @@ import { ControlServer } from './control-server.js';
 import { selfInfo } from './core.js';
 import type { NapCatPluginContext, OB11Event } from './napcat.js';
 import { Probe } from './probe.js';
+import { registerDebugRoutes } from './debug-routes.js';
 import { EventForwarder } from './upstream/forwarder.js';
 import { createHandlers } from './upstream/handlers.js';
 import { UpstreamLink, type RpcHandler } from './upstream/link.js';
@@ -45,6 +46,7 @@ export async function plugin_init(ctx: NapCatPluginContext): Promise<void> {
     const server = new ControlServer(cfg.controlHost, cfg.controlPort, cfg.token, logger);
     const probe = new Probe(ctx, capture, cfg.probeMediaUrls);
     probe.registerRoutes(server);
+    registerDebugRoutes(server, ctx);
 
     let calls: AvsdkBridge | null = cfg.calls ? new AvsdkBridge(ctx, cfg, capture) : null;
     try {

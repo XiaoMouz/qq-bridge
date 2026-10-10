@@ -24,6 +24,7 @@ import { maybeOne, rows } from '../db/client.ts';
 import { UploadError } from '../media/upload.ts';
 import { deletePolicy, effectivePolicy, listPolicies, PolicyError, setPolicy } from '../media/policies.ts';
 import type { ChatStorageSummary } from '../media/service.ts';
+import type { StickerItem } from '../media/stickers.ts';
 import { DialogPrefsError } from '../dialogs/prefs.ts';
 import { OutboxError } from '../outbox/service.ts';
 import { SearchQueryError, searchMessages } from '../search/messages.ts';
@@ -232,6 +233,9 @@ function dialogService(deps: ApiDeps): ServiceImpl<typeof DialogService> {
       return prefs(() =>
         deps.dialogPrefs.setNotifyPolicy(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), req.policy),
       );
+    },
+    async setMentionAllNotify(req, ctx) {
+      return prefs(() => deps.dialogPrefs.setMentionAllNotify(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), req.enabled));
     },
     async saveDraft(req, ctx) {
       const segments = req.segments.map(outgoingFromProto);
@@ -526,6 +530,9 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
             select v.variant_sha256 as sha256 from blob_variants v
              where v.variant_sha256 in (${list}) and v.sha256 in (select sha256 from mine)`,
       );
+      // 收藏表情（还没在聊天里出现过的也能看）。
+      const stickers = await deps.stickers.ownedSha256(auth.accountId);
+      for (const sha of requested) if (stickers.has(sha) && !allowed.some((a) => a.sha256 === sha)) allowed.push({ sha256: sha });
       return {
         urls: allowed.map(({ sha256 }) => {
           const signed = deps.signer.sign(sha256);
@@ -563,6 +570,19 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
         coldTierEnabled: deps.tiering.enabled,
         chats: o.chats.map(chatStorageToProto),
       };
+    },
+    async listStickers(req, ctx) {
+      try {
+        const items = await deps.stickers.list(requireAuth(ctx).accountId, req.refresh);
+        return { stickers: items.map(stickerToProto) };
+      } catch (error) {
+        throw new ConnectError(error instanceof Error ? error.message : String(error), Code.Unavailable);
+      }
+    },
+    async prepareStickers(req, ctx) {
+      const md5 = req.md5.map((m) => m.toLowerCase()).filter((m) => /^[0-9a-f]{32}$/.test(m));
+      const items = await deps.stickers.prepare(requireAuth(ctx).accountId, md5);
+      return { stickers: items.map(stickerToProto) };
     },
     async getChatStorage(req, ctx) {
       const auth = requireAuth(ctx);
@@ -683,6 +703,10 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
   };
 }
 
+function stickerToProto(s: StickerItem) {
+  return { md5: s.md5, sha256: s.sha256 ?? '', thumbSha256: s.thumbSha256 ?? '', desc: s.desc, market: s.market };
+}
+
 function chatStorageToProto(c: ChatStorageSummary) {
   return {
     chatId: BigInt(c.chatId),
@@ -800,6 +824,12 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
           members: res.members.map((m) => ({ ...m, userId: BigInt(m.userId), joinedAt: secs(m.joinedAt), lastSentAt: secs(m.lastSentAt) })),
         };
       });
+    },
+    async getAvatars(req, ctx) {
+      const ids = req.userIds.map((id) => toSafeNumber(id, 'user_ids')).filter((id) => id > 0);
+      const found = await wrap(() => deps.contacts.avatars(requireAuth(ctx).accountId, ids));
+      deps.logger.debug({ requested: ids.length, found: found.size }, 'GetAvatars');
+      return { avatars: [...found].map(([userId, sha256]) => ({ userId: BigInt(userId), sha256 })) };
     },
     async refreshContacts(_req, ctx) {
       const auth = requireAuth(ctx);

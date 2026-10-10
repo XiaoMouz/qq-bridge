@@ -27,10 +27,12 @@ import { AdminService } from './admin/service.ts';
 import { NapcatWebUi } from './admin/napcat-webui.ts';
 import { ContactService } from './contacts/service.ts';
 import { TierManager } from './media/tiering.ts';
+import { StickerService } from './media/stickers.ts';
 import { ForwardService } from './messages/forwards.ts';
 import { MessageInteractions } from './messages/interactions.ts';
 import { HttpCallGateway } from './calls/gateway.ts';
 import { createUpstream } from './upstream/index.ts';
+import { QqSettingsSync } from './upstream/settings-sync.ts';
 
 /** 组装服务端的全部依赖；测试与 CLI 共用。 */
 export function createDeps(
@@ -71,6 +73,7 @@ export function createDeps(
     forwards: new ForwardService(db, ingest, () => deps.upstream),
     tiering: new TierManager(db, media, logger.child({ component: 'tiering' })),
     rehydrate: null,
+    stickers: new StickerService(db, media, processor, () => deps.upstream, logger.child({ component: 'stickers' })),
     defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
     admin: new AdminService(db, {
       upstream: () => deps.upstream,
@@ -200,9 +203,21 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     deps.logger.info({ root: config.MEDIA_COLD_ROOT, available: deps.media.coldAvailable }, 'cold storage');
   }
   deps.tiering.start();
+  // 从 QQ 同步置顶、通知设置和"在别的设备上已读"：连上后 20 秒一次，之后每 5 分钟一次。
+  const settingsSync = upstream ? new QqSettingsSync(db, upstream.hub, deps.dialogPrefs, deps.ingest, deps.logger.child({ component: 'qq-settings' })) : null;
+  if (upstream && settingsSync) {
+    const accounts = async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id));
+    settingsSync.start(accounts);
+    const onConnected = upstream.hub.onConnected;
+    upstream.hub.onConnected = (info) => {
+      onConnected?.(info);
+      setTimeout(() => void settingsSync.schedule(info.qqAccountId), 20_000).unref();
+    };
+  }
   if (upstream) deps.contacts.start(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
   const close = async () => {
     deps.contacts.stop();
+    settingsSync?.stop();
     deps.tiering.stop();
     clearInterval(uploadCleanup);
     clearTimeout(retentionFirst);
