@@ -1,13 +1,14 @@
 // 研究用：看 QQ 内核返回的原始数据（置顶、群消息设置、收藏表情等字段名），只在容器内回环地址、带 token 才能访问。
 import type { ControlServer } from './control-server.js';
 import type { NapCatPluginContext } from './napcat.js';
+import { callAction } from './upstream/actions.js';
 
 /** 只留标量字段和浅层对象，避免把大块数据吐出来。 */
-function shallow(value: unknown, depth = 0): unknown {
+function shallow(value: unknown, depth = 0, max = 2): unknown {
   if (value === null || typeof value !== 'object') return value;
-  if (depth >= 2) return Array.isArray(value) ? `[array ${value.length}]` : '[object]';
-  if (Array.isArray(value)) return value.slice(0, 3).map((v) => shallow(v, depth + 1));
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, shallow(v, depth + 1)]));
+  if (depth >= max) return Array.isArray(value) ? `[array ${value.length}]` : '[object]';
+  if (Array.isArray(value)) return value.slice(0, 3).map((v) => shallow(v, depth + 1, max));
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, shallow(v, depth + 1, max)]));
 }
 
 export function registerDebugRoutes(server: ControlServer, ctx: NapCatPluginContext): void {
@@ -33,8 +34,14 @@ export function registerDebugRoutes(server: ControlServer, ctx: NapCatPluginCont
         const fav = await apis.MsgApi.fetchFavEmojiList(3);
         return { ...(shallow(fav) as object), first: fav?.emojiInfoList?.[0] };
       }
+      case 'ob11': {
+        // 看 OneBot 动作的返回：?kind=ob11&name=get_group_root_files&params={"group_id":"1"}
+        const name = req.url.searchParams.get('name') ?? '';
+        const params = JSON.parse(req.url.searchParams.get('params') ?? '{}');
+        return shallow(await callAction(ctx, name, params), 0, 5);
+      }
       default:
-        return { kinds: ['recent', 'groups', 'fav'], apis: Object.keys(apis) };
+        return { kinds: ['recent', 'groups', 'fav', 'ob11'], apis: Object.keys(apis) };
     }
   });
 }

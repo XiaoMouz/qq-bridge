@@ -122,6 +122,12 @@ struct GroupInfoView: View {
         NavigationLink("图片、视频与文件") { SharedMediaView(session: session, chatId: dialog.chatID) }
       }
 
+      Section {
+        NavigationLink { GroupNoticesView(session: session, groupId: dialog.peerID) } label: { Label("群公告", systemImage: "megaphone") }
+        NavigationLink { GroupEssenceView(session: session, groupId: dialog.peerID, chatId: dialog.chatID) } label: { Label("群精华", systemImage: "star") }
+        NavigationLink { GroupFilesView(session: session, groupId: dialog.peerID) } label: { Label("群文件", systemImage: "folder") }
+      }
+
       Section("成员 \(members.list.count)") {
         TextField("搜索成员", text: $memberQuery)
         ForEach(filteredMembers.prefix(200), id: \.userID) { m in

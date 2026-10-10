@@ -28,6 +28,7 @@ import { NapcatWebUi } from './admin/napcat-webui.ts';
 import { ContactService } from './contacts/service.ts';
 import { TierManager } from './media/tiering.ts';
 import { MessageForwarder } from './messages/forwarding.ts';
+import { GroupContentService } from './contacts/group-content.ts';
 import { StickerService } from './media/stickers.ts';
 import { ForwardService } from './messages/forwards.ts';
 import { MessageInteractions } from './messages/interactions.ts';
@@ -65,6 +66,7 @@ export function createDeps(
     processor,
     outbox: new OutboxService(db, writers),
     forwarder: null as unknown as MessageForwarder,
+    groupContent: null as unknown as GroupContentService,
     dialogPrefs: new DialogPrefs(writers),
     cleaner: new MediaCleaner(db, media, logger.child({ component: 'cleanup' })),
     upstream: null,
@@ -91,6 +93,10 @@ export function createDeps(
     activeChats: new ActiveChats(),
     logger,
   };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow);
+  deps.groupContent = new GroupContentService(db, media, () => deps.upstream, {
+    ...(opts.uploadMaxBytes ? { maxFileBytes: opts.uploadMaxBytes * 2 } : {}),
+    logger: logger.child({ component: 'group-content' }),
+  });
 
   return deps;
 }

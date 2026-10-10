@@ -120,6 +120,13 @@
       "when": 1791616147884,
       "tag": "0016_multimsg_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791616148884,
+      "tag": "0017_group_file_blobs",
+      "breakpoints": true
     }
   ]
 }

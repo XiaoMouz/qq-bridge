@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Peer } from "./common_pb.ts";
+import type { Message as Message$1, Peer } from "./common_pb.ts";
 import { file_qqbridge_v1_common } from "./common_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/contacts.proto.
  */
 export const file_qqbridge_v1_contacts: GenFile = /*@__PURE__*/
-  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0IjkKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiEwoRTGlzdEdyb3Vwc1JlcXVlc3QiNwoSTGlzdEdyb3Vwc1Jlc3BvbnNlEiEKBmdyb3VwcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiOQoVR2V0VXNlclByb2ZpbGVSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCCJtCgtVc2VyUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchILCgNzZXgYAiABKAkSCwoDYWdlGAMgASgNEg0KBWxldmVsGAQgASgNEhQKDHJlZnJlc2hlZF9hdBgFIAEoAyJSChZHZXRVc2VyUHJvZmlsZVJlc3BvbnNlEikKB3Byb2ZpbGUYASABKAsyGC5xcWJyaWRnZS52MS5Vc2VyUHJvZmlsZRINCgVzdGFsZRgCIAEoCCI7ChZHZXRHcm91cFByb2ZpbGVSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgicQoMR3JvdXBQcm9maWxlEh8KBHBlZXIYASABKAsyES5xcWJyaWRnZS52MS5QZWVyEhgKEG1heF9tZW1iZXJfY291bnQYAiABKA0SEAoIb3duZXJfaWQYAyABKAMSFAoMcmVmcmVzaGVkX2F0GAQgASgDIlQKF0dldEdyb3VwUHJvZmlsZVJlc3BvbnNlEioKB3Byb2ZpbGUYASABKAsyGS5xcWJyaWRnZS52MS5Hcm91cFByb2ZpbGUSDQoFc3RhbGUYAiABKAgikwEKC0dyb3VwTWVtYmVyEg8KB3VzZXJfaWQYASABKAMSEAoIbmlja25hbWUYAiABKAkSDAoEY2FyZBgDIAEoCRIMCgRyb2xlGAQgASgJEg0KBXRpdGxlGAUgASgJEg0KBWxldmVsGAYgASgJEhEKCWpvaW5lZF9hdBgHIAEoAxIUCgxsYXN0X3NlbnRfYXQYCCABKAMiWwoXTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCBIOCgZvZmZzZXQYAyABKAUSDQoFbGltaXQYBCABKAUiYwoYTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlEikKB21lbWJlcnMYASADKAsyGC5xcWJyaWRnZS52MS5Hcm91cE1lbWJlchINCgV0b3RhbBgCIAEoDRINCgVzdGFsZRgDIAEoCCIYChZSZWZyZXNoQ29udGFjdHNSZXF1ZXN0IjoKF1JlZnJlc2hDb250YWN0c1Jlc3BvbnNlEg8KB2ZyaWVuZHMYASABKA0SDgoGZ3JvdXBzGAIgASgNIiUKEUdldEF2YXRhcnNSZXF1ZXN0EhAKCHVzZXJfaWRzGAEgAygDIi0KClVzZXJBdmF0YXISDwoHdXNlcl9pZBgBIAEoAxIOCgZzaGEyNTYYAiABKAkiPgoSR2V0QXZhdGFyc1Jlc3BvbnNlEigKB2F2YXRhcnMYASADKAsyFy5xcWJyaWRnZS52MS5Vc2VyQXZhdGFyMvgECg5Db250YWN0U2VydmljZRJQCgtMaXN0RnJpZW5kcxIfLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVzcG9uc2USTQoKTGlzdEdyb3VwcxIeLnFxYnJpZGdlLnYxLkxpc3RHcm91cHNSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1Jlc3BvbnNlElkKDkdldFVzZXJQcm9maWxlEiIucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXF1ZXN0GiMucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXNwb25zZRJcCg9HZXRHcm91cFByb2ZpbGUSIy5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXF1ZXN0GiQucXFicmlkZ2UudjEuR2V0R3JvdXBQcm9maWxlUmVzcG9uc2USXwoQTGlzdEdyb3VwTWVtYmVycxIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cE1lbWJlcnNSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlElwKD1JlZnJlc2hDb250YWN0cxIjLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1JlcXVlc3QaJC5xcWJyaWRnZS52MS5SZWZyZXNoQ29udGFjdHNSZXNwb25zZRJNCgpHZXRBdmF0YXJzEh4ucXFicmlkZ2UudjEuR2V0QXZhdGFyc1JlcXVlc3QaHy5xcWJyaWRnZS52MS5HZXRBdmF0YXJzUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
+  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0IjkKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiEwoRTGlzdEdyb3Vwc1JlcXVlc3QiNwoSTGlzdEdyb3Vwc1Jlc3BvbnNlEiEKBmdyb3VwcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXIiOQoVR2V0VXNlclByb2ZpbGVSZXF1ZXN0Eg8KB3VzZXJfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCCJtCgtVc2VyUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchILCgNzZXgYAiABKAkSCwoDYWdlGAMgASgNEg0KBWxldmVsGAQgASgNEhQKDHJlZnJlc2hlZF9hdBgFIAEoAyJSChZHZXRVc2VyUHJvZmlsZVJlc3BvbnNlEikKB3Byb2ZpbGUYASABKAsyGC5xcWJyaWRnZS52MS5Vc2VyUHJvZmlsZRINCgVzdGFsZRgCIAEoCCI7ChZHZXRHcm91cFByb2ZpbGVSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgicQoMR3JvdXBQcm9maWxlEh8KBHBlZXIYASABKAsyES5xcWJyaWRnZS52MS5QZWVyEhgKEG1heF9tZW1iZXJfY291bnQYAiABKA0SEAoIb3duZXJfaWQYAyABKAMSFAoMcmVmcmVzaGVkX2F0GAQgASgDIlQKF0dldEdyb3VwUHJvZmlsZVJlc3BvbnNlEioKB3Byb2ZpbGUYASABKAsyGS5xcWJyaWRnZS52MS5Hcm91cFByb2ZpbGUSDQoFc3RhbGUYAiABKAgikwEKC0dyb3VwTWVtYmVyEg8KB3VzZXJfaWQYASABKAMSEAoIbmlja25hbWUYAiABKAkSDAoEY2FyZBgDIAEoCRIMCgRyb2xlGAQgASgJEg0KBXRpdGxlGAUgASgJEg0KBWxldmVsGAYgASgJEhEKCWpvaW5lZF9hdBgHIAEoAxIUCgxsYXN0X3NlbnRfYXQYCCABKAMiWwoXTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSDwoHcmVmcmVzaBgCIAEoCBIOCgZvZmZzZXQYAyABKAUSDQoFbGltaXQYBCABKAUiYwoYTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlEikKB21lbWJlcnMYASADKAsyGC5xcWJyaWRnZS52MS5Hcm91cE1lbWJlchINCgV0b3RhbBgCIAEoDRINCgVzdGFsZRgDIAEoCCIYChZSZWZyZXNoQ29udGFjdHNSZXF1ZXN0IjoKF1JlZnJlc2hDb250YWN0c1Jlc3BvbnNlEg8KB2ZyaWVuZHMYASABKA0SDgoGZ3JvdXBzGAIgASgNIiUKEUdldEF2YXRhcnNSZXF1ZXN0EhAKCHVzZXJfaWRzGAEgAygDIi0KClVzZXJBdmF0YXISDwoHdXNlcl9pZBgBIAEoAxIOCgZzaGEyNTYYAiABKAkiPgoSR2V0QXZhdGFyc1Jlc3BvbnNlEigKB2F2YXRhcnMYASADKAsyFy5xcWJyaWRnZS52MS5Vc2VyQXZhdGFyIisKF0xpc3RHcm91cE5vdGljZXNSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDIp8BCgtHcm91cE5vdGljZRIKCgJpZBgBIAEoCRIRCglzZW5kZXJfaWQYAiABKAMSEwoLc2VuZGVyX25hbWUYAyABKAkSDAoEdGltZRgEIAEoAxIMCgR0ZXh0GAUgASgJEhIKCmltYWdlX3VybHMYBiADKAkSGAoQY29uZmlybV9yZXF1aXJlZBgHIAEoCBISCgpyZWFkX2NvdW50GAggASgNIkUKGExpc3RHcm91cE5vdGljZXNSZXNwb25zZRIpCgdub3RpY2VzGAEgAygLMhgucXFicmlkZ2UudjEuR3JvdXBOb3RpY2UiKwoXTGlzdEdyb3VwRXNzZW5jZVJlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMisQEKDEdyb3VwRXNzZW5jZRILCgNzZXEYASABKAMSEQoJc2VuZGVyX2lkGAIgASgDEhMKC3NlbmRlcl9uYW1lGAMgASgJEhUKDW9wZXJhdG9yX25hbWUYBCABKAkSDAoEdGltZRgFIAEoAxIlCgdtZXNzYWdlGAYgASgLMhQucXFicmlkZ2UudjEuTWVzc2FnZRIMCgR0ZXh0GAcgASgJEhIKCmltYWdlX3VybHMYCCADKAkiRAoYTGlzdEdyb3VwRXNzZW5jZVJlc3BvbnNlEigKBWl0ZW1zGAEgAygLMhkucXFicmlkZ2UudjEuR3JvdXBFc3NlbmNlIjwKFUxpc3RHcm91cEZpbGVzUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAxIRCglmb2xkZXJfaWQYAiABKAkiZgoLR3JvdXBGb2xkZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpmaWxlX2NvdW50GAMgASgNEhMKC21vZGlmeV90aW1lGAQgASgDEhQKDGNyZWF0b3JfbmFtZRgFIAEoCSK+AQoJR3JvdXBGaWxlEgoKAmlkGAEgASgJEg0KBWJ1c2lkGAIgASgNEgwKBG5hbWUYAyABKAkSDAoEc2l6ZRgEIAEoBBITCgttb2RpZnlfdGltZRgFIAEoAxIRCglkZWFkX3RpbWUYBiABKAMSEwoLdXBsb2FkZXJfaWQYByABKAMSFQoNdXBsb2FkZXJfbmFtZRgIIAEoCRIWCg5kb3dubG9hZF9jb3VudBgJIAEoDRIOCgZzaGEyNTYYCiABKAkiagoWTGlzdEdyb3VwRmlsZXNSZXNwb25zZRIpCgdmb2xkZXJzGAEgAygLMhgucXFicmlkZ2UudjEuR3JvdXBGb2xkZXISJQoFZmlsZXMYAiADKAsyFi5xcWJyaWRnZS52MS5Hcm91cEZpbGUiVwoVRmV0Y2hHcm91cEZpbGVSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB2ZpbGVfaWQYAiABKAkSDQoFYnVzaWQYAyABKA0SDAoEbmFtZRgEIAEoCSJEChZGZXRjaEdyb3VwRmlsZVJlc3BvbnNlEg4KBnNoYTI1NhgBIAEoCRIMCgRzaXplGAIgASgEEgwKBG1pbWUYAyABKAky8AcKDkNvbnRhY3RTZXJ2aWNlElAKC0xpc3RGcmllbmRzEh8ucXFicmlkZ2UudjEuTGlzdEZyaWVuZHNSZXF1ZXN0GiAucXFicmlkZ2UudjEuTGlzdEZyaWVuZHNSZXNwb25zZRJNCgpMaXN0R3JvdXBzEh4ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1JlcXVlc3QaHy5xcWJyaWRnZS52MS5MaXN0R3JvdXBzUmVzcG9uc2USWQoOR2V0VXNlclByb2ZpbGUSIi5xcWJyaWRnZS52MS5HZXRVc2VyUHJvZmlsZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5HZXRVc2VyUHJvZmlsZVJlc3BvbnNlElwKD0dldEdyb3VwUHJvZmlsZRIjLnFxYnJpZGdlLnYxLkdldEdyb3VwUHJvZmlsZVJlcXVlc3QaJC5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXNwb25zZRJfChBMaXN0R3JvdXBNZW1iZXJzEiQucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QaJS5xcWJyaWRnZS52MS5MaXN0R3JvdXBNZW1iZXJzUmVzcG9uc2USXAoPUmVmcmVzaENvbnRhY3RzEiMucXFicmlkZ2UudjEuUmVmcmVzaENvbnRhY3RzUmVxdWVzdBokLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1Jlc3BvbnNlEk0KCkdldEF2YXRhcnMSHi5xcWJyaWRnZS52MS5HZXRBdmF0YXJzUmVxdWVzdBofLnFxYnJpZGdlLnYxLkdldEF2YXRhcnNSZXNwb25zZRJfChBMaXN0R3JvdXBOb3RpY2VzEiQucXFicmlkZ2UudjEuTGlzdEdyb3VwTm90aWNlc1JlcXVlc3QaJS5xcWJyaWRnZS52MS5MaXN0R3JvdXBOb3RpY2VzUmVzcG9uc2USXwoQTGlzdEdyb3VwRXNzZW5jZRIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cEVzc2VuY2VSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwRXNzZW5jZVJlc3BvbnNlElkKDkxpc3RHcm91cEZpbGVzEiIucXFicmlkZ2UudjEuTGlzdEdyb3VwRmlsZXNSZXF1ZXN0GiMucXFicmlkZ2UudjEuTGlzdEdyb3VwRmlsZXNSZXNwb25zZRJZCg5GZXRjaEdyb3VwRmlsZRIiLnFxYnJpZGdlLnYxLkZldGNoR3JvdXBGaWxlUmVxdWVzdBojLnFxYnJpZGdlLnYxLkZldGNoR3JvdXBGaWxlUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.ListFriendsRequest
@@ -444,6 +444,398 @@ export const GetAvatarsResponseSchema: GenMessage<GetAvatarsResponse> = /*@__PUR
   messageDesc(file_qqbridge_v1_contacts, 17);
 
 /**
+ * @generated from message qqbridge.v1.ListGroupNoticesRequest
+ */
+export type ListGroupNoticesRequest = Message<"qqbridge.v1.ListGroupNoticesRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupNoticesRequest.
+ * Use `create(ListGroupNoticesRequestSchema)` to create a new message.
+ */
+export const ListGroupNoticesRequestSchema: GenMessage<ListGroupNoticesRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 18);
+
+/**
+ * @generated from message qqbridge.v1.GroupNotice
+ */
+export type GroupNotice = Message<"qqbridge.v1.GroupNotice"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: int64 sender_id = 2;
+   */
+  senderId: bigint;
+
+  /**
+   * @generated from field: string sender_name = 3;
+   */
+  senderName: string;
+
+  /**
+   * unix 秒。
+   *
+   * @generated from field: int64 time = 4;
+   */
+  time: bigint;
+
+  /**
+   * @generated from field: string text = 5;
+   */
+  text: string;
+
+  /**
+   * 公告里的图片（QQ 的公开链接）。
+   *
+   * @generated from field: repeated string image_urls = 6;
+   */
+  imageUrls: string[];
+
+  /**
+   * 需要群成员确认。
+   *
+   * @generated from field: bool confirm_required = 7;
+   */
+  confirmRequired: boolean;
+
+  /**
+   * @generated from field: uint32 read_count = 8;
+   */
+  readCount: number;
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupNotice.
+ * Use `create(GroupNoticeSchema)` to create a new message.
+ */
+export const GroupNoticeSchema: GenMessage<GroupNotice> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 19);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupNoticesResponse
+ */
+export type ListGroupNoticesResponse = Message<"qqbridge.v1.ListGroupNoticesResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupNotice notices = 1;
+   */
+  notices: GroupNotice[];
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupNoticesResponse.
+ * Use `create(ListGroupNoticesResponseSchema)` to create a new message.
+ */
+export const ListGroupNoticesResponseSchema: GenMessage<ListGroupNoticesResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 20);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupEssenceRequest
+ */
+export type ListGroupEssenceRequest = Message<"qqbridge.v1.ListGroupEssenceRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupEssenceRequest.
+ * Use `create(ListGroupEssenceRequestSchema)` to create a new message.
+ */
+export const ListGroupEssenceRequestSchema: GenMessage<ListGroupEssenceRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 21);
+
+/**
+ * @generated from message qqbridge.v1.GroupEssence
+ */
+export type GroupEssence = Message<"qqbridge.v1.GroupEssence"> & {
+  /**
+   * 在群里的 seq（存档里有这条时 message 也带上）。
+   *
+   * @generated from field: int64 seq = 1;
+   */
+  seq: bigint;
+
+  /**
+   * @generated from field: int64 sender_id = 2;
+   */
+  senderId: bigint;
+
+  /**
+   * @generated from field: string sender_name = 3;
+   */
+  senderName: string;
+
+  /**
+   * @generated from field: string operator_name = 4;
+   */
+  operatorName: string;
+
+  /**
+   * 设为精华的时间（unix 秒）。
+   *
+   * @generated from field: int64 time = 5;
+   */
+  time: bigint;
+
+  /**
+   * 存档里的原消息（能显示图片、表情等）；没存档时为空，用下面的 text / image_urls。
+   *
+   * @generated from field: qqbridge.v1.Message message = 6;
+   */
+  message?: Message$1 | undefined;
+
+  /**
+   * @generated from field: string text = 7;
+   */
+  text: string;
+
+  /**
+   * @generated from field: repeated string image_urls = 8;
+   */
+  imageUrls: string[];
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupEssence.
+ * Use `create(GroupEssenceSchema)` to create a new message.
+ */
+export const GroupEssenceSchema: GenMessage<GroupEssence> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 22);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupEssenceResponse
+ */
+export type ListGroupEssenceResponse = Message<"qqbridge.v1.ListGroupEssenceResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupEssence items = 1;
+   */
+  items: GroupEssence[];
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupEssenceResponse.
+ * Use `create(ListGroupEssenceResponseSchema)` to create a new message.
+ */
+export const ListGroupEssenceResponseSchema: GenMessage<ListGroupEssenceResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 23);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupFilesRequest
+ */
+export type ListGroupFilesRequest = Message<"qqbridge.v1.ListGroupFilesRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+
+  /**
+   * 空 = 根目录。
+   *
+   * @generated from field: string folder_id = 2;
+   */
+  folderId: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupFilesRequest.
+ * Use `create(ListGroupFilesRequestSchema)` to create a new message.
+ */
+export const ListGroupFilesRequestSchema: GenMessage<ListGroupFilesRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 24);
+
+/**
+ * @generated from message qqbridge.v1.GroupFolder
+ */
+export type GroupFolder = Message<"qqbridge.v1.GroupFolder"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: uint32 file_count = 3;
+   */
+  fileCount: number;
+
+  /**
+   * @generated from field: int64 modify_time = 4;
+   */
+  modifyTime: bigint;
+
+  /**
+   * @generated from field: string creator_name = 5;
+   */
+  creatorName: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupFolder.
+ * Use `create(GroupFolderSchema)` to create a new message.
+ */
+export const GroupFolderSchema: GenMessage<GroupFolder> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 25);
+
+/**
+ * @generated from message qqbridge.v1.GroupFile
+ */
+export type GroupFile = Message<"qqbridge.v1.GroupFile"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: uint32 busid = 2;
+   */
+  busid: number;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: uint64 size = 4;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: int64 modify_time = 5;
+   */
+  modifyTime: bigint;
+
+  /**
+   * 过期时间（unix 秒，0 = 永久）。
+   *
+   * @generated from field: int64 dead_time = 6;
+   */
+  deadTime: bigint;
+
+  /**
+   * @generated from field: int64 uploader_id = 7;
+   */
+  uploaderId: bigint;
+
+  /**
+   * @generated from field: string uploader_name = 8;
+   */
+  uploaderName: string;
+
+  /**
+   * @generated from field: uint32 download_count = 9;
+   */
+  downloadCount: number;
+
+  /**
+   * 服务端已存过的话是它的 sha256。
+   *
+   * @generated from field: string sha256 = 10;
+   */
+  sha256: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupFile.
+ * Use `create(GroupFileSchema)` to create a new message.
+ */
+export const GroupFileSchema: GenMessage<GroupFile> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 26);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupFilesResponse
+ */
+export type ListGroupFilesResponse = Message<"qqbridge.v1.ListGroupFilesResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupFolder folders = 1;
+   */
+  folders: GroupFolder[];
+
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupFile files = 2;
+   */
+  files: GroupFile[];
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupFilesResponse.
+ * Use `create(ListGroupFilesResponseSchema)` to create a new message.
+ */
+export const ListGroupFilesResponseSchema: GenMessage<ListGroupFilesResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 27);
+
+/**
+ * @generated from message qqbridge.v1.FetchGroupFileRequest
+ */
+export type FetchGroupFileRequest = Message<"qqbridge.v1.FetchGroupFileRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+
+  /**
+   * @generated from field: string file_id = 2;
+   */
+  fileId: string;
+
+  /**
+   * @generated from field: uint32 busid = 3;
+   */
+  busid: number;
+
+  /**
+   * @generated from field: string name = 4;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.FetchGroupFileRequest.
+ * Use `create(FetchGroupFileRequestSchema)` to create a new message.
+ */
+export const FetchGroupFileRequestSchema: GenMessage<FetchGroupFileRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 28);
+
+/**
+ * @generated from message qqbridge.v1.FetchGroupFileResponse
+ */
+export type FetchGroupFileResponse = Message<"qqbridge.v1.FetchGroupFileResponse"> & {
+  /**
+   * @generated from field: string sha256 = 1;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: uint64 size = 2;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string mime = 3;
+   */
+  mime: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.FetchGroupFileResponse.
+ * Use `create(FetchGroupFileResponseSchema)` to create a new message.
+ */
+export const FetchGroupFileResponseSchema: GenMessage<FetchGroupFileResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 29);
+
+/**
  * 联系人与资料（docs/design.md 4.8 ContactService）。服务端不在后台逐个爬取资料，只在需要时取：
  * - 好友列表、群列表各一次请求拿全，每天刷新一次（也可 RefreshContacts 手动刷新）；
  * - 头像在打开会话（DialogService.SetActiveChat）时按需下载，一天最多一次；
@@ -512,6 +904,42 @@ export const ContactService: GenService<{
     methodKind: "unary";
     input: typeof GetAvatarsRequestSchema;
     output: typeof GetAvatarsResponseSchema;
+  },
+  /**
+   * 群公告、群精华、群文件：打开对应页面时当场向 QQ 拉（不缓存列表）。
+   *
+   * @generated from rpc qqbridge.v1.ContactService.ListGroupNotices
+   */
+  listGroupNotices: {
+    methodKind: "unary";
+    input: typeof ListGroupNoticesRequestSchema;
+    output: typeof ListGroupNoticesResponseSchema;
+  },
+  /**
+   * @generated from rpc qqbridge.v1.ContactService.ListGroupEssence
+   */
+  listGroupEssence: {
+    methodKind: "unary";
+    input: typeof ListGroupEssenceRequestSchema;
+    output: typeof ListGroupEssenceResponseSchema;
+  },
+  /**
+   * @generated from rpc qqbridge.v1.ContactService.ListGroupFiles
+   */
+  listGroupFiles: {
+    methodKind: "unary";
+    input: typeof ListGroupFilesRequestSchema;
+    output: typeof ListGroupFilesResponseSchema;
+  },
+  /**
+   * 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
+   *
+   * @generated from rpc qqbridge.v1.ContactService.FetchGroupFile
+   */
+  fetchGroupFile: {
+    methodKind: "unary";
+    input: typeof FetchGroupFileRequestSchema;
+    output: typeof FetchGroupFileResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_qqbridge_v1_contacts, 0);

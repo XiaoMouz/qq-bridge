@@ -20,31 +20,77 @@ extension APIClient {
   /// 上传一段数据（图片、语音等），返回服务端里的 sha256。
   public func upload(_ data: Data, mime: String, name: String = "", chunkSize: Int = 1 << 20) async throws -> UploadedMedia {
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    return try await upload(sha256: sha, size: data.count, mime: mime, name: name, chunkSize: chunkSize, progress: nil) { offset, length in
+      data.subdata(in: offset..<(offset + length))
+    }
+  }
+
+  /// 上传一个文件（任意大小）：边读边算 sha256，按块从磁盘读着传，不整个读进内存。progress 收到 0…1。
+  public func uploadFile(
+    at file: URL,
+    mime: String,
+    name: String,
+    chunkSize: Int = 4 << 20,
+    progress: (@Sendable (Double) -> Void)? = nil
+  ) async throws -> UploadedMedia {
+    let (sha, size) = try await Task.detached(priority: .userInitiated) { () throws -> (String, Int) in
+      let handle = try FileHandle(forReadingFrom: file)
+      defer { try? handle.close() }
+      var hasher = SHA256()
+      var total = 0
+      while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+        hasher.update(data: chunk)
+        total += chunk.count
+      }
+      return (hasher.finalize().map { String(format: "%02x", $0) }.joined(), total)
+    }.value
+    let handle = try FileHandle(forReadingFrom: file)
+    defer { try? handle.close() }
+    return try await upload(sha256: sha, size: size, mime: mime, name: name, chunkSize: chunkSize, progress: progress) { offset, length in
+      try handle.seek(toOffset: UInt64(offset))
+      return try handle.read(upToCount: length) ?? Data()
+    }
+  }
+
+  private func upload(
+    sha256 sha: String,
+    size: Int,
+    mime: String,
+    name: String,
+    chunkSize: Int,
+    progress: (@Sendable (Double) -> Void)?,
+    read: (Int, Int) throws -> Data
+  ) async throws -> UploadedMedia {
     var req = Qqbridge_V1_PrepareUploadRequest()
     req.sha256 = sha
-    req.size = UInt64(data.count)
+    req.size = UInt64(size)
     req.mime = mime
     req.name = name
     let prepared = try await media.prepareUpload(request: req, headers: headers).get()
-    if prepared.exists { return UploadedMedia(sha256: sha, size: Int64(data.count), instant: true) }
+    if prepared.exists {
+      progress?(1)
+      return UploadedMedia(sha256: sha, size: Int64(size), instant: true)
+    }
     guard let url = URL(string: prepared.uploadURL, relativeTo: config.baseURL)?.absoluteURL else { throw UploadError.badResponse }
 
     var offset = Int(prepared.offset)
     var attempts = 0
-    while offset < data.count {
+    while offset < size {
       var patch = URLRequest(url: url)
       patch.httpMethod = "PATCH"
       patch.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
       patch.setValue("1.0.0", forHTTPHeaderField: "tus-resumable")
       patch.setValue("application/offset+octet-stream", forHTTPHeaderField: "content-type")
       patch.setValue(String(offset), forHTTPHeaderField: "upload-offset")
-      let end = min(offset + chunkSize, data.count)
+      let end = min(offset + chunkSize, size)
       do {
-        let (_, response) = try await URLSession.shared.upload(for: patch, from: data.subdata(in: offset..<end))
+        let body = try read(offset, end - offset)
+        let (_, response) = try await URLSession.shared.upload(for: patch, from: body)
         guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
         guard (200..<300).contains(http.statusCode) else { throw UploadError.server(http.statusCode) }
         offset = Int(http.value(forHTTPHeaderField: "upload-offset") ?? "") ?? end
         attempts = 0
+        progress?(Double(offset) / Double(max(size, 1)))
       } catch {
         // 网络断了：查一下服务端收到了多少，接着传（最多连续失败 3 次）。
         attempts += 1
@@ -61,7 +107,7 @@ extension APIClient {
         }
       }
     }
-    return UploadedMedia(sha256: sha, size: Int64(data.count), instant: false)
+    return UploadedMedia(sha256: sha, size: Int64(size), instant: false)
   }
 
   /// 标记已读到 maxSeq（服务端会回写 QQ，并同步到其他设备）。

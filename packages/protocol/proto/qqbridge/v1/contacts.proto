@@ -19,6 +19,12 @@ service ContactService {
   rpc RefreshContacts(RefreshContactsRequest) returns (RefreshContactsResponse);
   // 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
   rpc GetAvatars(GetAvatarsRequest) returns (GetAvatarsResponse);
+  // 群公告、群精华、群文件：打开对应页面时当场向 QQ 拉（不缓存列表）。
+  rpc ListGroupNotices(ListGroupNoticesRequest) returns (ListGroupNoticesResponse);
+  rpc ListGroupEssence(ListGroupEssenceRequest) returns (ListGroupEssenceResponse);
+  rpc ListGroupFiles(ListGroupFilesRequest) returns (ListGroupFilesResponse);
+  // 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
+  rpc FetchGroupFile(FetchGroupFileRequest) returns (FetchGroupFileResponse);
 }
 
 message ListFriendsRequest {}
@@ -115,4 +121,95 @@ message UserAvatar {
 
 message GetAvatarsResponse {
   repeated UserAvatar avatars = 1;
+}
+
+message ListGroupNoticesRequest {
+  int64 group_id = 1;
+}
+
+message GroupNotice {
+  string id = 1;
+  int64 sender_id = 2;
+  string sender_name = 3;
+  // unix 秒。
+  int64 time = 4;
+  string text = 5;
+  // 公告里的图片（QQ 的公开链接）。
+  repeated string image_urls = 6;
+  // 需要群成员确认。
+  bool confirm_required = 7;
+  uint32 read_count = 8;
+}
+
+message ListGroupNoticesResponse {
+  repeated GroupNotice notices = 1;
+}
+
+message ListGroupEssenceRequest {
+  int64 group_id = 1;
+}
+
+message GroupEssence {
+  // 在群里的 seq（存档里有这条时 message 也带上）。
+  int64 seq = 1;
+  int64 sender_id = 2;
+  string sender_name = 3;
+  string operator_name = 4;
+  // 设为精华的时间（unix 秒）。
+  int64 time = 5;
+  // 存档里的原消息（能显示图片、表情等）；没存档时为空，用下面的 text / image_urls。
+  Message message = 6;
+  string text = 7;
+  repeated string image_urls = 8;
+}
+
+message ListGroupEssenceResponse {
+  repeated GroupEssence items = 1;
+}
+
+message ListGroupFilesRequest {
+  int64 group_id = 1;
+  // 空 = 根目录。
+  string folder_id = 2;
+}
+
+message GroupFolder {
+  string id = 1;
+  string name = 2;
+  uint32 file_count = 3;
+  int64 modify_time = 4;
+  string creator_name = 5;
+}
+
+message GroupFile {
+  string id = 1;
+  uint32 busid = 2;
+  string name = 3;
+  uint64 size = 4;
+  int64 modify_time = 5;
+  // 过期时间（unix 秒，0 = 永久）。
+  int64 dead_time = 6;
+  int64 uploader_id = 7;
+  string uploader_name = 8;
+  uint32 download_count = 9;
+  // 服务端已存过的话是它的 sha256。
+  string sha256 = 10;
+}
+
+message ListGroupFilesResponse {
+  repeated GroupFolder folders = 1;
+  repeated GroupFile files = 2;
+}
+
+message FetchGroupFileRequest {
+  int64 group_id = 1;
+  string file_id = 2;
+  uint32 busid = 3;
+  string name = 4;
+}
+
+message FetchGroupFileResponse {
+  string sha256 = 1;
+  uint64 size = 2;
+  string mime = 3;
 }

@@ -38,6 +38,20 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     /// 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
     @available(iOS 13, *)
     func `getAvatars`(request: Qqbridge_V1_GetAvatarsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_GetAvatarsResponse>
+
+    /// 群公告、群精华、群文件：打开对应页面时当场向 QQ 拉（不缓存列表）。
+    @available(iOS 13, *)
+    func `listGroupNotices`(request: Qqbridge_V1_ListGroupNoticesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupNoticesResponse>
+
+    @available(iOS 13, *)
+    func `listGroupEssence`(request: Qqbridge_V1_ListGroupEssenceRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupEssenceResponse>
+
+    @available(iOS 13, *)
+    func `listGroupFiles`(request: Qqbridge_V1_ListGroupFilesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupFilesResponse>
+
+    /// 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
+    @available(iOS 13, *)
+    func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_ContactServiceClientInterface`.
@@ -83,6 +97,26 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
         return await self.client.unary(path: "/qqbridge.v1.ContactService/GetAvatars", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `listGroupNotices`(request: Qqbridge_V1_ListGroupNoticesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListGroupNoticesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/ListGroupNotices", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `listGroupEssence`(request: Qqbridge_V1_ListGroupEssenceRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListGroupEssenceResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/ListGroupEssence", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `listGroupFiles`(request: Qqbridge_V1_ListGroupFilesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListGroupFilesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/ListGroupFiles", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/FetchGroupFile", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let listFriends = Connect.MethodSpec(name: "ListFriends", service: "qqbridge.v1.ContactService", type: .unary)
@@ -92,6 +126,10 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let listGroupMembers = Connect.MethodSpec(name: "ListGroupMembers", service: "qqbridge.v1.ContactService", type: .unary)
             public static let refreshContacts = Connect.MethodSpec(name: "RefreshContacts", service: "qqbridge.v1.ContactService", type: .unary)
             public static let getAvatars = Connect.MethodSpec(name: "GetAvatars", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let listGroupNotices = Connect.MethodSpec(name: "ListGroupNotices", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let listGroupEssence = Connect.MethodSpec(name: "ListGroupEssence", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let listGroupFiles = Connect.MethodSpec(name: "ListGroupFiles", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let fetchGroupFile = Connect.MethodSpec(name: "FetchGroupFile", service: "qqbridge.v1.ContactService", type: .unary)
         }
     }
 }

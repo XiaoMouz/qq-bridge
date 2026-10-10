@@ -2,6 +2,7 @@
 // 数据流：打开时让同步引擎拉首屏 / 补变化 → 观察本地库 → 列表刷新；滑到顶部时往上翻页；看到底部就标已读。
 import PhotosUI
 import QuickLook
+import UniformTypeIdentifiers
 import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
@@ -36,6 +37,9 @@ struct ChatScreen: View {
   @State private var recorder = VoiceRecorder()
   @State private var photoItem: PhotosPickerItem?
   @State private var showPhotos = false
+  @State private var showFiles = false
+  /// 正在上传的附件：名字和进度（0…1）。
+  @State private var uploading: (name: String, progress: Double)?
   @State private var atBottom = true
   @State private var lastMarked: Int64 = 0
   @FocusState private var inputFocused: Bool
@@ -163,7 +167,11 @@ struct ChatScreen: View {
       if isGroup, new.hasSuffix("@"), new.count == old.count + 1 { composer.pickingMention = true }
       // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
     }
-    .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .images)
+    .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .any(of: [.images, .videos]))
+    .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+      guard case .success(let urls) = result else { return }
+      Task { for url in urls { await sendFile(url) } }
+    }
     .onChange(of: photoItem) { _, item in
       guard let item else { return }
       photoItem = nil
@@ -223,6 +231,14 @@ struct ChatScreen: View {
 
   private var inputArea: some View {
     VStack(spacing: 6) {
+      if let up = uploading {
+        HStack(spacing: 8) {
+          ProgressView(value: up.progress).frame(width: 80)
+          Text("正在上传 \(up.name)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          Spacer()
+        }
+        .padding(.horizontal, 16)
+      }
       if let reply = composer.replyTo {
         HStack(spacing: 8) {
           Rectangle().fill(.tint).frame(width: 3)
@@ -243,7 +259,8 @@ struct ChatScreen: View {
           // 左：附件（和 Telegram 一样是图标，不占大圆按钮）。
           Menu {
             // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
-            Button("照片", systemImage: "photo") { showPhotos = true }
+            Button("照片或视频", systemImage: "photo.on.rectangle") { showPhotos = true }
+            Button("文件", systemImage: "doc") { showFiles = true }
             if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
           } label: {
             Image(systemName: "paperclip").font(.title3).frame(width: 36, height: 40)
@@ -407,7 +424,49 @@ struct ChatScreen: View {
     }
   }
 
+  /// 发文件：按块上传（任意大小），再作为 QQ 文件发出（语音、视频、文件都要单独成条，不能带回复）。
+  private func sendFile(_ url: URL) async {
+    let scoped = url.startAccessingSecurityScopedResource()
+    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+    let name = url.lastPathComponent
+    uploading = (name, 0)
+    defer { uploading = nil }
+    do {
+      let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+      let uploaded = try await session.api.uploadFile(at: url, mime: mime, name: name) { p in
+        Task { @MainActor in uploading = (name, p) }
+      }
+      var seg = Qqbridge_V1_OutgoingSegment()
+      seg.file.sha256 = uploaded.sha256
+      seg.file.name = name
+      try await session.sender.send(chatId: chatId, segments: [seg])
+    } catch {
+      sendError = "文件发送失败：\(error)"
+    }
+  }
+
+  private func sendVideo(_ item: PhotosPickerItem) async {
+    uploading = ("视频", 0)
+    defer { uploading = nil }
+    do {
+      guard let movie = try await item.loadTransferable(type: MovieFile.self) else { return }
+      defer { try? FileManager.default.removeItem(at: movie.url) }
+      let uploaded = try await session.api.uploadFile(at: movie.url, mime: "video/mp4", name: movie.url.lastPathComponent) { p in
+        Task { @MainActor in uploading = ("视频", p) }
+      }
+      var seg = Qqbridge_V1_OutgoingSegment()
+      seg.video.sha256 = uploaded.sha256
+      try await session.sender.send(chatId: chatId, segments: [seg])
+    } catch {
+      sendError = "视频发送失败：\(error)"
+    }
+  }
+
   private func sendPhoto(_ item: PhotosPickerItem) async {
+    if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+      await sendVideo(item)
+      return
+    }
     do {
       guard let raw = try await item.loadTransferable(type: Data.self), let image = UIImage(data: raw) else { return }
       // 统一转成 JPEG（HEIC 等 QQ 未必认），长边不超过 2560。
@@ -487,4 +546,16 @@ struct PendingForward: Identifiable {
   let seqs: [Int64]
   let bundle: Bool
   var id: String { "\(bundle):\(seqs)" }
+}
+
+/// 相册里的视频：拷到临时目录再传（系统给的文件在回调结束后会被删）。
+struct MovieFile: Transferable {
+  let url: URL
+  static var transferRepresentation: some TransferRepresentation {
+    FileRepresentation(contentType: .movie) { movie in SentTransferredFile(movie.url) } importing: { received in
+      let dest = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).\(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)")
+      try FileManager.default.copyItem(at: received.file, to: dest)
+      return MovieFile(url: dest)
+    }
+  }
 }

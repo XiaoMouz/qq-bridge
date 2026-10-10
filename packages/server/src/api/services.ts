@@ -1,5 +1,6 @@
 // ConnectRPC 服务实现（proto 定义见 packages/protocol/proto/qqbridge/v1）。
 import { ForwardError } from '../messages/forwarding.ts';
+import { GroupContentError } from '../contacts/group-content.ts';
 import type { MessageInitShape } from '@bufbuild/protobuf';
 import { Code, ConnectError, type ConnectRouter, type ServiceImpl } from '@connectrpc/connect';
 import {
@@ -544,6 +545,10 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
               -- 联系人和群的头像
               select p.avatar_sha256 from peers p join qq_accounts q on q.id = p.qq_account_id
                where q.account_id = ${auth.accountId} and p.avatar_sha256 is not null
+              union
+              -- 下载过的群文件
+              select g.sha256 from group_file_blobs g join qq_accounts q on q.id = g.qq_account_id
+               where q.account_id = ${auth.accountId}
             )
             select sha256 from mine where sha256 in (${list})
             union
@@ -862,6 +867,56 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
         };
       });
     },
+    async listGroupNotices(req, ctx) {
+      return groupContent(async () => ({
+        notices: (await deps.groupContent.notices(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'))).map((n) => ({
+          id: n.id,
+          senderId: BigInt(n.senderId),
+          senderName: n.senderName,
+          time: BigInt(n.time),
+          text: n.text,
+          imageUrls: n.imageUrls,
+          confirmRequired: n.confirmRequired,
+          readCount: n.readCount,
+        })),
+      }));
+    },
+    async listGroupEssence(req, ctx) {
+      return groupContent(async () => ({
+        items: (await deps.groupContent.essence(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'))).map((e) => ({
+          seq: BigInt(e.seq),
+          senderId: BigInt(e.senderId),
+          senderName: e.senderName,
+          operatorName: e.operatorName,
+          time: BigInt(e.time),
+          ...(e.message ? { message: messageToProto(e.message) } : {}),
+          text: e.text,
+          imageUrls: e.imageUrls,
+        })),
+      }));
+    },
+    async listGroupFiles(req, ctx) {
+      return groupContent(async () => {
+        const res = await deps.groupContent.files(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.folderId);
+        return {
+          folders: res.folders.map((f) => ({ ...f, modifyTime: BigInt(f.modifyTime) })),
+          files: res.files.map((f) => ({
+            ...f,
+            size: BigInt(f.size),
+            modifyTime: BigInt(f.modifyTime),
+            deadTime: BigInt(f.deadTime),
+            uploaderId: BigInt(f.uploaderId),
+            sha256: f.sha256 ?? '',
+          })),
+        };
+      });
+    },
+    async fetchGroupFile(req, ctx) {
+      return groupContent(async () => {
+        const f = await deps.groupContent.fetchFile(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.fileId, req.busid, req.name);
+        return { sha256: f.sha256, size: BigInt(f.size), mime: f.mime ?? '' };
+      });
+    },
     async getAvatars(req, ctx) {
       const ids = req.userIds.map((id) => toSafeNumber(id, 'user_ids')).filter((id) => id > 0);
       const found = await wrap(() => deps.contacts.avatars(requireAuth(ctx).accountId, ids));
@@ -939,6 +994,19 @@ function adminService(deps: ApiDeps): ServiceImpl<typeof AdminService> {
       return {};
     },
   };
+}
+
+/** 群公告 / 精华 / 文件的错误 → Connect 错误码。 */
+async function groupContent<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof GroupContentError) {
+      const code = { not_found: Code.NotFound, offline: Code.Unavailable, unavailable: Code.FailedPrecondition }[error.code];
+      throw new ConnectError(error.message, code);
+    }
+    throw error;
+  }
 }
 
 export function registerServices(router: ConnectRouter, deps: ApiDeps): void {
