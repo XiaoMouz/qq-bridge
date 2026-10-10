@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
+import sharp from 'sharp';
 import { decode as decodeSilk } from 'silk-wasm';
 import { maybeOne, rows, type Db } from '../db/client.ts';
 import { ffmpegAvailable, runFfmpeg } from './ffmpeg.ts';
@@ -58,7 +59,8 @@ export class MediaProcessor {
       switch (kind) {
         case 'image':
         case 'sticker':
-          return known.thumbSha256 ? known : await this.image(sha256);
+          // 图片不自己生成缩略图 / 预览图：缩略图用 QQ 给的（spec=720），客户端有原图时直接显示原图。只补宽高。
+          return known.width ? known : { ...known, ...(await this.imageSize(sha256)) };
         case 'audio':
           return known.playableSha256 ? known : await this.audio(sha256);
         case 'video':
@@ -97,10 +99,14 @@ export class MediaProcessor {
     });
   }
 
-  private async image(sha256: string): Promise<DerivedInfo> {
+  /** 只读文件头里的宽高（不解码、不重新编码）。 */
+  private async imageSize(sha256: string): Promise<DerivedInfo> {
     const blob = await this.media.getBlob(sha256);
     if (!blob || blob.state !== 'present' || blob.size > MAX_DERIVE_BYTES) return {};
-    return this.saveImageDerivatives(sha256, await this.read(blob));
+    const meta = await sharp(await this.read(blob), { animated: false }).metadata().catch(() => null);
+    if (!meta?.width || !meta.height) return {};
+    await this.db.execute(sql`update blobs set width = ${meta.width}, height = ${meta.height} where sha256 = ${sha256}`);
+    return { width: meta.width, height: meta.height };
   }
 
   private async audio(sha256: string): Promise<DerivedInfo> {

@@ -85,7 +85,7 @@ export class MessageInteractions {
     await this.chat(accountId, chatId);
     const kinds = opts.kinds.length ? opts.kinds : (['image', 'video', 'audio', 'file'] as MediaKind[]);
     // 表情包不算共享媒体（与 Telegram 一致），明确要 sticker 时才带上。
-    const role = kinds.includes('sticker') ? sql`true` : sql`r.role = 'attachment'`;
+    const role = kinds.includes('sticker') ? sql`r.role <> 'qq_thumb'` : sql`r.role = 'attachment'`;
     // 按消息分页：先取够 limit 条媒体所在的消息，同一条消息里的多个媒体一起返回，翻页不会切开一条消息。
     const refs = await rows<{ message_seq: number; ordinal: number; kind: MediaKind }>(
       this.db,

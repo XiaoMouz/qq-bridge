@@ -8,9 +8,9 @@ import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { maybeOne, rows, toDate, type Db } from '../db/client.ts';
 import { sqlList } from '../sync/rows.ts';
-import type { IngestService } from '../ingest/service.ts';
+import { QQ_THUMB_ROLE, type IngestService } from '../ingest/service.ts';
 import type { MediaService } from './service.ts';
-import { SourceUnavailableError, type MediaSource, type PendingRef } from './source.ts';
+import { qqThumbUrl, SourceUnavailableError, type FetchTarget, type MediaSource, type PendingRef } from './source.ts';
 import { TooLargeError } from './store.ts';
 import type { MediaProcessor } from './processing.ts';
 
@@ -27,8 +27,6 @@ export interface FetcherOptions {
   offlineRetryMs?: number;
   /** 正在被查看的会话：它们的媒体优先下载（DialogService.SetActiveChat）。 */
   priorityChatIds?: () => readonly number[];
-  /** 下载好、派生版本也生成后调用（按需会话的图片在这里删掉原件）。 */
-  afterStored?: (sha256: string) => Promise<unknown>;
   logger?: Logger;
 }
 
@@ -48,8 +46,8 @@ export class MediaFetcher {
   private readonly rehydrating = new Map<string, Promise<RehydrateResult>>();
   private loop: Promise<void> | null = null;
   private wake: (() => void) | null = null;
-  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds' | 'afterStored'>> &
-    Pick<FetcherOptions, 'logger' | 'priorityChatIds' | 'afterStored'>;
+  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds'>> &
+    Pick<FetcherOptions, 'logger' | 'priorityChatIds'>;
 
   constructor(
     private readonly db: Db,
@@ -69,7 +67,6 @@ export class MediaFetcher {
       defaultMaxBytes: opts.defaultMaxBytes ?? 200 * 1024 * 1024,
       offlineRetryMs: opts.offlineRetryMs ?? 60_000,
       ...(opts.priorityChatIds ? { priorityChatIds: opts.priorityChatIds } : {}),
-      ...(opts.afterStored ? { afterStored: opts.afterStored } : {}),
       ...(opts.logger ? { logger: opts.logger } : {}),
     };
   }
@@ -148,25 +145,32 @@ export class MediaFetcher {
               order by ${priority.length > 0 ? sql`(chat_id in ${sqlList(priority)}) desc,` : sql``} id desc
               limit ${limit}
               for update skip locked)
-           returning id, chat_id, kind, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id,
-                     locator, attempts`,
+           returning ${sql.raw(REF_COLUMNS)}`,
     );
-    return list.map((r) => ({
-      id: r.id as number,
-      chatId: r.chat_id as number,
-      kind: r.kind as string,
-      url: (r.url as string | null) ?? null,
-      urlExpiresAt: toDate(r.url_expires_at),
-      size: (r.size as number | null) ?? null,
-      name: (r.name as string | null) ?? null,
-      mime: (r.mime as string | null) ?? null,
-      qqMd5: (r.qq_md5 as string | null) ?? null,
-      qqFileUuid: (r.qq_file_uuid as string | null) ?? null,
-      qqResourceId: (r.qq_resource_id as string | null) ?? null,
-      qqFileId: (r.qq_file_id as string | null) ?? null,
-      locator: (r.locator as Record<string, unknown> | null) ?? null,
-      attempts: r.attempts as number,
-    }));
+    return list.map(toPendingRef);
+  }
+
+  /**
+   * 马上下载这一个（客户端在等，例如看大图要原图），不排队；正被后台下载时等它下完。
+   * 返回时下载已结束（成功、拿不到，或超时）。
+   */
+  async fetchNow(refId: number, timeoutMs = 90_000): Promise<void> {
+    const claimed = await rows(
+      this.db,
+      sql`update media_refs set fetch_state = 'fetching', attempts = attempts + 1
+           where id = ${refId} and fetch_state = 'pending'
+       returning ${sql.raw(REF_COLUMNS)}`,
+    );
+    if (claimed[0]) {
+      await this.process(toPendingRef(claimed[0]));
+      return;
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const row = await maybeOne<{ fetch_state: string }>(this.db, sql`select fetch_state from media_refs where id = ${refId}`);
+      if (!row || (row.fetch_state !== 'pending' && row.fetch_state !== 'fetching')) return;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
   }
 
   private async process(ref: PendingRef): Promise<void> {
@@ -176,7 +180,7 @@ export class MediaFetcher {
         await this.ingest.mediaUnavailable(ref.id, 'skipped', `size ${ref.size} exceeds limit ${maxBytes}`);
         return;
       }
-      let target = await this.source.resolve(ref, false);
+      let target = await this.target(ref, false);
       if (!target) {
         await this.ingest.mediaUnavailable(ref.id, 'expired', 'no download url');
         return;
@@ -184,7 +188,7 @@ export class MediaFetcher {
       let result = await this.download(target.url, target.headers, ref, maxBytes);
       if (result.kind === 'gone') {
         // 链接失效（rkey 过期等）：向上游换一次新链接再试。
-        target = await this.source.resolve(ref, true);
+        target = await this.target(ref, true);
         result = target ? await this.download(target.url, target.headers, ref, maxBytes) : result;
       }
       switch (result.kind) {
@@ -227,7 +231,7 @@ export class MediaFetcher {
     if (!blob) return 'expired';
     const refs = await rows(
       this.db,
-      sql`select id, chat_id, kind, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts
+      sql`select id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts
             from media_refs where sha256 = ${sha256} order by id desc limit 5`,
     );
     let offline = false;
@@ -236,6 +240,7 @@ export class MediaFetcher {
         id: r.id as number,
         chatId: r.chat_id as number,
         kind: r.kind as string,
+        role: r.role as string,
         url: (r.url as string | null) ?? null,
         urlExpiresAt: toDate(r.url_expires_at),
         size: (r.size as number | null) ?? null,
@@ -250,7 +255,7 @@ export class MediaFetcher {
       };
       try {
         // 入库时的链接多半早过期了：直接向上游换新链接。
-        const target = await this.source.resolve(ref, true);
+        const target = await this.target(ref, true);
         if (!target) continue;
         const result = await this.download(target.url, target.headers, ref, blob.size + 1);
         if (result.kind === 'stored' && result.sha256 === sha256) {
@@ -314,13 +319,22 @@ export class MediaFetcher {
     }
   }
 
-  /** 生成（或复用）派生版本，再把引用标记为已存储。 */
+  /** 下载地址：QQ 缩略图引用把原图链接换成缩略图档。 */
+  private async target(ref: PendingRef, forceRefresh: boolean): Promise<FetchTarget | null> {
+    const t = await this.source.resolve(ref, forceRefresh);
+    if (!t || ref.role !== QQ_THUMB_ROLE) return t;
+    const url = qqThumbUrl(t.url);
+    return url ? { ...t, url } : null;
+  }
+
+  /** 生成（或复用）派生版本，再把引用标记为已存储。QQ 缩略图直接用，不再处理。 */
   private async complete(ref: PendingRef, stored: { sha256: string; size: number; mime: string | null }): Promise<void> {
+    if (ref.role === QQ_THUMB_ROLE) {
+      await this.ingest.thumbStored(ref.id, stored);
+      return;
+    }
     const extra = this.processor ? await this.processor.process(stored.sha256, ref.kind) : {};
     await this.ingest.mediaStored(ref.id, stored, extra);
-    await this.opts.afterStored?.(stored.sha256).catch((error: unknown) =>
-      this.opts.logger?.warn({ err: error, sha256: stored.sha256 }, 'after-store step failed'),
-    );
   }
 
   private async retryLater(ref: PendingRef, error: string): Promise<void> {
@@ -356,4 +370,27 @@ export class MediaFetcher {
     );
     return limit ?? this.opts.defaultMaxBytes;
   }
+}
+
+const REF_COLUMNS =
+  'id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts';
+
+function toPendingRef(r: Record<string, unknown>): PendingRef {
+  return {
+    id: r.id as number,
+    chatId: r.chat_id as number,
+    kind: r.kind as string,
+    role: r.role as string,
+    url: (r.url as string | null) ?? null,
+    urlExpiresAt: toDate(r.url_expires_at),
+    size: (r.size as number | null) ?? null,
+    name: (r.name as string | null) ?? null,
+    mime: (r.mime as string | null) ?? null,
+    qqMd5: (r.qq_md5 as string | null) ?? null,
+    qqFileUuid: (r.qq_file_uuid as string | null) ?? null,
+    qqResourceId: (r.qq_resource_id as string | null) ?? null,
+    qqFileId: (r.qq_file_id as string | null) ?? null,
+    locator: (r.locator as Record<string, unknown> | null) ?? null,
+    attempts: r.attempts as number,
+  };
 }

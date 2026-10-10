@@ -31,8 +31,10 @@ service MediaService {
   rpc ListStickers(ListStickersRequest) returns (ListStickersResponse);
   // 准备一批表情的图片：服务端按 md5 找已有内容，没有就下载存下（去重），返回 sha256 与缩略图。表情面板滚动到哪准备到哪。
   rpc PrepareStickers(PrepareStickersRequest) returns (PrepareStickersResponse);
-  // 下载按需（ON_DEMAND）的媒体：图片在聊天页显示到时要（只留缩略图和预览图），视频、文件点开时要。
-  // 下载好后消息经同步更新；立即返回。
+  // 要媒体：
+  // - original = false：图片显示到时要 QQ 缩略图（不常用会话不会自动下），视频、文件点开时要整个文件；排进队列后立即返回，
+  //   下好后消息经同步更新。
+  // - original = true：看大图时要原图：服务端当场从 QQ 拉，拉完（或确定拿不到）才返回，media 里是结果。
   rpc RequestMedia(RequestMediaRequest) returns (RequestMediaResponse);
 }
 
@@ -44,11 +46,14 @@ message MediaRef {
 
 message RequestMediaRequest {
   repeated MediaRef refs = 1;
+  bool original = 2;
 }
 
 message RequestMediaResponse {
   // 排进下载队列的个数（已在下载 / 已存好的不算）。
   uint32 queued = 1;
+  // original = true 时：和 refs 一一对应的最新媒体信息（state = STORED 时可按 sha256 取）。
+  repeated MediaInfo media = 2;
 }
 
 message PrepareUploadRequest {

@@ -46,6 +46,7 @@ import {
   peerToProto,
   sceneToProto,
   toSafeNumber,
+  mediaInfo,
 } from './convert.ts';
 
 const nowSec = () => BigInt(Math.floor(Date.now() / 1000));
@@ -580,10 +581,21 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
       }
     },
     async requestMedia(req, ctx) {
-      const refs = req.refs.slice(0, 200).map((r) => ({ chatId: toSafeNumber(r.chatId, 'chat_id'), seq: toSafeNumber(r.seq, 'seq'), ord: r.ord }));
-      const queued = await deps.ingest.requestMedia(requireAuth(ctx).accountId, refs);
-      if (queued > 0) deps.pokeMediaFetcher();
-      return { queued };
+      const accountId = requireAuth(ctx).accountId;
+      const refs = req.refs.slice(0, req.original ? 10 : 200).map((r) => ({
+        chatId: toSafeNumber(r.chatId, 'chat_id'),
+        seq: toSafeNumber(r.seq, 'seq'),
+        ord: r.ord,
+      }));
+      const queued = await deps.ingest.requestMedia(accountId, refs, req.original ? 'original' : 'thumb');
+      if (!req.original) {
+        if (queued.length > 0) deps.pokeMediaFetcher();
+        return { queued: queued.length };
+      }
+      // 看大图：当场下载，下完把结果带回去。
+      if (deps.fetchMediaNow) await Promise.all(queued.map((id) => deps.fetchMediaNow!(id)));
+      const media = await Promise.all(refs.map((r) => deps.ingest.messageMedia(r.chatId, r.seq, r.ord)));
+      return { queued: queued.length, media: media.map((m) => (m ? mediaInfo(m) : {})) };
     },
     async prepareStickers(req, ctx) {
       const md5 = req.md5.map((m) => m.toLowerCase()).filter((m) => /^[0-9a-f]{32}$/.test(m));

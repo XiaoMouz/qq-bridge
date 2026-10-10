@@ -85,6 +85,8 @@ public nonisolated struct Qqbridge_V1_RequestMediaRequest: Sendable {
 
   public var refs: [Qqbridge_V1_MediaRef] = []
 
+  public var original: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -97,6 +99,9 @@ public nonisolated struct Qqbridge_V1_RequestMediaResponse: Sendable {
 
   /// 排进下载队列的个数（已在下载 / 已存好的不算）。
   public var queued: UInt32 = 0
+
+  /// original = true 时：和 refs 一一对应的最新媒体信息（state = STORED 时可按 sha256 取）。
+  public var media: [Qqbridge_V1_MediaInfo] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -837,7 +842,7 @@ nonisolated extension Qqbridge_V1_MediaRef: SwiftProtobuf.Message, SwiftProtobuf
 
 nonisolated extension Qqbridge_V1_RequestMediaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestMediaRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}refs\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}refs\0\u{1}original\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -846,6 +851,7 @@ nonisolated extension Qqbridge_V1_RequestMediaRequest: SwiftProtobuf.Message, Sw
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.refs) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.original) }()
       default: break
       }
     }
@@ -855,11 +861,15 @@ nonisolated extension Qqbridge_V1_RequestMediaRequest: SwiftProtobuf.Message, Sw
     if !self.refs.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.refs, fieldNumber: 1)
     }
+    if self.original != false {
+      try visitor.visitSingularBoolField(value: self.original, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_RequestMediaRequest, rhs: Qqbridge_V1_RequestMediaRequest) -> Bool {
     if lhs.refs != rhs.refs {return false}
+    if lhs.original != rhs.original {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -867,7 +877,7 @@ nonisolated extension Qqbridge_V1_RequestMediaRequest: SwiftProtobuf.Message, Sw
 
 nonisolated extension Qqbridge_V1_RequestMediaResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RequestMediaResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}queued\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}queued\0\u{1}media\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -876,6 +886,7 @@ nonisolated extension Qqbridge_V1_RequestMediaResponse: SwiftProtobuf.Message, S
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt32Field(value: &self.queued) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.media) }()
       default: break
       }
     }
@@ -885,11 +896,15 @@ nonisolated extension Qqbridge_V1_RequestMediaResponse: SwiftProtobuf.Message, S
     if self.queued != 0 {
       try visitor.visitSingularUInt32Field(value: self.queued, fieldNumber: 1)
     }
+    if !self.media.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.media, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_RequestMediaResponse, rhs: Qqbridge_V1_RequestMediaResponse) -> Bool {
     if lhs.queued != rhs.queued {return false}
+    if lhs.media != rhs.media {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

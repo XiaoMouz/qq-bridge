@@ -52,7 +52,7 @@ export async function reprocessMedia(
            and exists (
              select 1 from unnest(case r.kind when 'audio' then array['playable']
                                               when 'video' then array['thumb', 'playable']
-                                              else array['thumb'] end) need(variant)
+                                              else array[]::text[] end) need(variant)
               where not exists (select 1 from blob_variants v where v.sha256 = r.sha256 and v.variant = need.variant))
          order by r.sha256`,
   );

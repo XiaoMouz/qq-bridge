@@ -78,7 +78,10 @@ struct MediaTarget: Identifiable, Hashable {
   enum Kind: Hashable { case image, video }
   let kind: Kind
   let media: Qqbridge_V1_MediaInfo
-  var id: String { media.sha256.isEmpty ? media.thumbSha256 : media.sha256 }
+  /// 所在消息（看大图时向服务端要原图用；合并转发里的没有）。
+  var chatId: Int64 = 0
+  var seq: Int64 = 0
+  var id: String { media.sha256.isEmpty ? "\(chatId):\(seq):\(media.ord):\(media.thumbSha256)" : media.sha256 }
 }
 
 /// 群成员（群名片、角色、头衔）：打开群聊时加载一次（服务端有缓存，第一次才向 QQ 要整个成员列表）。

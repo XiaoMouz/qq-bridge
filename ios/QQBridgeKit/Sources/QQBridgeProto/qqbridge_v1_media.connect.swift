@@ -63,8 +63,10 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `prepareStickers`(request: Qqbridge_V1_PrepareStickersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_PrepareStickersResponse>
 
-    /// 下载按需（ON_DEMAND）的媒体：图片在聊天页显示到时要（只留缩略图和预览图），视频、文件点开时要。
-    /// 下载好后消息经同步更新；立即返回。
+    /// 要媒体：
+    /// - original = false：图片显示到时要 QQ 缩略图（不常用会话不会自动下），视频、文件点开时要整个文件；排进队列后立即返回，
+    ///   下好后消息经同步更新。
+    /// - original = true：看大图时要原图：服务端当场从 QQ 拉，拉完（或确定拿不到）才返回，media 里是结果。
     @available(iOS 13, *)
     func `requestMedia`(request: Qqbridge_V1_RequestMediaRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RequestMediaResponse>
 }

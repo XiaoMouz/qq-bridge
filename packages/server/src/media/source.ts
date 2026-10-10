@@ -4,6 +4,8 @@ export interface PendingRef {
   id: number;
   chatId: number;
   kind: string;
+  /** qq_thumb = QQ 自带的缩略图（只取 spec=720 那档，存进消息的缩略图）；其余都是原件。 */
+  role?: string;
   url: string | null;
   urlExpiresAt: Date | null;
   size: number | null;
@@ -45,4 +47,26 @@ export class StoredUrlSource implements MediaSource {
     const url = await this.refresher(ref);
     return url ? { url } : null;
   }
+}
+
+/**
+ * QQ 图片链接换成缩略图档：spec=0 原图、720 长边约 1280px、198 长边约 300px（GIF 的缩略档只有第一帧）。
+ * 认不出的链接返回 null。
+ */
+export function qqThumbUrl(url: string, spec = 720): string | null {
+  try {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/download') && u.searchParams.has('fileid')) {
+      u.searchParams.set('spec', String(spec));
+      return u.toString();
+    }
+    // 旧版链接 …/gchatpic_new/…/0?term=…：最后一段是档位。
+    if (/\/(0|198|720)$/.test(u.pathname)) {
+      u.pathname = u.pathname.replace(/\/(0|198|720)$/, `/${spec}`);
+      return u.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }

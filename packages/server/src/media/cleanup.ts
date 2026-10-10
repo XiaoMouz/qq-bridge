@@ -89,17 +89,6 @@ export class MediaCleaner {
     return report;
   }
 
-  /**
-   * 刚下载好的内容：有引用方标了"不需要原件"（按需会话里的图片）时，若所有引用方都允许就立刻删原件，
-   * 缩略图和预览图已经生成好了。看大图时再从 QQ 拉（见 api/server.ts）。
-   */
-  async purgeIfUnneeded(sha256: string, nowSec = Math.floor(Date.now() / 1000)): Promise<boolean> {
-    const marked = await rows(this.db, sql`select 1 from media_refs where sha256 = ${sha256} and keep_original = false limit 1`);
-    if (marked.length === 0) return false;
-    const { purged } = await this.purgeWhereAllowed([sha256], nowSec);
-    return purged > 0;
-  }
-
   /** 所有引用方都不再需要原件的内容，删除原件。 */
   private async purgeWhereAllowed(shas: string[], nowSec: number): Promise<{ purged: number; freedBytes: number }> {
     let purged = 0;

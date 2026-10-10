@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiDeps } from '../src/api/context.ts';
 import { buildServer } from '../src/api/server.ts';
 import { createDeps } from '../src/app.ts';
-import { one } from '../src/db/client.ts';
+import { one, rows } from '../src/db/client.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { imageMessage } from './helpers/fixtures.ts';
 
@@ -41,88 +41,124 @@ afterAll(async () => {
 });
 
 let seq = 1;
+const LOCATOR = { elementType: 2, msgId: '1', elementId: '1', peerUid: 'g', chatType: 2 };
+const photo = (scene: 'group' | 'friend', peerId: number, s: number) =>
+  imageMessage(scene, peerId, s, 20002, { url: 'https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=abc&rkey=k&spec=0', locator: LOCATOR });
 const png = (color: string) => sharp({ create: { width: 640, height: 480, channels: 3, background: color } }).png().toBuffer();
 
 async function chatIdOf(scene: 'group' | 'friend', peerId: number) {
   return (await one<{ id: number }>(t.db, sql`select id from chats where scene = ${scene} and peer_id = ${peerId}`)).id;
 }
-async function mute(scene: 'group' | 'friend', peerId: number, policy: string) {
+async function setPolicy(scene: 'group' | 'friend', peerId: number, policy: string) {
   await deps.ingest.ingestMessage(qqAccountId, imageMessage(scene, peerId, seq++, 20002, {}));
   await deps.dialogPrefs.setNotifyPolicy(accountId, await chatIdOf(scene, peerId), policy);
 }
-async function ref(chatId: number, s: number) {
-  return one<{ id: number; fetch_state: string; keep_original: boolean | null }>(
+async function refs(chatId: number, s: number) {
+  const list = await rows<{ id: number; role: string; fetch_state: string; keep_original: boolean | null }>(
     t.db,
-    sql`select id, fetch_state, keep_original from media_refs where chat_id = ${chatId} and message_seq = ${s}`,
+    sql`select id, role, fetch_state, keep_original from media_refs where chat_id = ${chatId} and message_seq = ${s} order by id`,
   );
+  return { original: list.find((r) => r.role !== 'qq_thumb')!, thumb: list.find((r) => r.role === 'qq_thumb') };
 }
-async function segmentState(chatId: number, s: number) {
+async function mediaOf(chatId: number, s: number) {
   const row = await one<{ segments: Segment[] }>(t.db, sql`select segments from messages where chat_id = ${chatId} and seq = ${s}`);
-  return (row.segments[0] as { media: { state: string } }).media.state;
-}
-/** 模拟下载器：存原件、生成派生版本、标记已存，再走下载后的清理。 */
-async function download(refId: number, content: Buffer) {
-  const blob = await deps.media.storeBlob(Readable.from([content]), { kind: 'image', mime: 'image/png' });
-  const extra = await deps.processor.process(blob.sha256, 'image');
-  await deps.ingest.mediaStored(refId, blob, extra);
-  await deps.cleaner.purgeIfUnneeded(blob.sha256);
-  return blob.sha256;
+  return (row.segments[0] as { media: { state: string; sha256?: string; thumbSha256?: string; previewSha256?: string } }).media;
 }
 const blobState = async (sha: string) => (await one<{ state: string }>(t.db, sql`select state from blobs where sha256 = ${sha}`)).state;
+async function store(content: Buffer) {
+  return deps.media.storeBlob(Readable.from([content]), { kind: 'image', mime: 'image/png' });
+}
 
-describe('on-demand media', () => {
-  it('does not download images in muted groups until shown, then keeps only thumbnail and preview', async () => {
-    await mute('group', 700001, 'muted');
-    const chatId = await chatIdOf('group', 700001);
+describe('image downloads', () => {
+  it('in normal chats: fetches only the QQ thumbnail right away; the original waits until it is opened', async () => {
     const s = seq++;
-    await deps.ingest.ingestMessage(qqAccountId, imageMessage('group', 700001, s, 20002, {}));
-    expect(await ref(chatId, s)).toMatchObject({ fetch_state: 'on_demand', keep_original: false });
-    expect(await segmentState(chatId, s)).toBe('on_demand');
+    await deps.ingest.ingestMessage(qqAccountId, photo('friend', 810001, s));
+    const chatId = await chatIdOf('friend', 810001);
+    const { original, thumb } = await refs(chatId, s);
+    expect(original).toMatchObject({ fetch_state: 'on_demand', keep_original: null });
+    expect(thumb).toMatchObject({ fetch_state: 'pending' });
+    expect((await mediaOf(chatId, s)).state).toBe('on_demand');
 
-    // 客户端显示到：排进下载队列（别的账号要不了）。
-    expect(await deps.ingest.requestMedia(accountId + 999, [{ chatId, seq: s, ord: 0 }])).toBe(0);
-    expect(await deps.ingest.requestMedia(accountId, [{ chatId, seq: s, ord: 0 }])).toBe(1);
-    expect(await ref(chatId, s)).toMatchObject({ fetch_state: 'pending' });
-    expect(await segmentState(chatId, s)).toBe('pending');
+    // QQ 缩略图下好：记进消息的缩略图，原图仍是按需，不生成自己的缩略图 / 预览图。
+    const t1 = await store(await png('#224466'));
+    await deps.ingest.thumbStored(thumb!.id, t1);
+    expect(await mediaOf(chatId, s)).toMatchObject({ state: 'on_demand', thumbSha256: t1.sha256 });
 
-    const sha = await download((await ref(chatId, s)).id, await png('#336699'));
-    expect(await blobState(sha)).toBe('purged');
-    const media = ((await one<{ segments: Segment[] }>(t.db, sql`select segments from messages where chat_id = ${chatId} and seq = ${s}`))
-      .segments[0] as { media: { state: string; thumbSha256?: string; previewSha256?: string } }).media;
-    expect(media.state).toBe('purged');
-    expect(media.thumbSha256).toBeTruthy();
-    expect(await blobState(media.thumbSha256!)).toBe('present');
-
-    // 看原图：原件不在，服务端去 QQ 拉（测试里没有上游，所以是 410 而不是 404）。
-    const { url } = deps.signer.sign(sha);
-    expect((await fetch(baseUrl + url)).status).toBe(410);
+    // 看大图：要原图。
+    expect(await deps.ingest.requestMedia(accountId, [{ chatId, seq: s, ord: 0 }], 'original')).toEqual([original.id]);
+    expect((await mediaOf(chatId, s)).state).toBe('pending');
+    const orig = await store(await png('#446688'));
+    await deps.ingest.mediaStored(original.id, orig, await deps.processor.process(orig.sha256, 'image'));
+    const after = await mediaOf(chatId, s);
+    expect(after).toMatchObject({ state: 'stored', sha256: orig.sha256, thumbSha256: t1.sha256 });
+    expect(after.previewSha256).toBeUndefined();
+    expect(await blobState(orig.sha256)).toBe('present'); // 常用会话：看过的原图留着
   });
 
-  it('keeps the original when the same picture also appears in a private chat', async () => {
-    await mute('group', 700002, 'archived');
-    const groupId = await chatIdOf('group', 700002);
-    const content = await png('#996633');
-    const s1 = seq++;
-    await deps.ingest.ingestMessage(qqAccountId, imageMessage('friend', 800001, s1, 800001, {}));
-    const shared = await download((await ref(await chatIdOf('friend', 800001), s1)).id, content);
-    const s2 = seq++;
-    await deps.ingest.ingestMessage(qqAccountId, imageMessage('group', 700002, s2, 20002, {}));
-    await deps.ingest.requestMedia(accountId, [{ chatId: groupId, seq: s2, ord: 0 }]);
-    await download((await ref(groupId, s2)).id, content);
-    expect(await blobState(shared)).toBe('present');
+  it('in muted / Group Helper groups: nothing is fetched until the image is shown', async () => {
+    await setPolicy('group', 710001, 'muted');
+    const chatId = await chatIdOf('group', 710001);
+    const s = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, photo('group', 710001, s));
+    const { original, thumb } = await refs(chatId, s);
+    expect(original).toMatchObject({ fetch_state: 'on_demand', keep_original: false });
+    expect(thumb).toMatchObject({ fetch_state: 'on_demand' });
+
+    // 显示到：要 QQ 缩略图（别的账号要不了）。
+    expect(await deps.ingest.requestMedia(accountId + 999, [{ chatId, seq: s, ord: 0 }])).toEqual([]);
+    expect(await deps.ingest.requestMedia(accountId, [{ chatId, seq: s, ord: 0 }])).toEqual([thumb!.id]);
+    expect((await refs(chatId, s)).thumb).toMatchObject({ fetch_state: 'pending' });
+    expect((await mediaOf(chatId, s)).state).toBe('on_demand');
   });
 
-  it('downloads private chat media right away, and queues on-demand media when a group is unmuted', async () => {
-    const s1 = seq++;
-    await deps.ingest.ingestMessage(qqAccountId, imageMessage('friend', 800002, s1, 800002, {}));
-    expect(await ref(await chatIdOf('friend', 800002), s1)).toMatchObject({ fetch_state: 'pending', keep_original: null });
+  it('adds a thumbnail reference for images archived before thumbnails existed', async () => {
+    const s = seq++;
+    const msg = photo('group', 710002, s);
+    await deps.ingest.ingestMessage(qqAccountId, msg);
+    const chatId = await chatIdOf('group', 710002);
+    await t.db.execute(sql`delete from media_refs where chat_id = ${chatId} and message_seq = ${s} and role = 'qq_thumb'`);
+    const queued = await deps.ingest.requestMedia(accountId, [{ chatId, seq: s, ord: 0 }]);
+    expect(queued).toHaveLength(1);
+    expect((await refs(chatId, s)).thumb).toMatchObject({ id: queued[0], fetch_state: 'pending' });
+  });
 
-    await mute('group', 700003, 'muted');
-    const chatId = await chatIdOf('group', 700003);
-    const s2 = seq++;
-    await deps.ingest.ingestMessage(qqAccountId, imageMessage('group', 700003, s2, 20002, {}));
+  it('when a muted group is unmuted, queues its thumbnails but leaves originals on demand', async () => {
+    await setPolicy('group', 710003, 'archived');
+    const chatId = await chatIdOf('group', 710003);
+    const s = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, photo('group', 710003, s));
     await deps.dialogPrefs.setNotifyPolicy(accountId, chatId, 'all');
-    expect(await ref(chatId, s2)).toMatchObject({ fetch_state: 'pending', keep_original: null });
-    expect(await segmentState(chatId, s2)).toBe('pending');
+    expect(await refs(chatId, s)).toMatchObject({
+      original: { fetch_state: 'on_demand', keep_original: null },
+      thumb: { fetch_state: 'pending' },
+    });
+  });
+
+  it('animated stickers need the original: fetched right away in normal chats, when shown in muted groups', async () => {
+    const sticker = (scene: 'group' | 'friend', peerId: number, s: number) => {
+      const m = photo(scene, peerId, s);
+      return { ...m, media: m.media.map((x) => ({ ...x, role: 'sticker' as const })) };
+    };
+    const s1 = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, sticker('friend', 810002, s1));
+    const friendChat = await chatIdOf('friend', 810002);
+    expect(await refs(friendChat, s1)).toMatchObject({ original: { fetch_state: 'pending' }, thumb: undefined });
+
+    await setPolicy('group', 710004, 'muted');
+    const groupChat = await chatIdOf('group', 710004);
+    const s2 = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, sticker('group', 710004, s2));
+    const { original, thumb } = await refs(groupChat, s2);
+    expect(original).toMatchObject({ fetch_state: 'on_demand' });
+    expect(thumb).toBeUndefined();
+    // 显示到：要的是原图（不是 QQ 缩略图）。
+    expect(await deps.ingest.requestMedia(accountId, [{ chatId: groupChat, seq: s2, ord: 0 }])).toEqual([original.id]);
+  });
+
+  it('serving a purged original goes back to QQ instead of a plain 404', async () => {
+    const blob = await store(await png('#887766'));
+    await deps.media.purgeOriginal(blob.sha256);
+    const { url } = deps.signer.sign(blob.sha256);
+    expect((await fetch(baseUrl + url)).status).toBe(410); // 测试里没有上游：拿不到 = 已过期
   });
 });

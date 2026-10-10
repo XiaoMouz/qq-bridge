@@ -159,7 +159,7 @@ describe.skipIf(!hasFfmpeg)('MediaProcessor (ffmpeg)', () => {
 });
 
 describe('uploads', () => {
-  it('prepares thumbnails as soon as an image upload completes', async () => {
+  it('records the size of an uploaded image without making its own thumbnails', async () => {
     const png = await sharp({ create: { width: 900, height: 600, channels: 3, background: '#0af' } }).png().toBuffer();
     const sha256 = createHash('sha256').update(png).digest('hex');
     const uploads = new UploadService(t.db, media, path.join(root, 'uploads'), 10 * 1024 * 1024, processor);
@@ -169,7 +169,7 @@ describe('uploads', () => {
     await uploads.append(id, prepared.id, 0, Readable.from([png]));
     const derived = await processor.existing(sha256);
     expect(derived).toMatchObject({ width: 900, height: 600 });
-    expect(derived.thumbSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(derived.previewSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(derived.thumbSha256).toBeUndefined();
+    expect(derived.previewSha256).toBeUndefined();
   });
 });

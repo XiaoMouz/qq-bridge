@@ -52,6 +52,8 @@ export interface ApiDeps {
   rehydrate: ((sha256: string) => Promise<RehydrateResult>) | null;
   /** 有媒体新排进下载队列（例如客户端要按需媒体）：叫醒下载器。 */
   pokeMediaFetcher: () => void;
+  /** 马上下载一个媒体引用（客户端在等）；没有下载器时为 null。 */
+  fetchMediaNow: ((refId: number) => Promise<void>) | null;
   admin: AdminService;
   /** NapCat WebUI（扫码登录中转）；没配 NAPCAT_WEBUI_TOKEN 时为 null。 */
   napcatWebUi: NapcatWebUi | null;

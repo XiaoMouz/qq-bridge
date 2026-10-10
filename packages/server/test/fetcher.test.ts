@@ -118,7 +118,7 @@ async function ingestImage(peerId: number, seq: number, media: Parameters<typeof
 async function refOf(chatId: number, seq = 1) {
   return one<{ id: number; fetch_state: string; sha256: string | null; attempts: number; last_error: string | null; next_attempt_at: string | Date | null; thumbhash: string | null }>(
     t.db,
-    sql`select id, fetch_state, sha256, attempts, last_error, next_attempt_at, thumbhash from media_refs where chat_id = ${chatId} and message_seq = ${seq}`,
+    sql`select id, fetch_state, sha256, attempts, last_error, next_attempt_at, thumbhash from media_refs where chat_id = ${chatId} and message_seq = ${seq} and role <> 'qq_thumb'`,
   );
 }
 
@@ -141,7 +141,7 @@ async function makeDue(refId: number) {
 }
 
 describe('MediaFetcher', () => {
-  it('downloads an image, derives thumb / preview / thumbhash, and pushes the update to the chat', async () => {
+  it('downloads an image as is (no re-encoded thumbnails), and pushes the update to the chat', async () => {
     const body = await png(2000, 1000, { r: 200, g: 120, b: 40 });
     files.set('a.png', { body, type: 'image/png' });
     const { chatId } = await ingestImage(nextPeer(), 1, { url: `${base}/file/a.png`, size: body.length });
@@ -151,25 +151,20 @@ describe('MediaFetcher', () => {
 
     const ref = await refOf(chatId);
     expect(ref).toMatchObject({ fetch_state: 'stored', sha256: sha256(body), last_error: null, next_attempt_at: null });
-    expect(ref.thumbhash).toMatch(/^[A-Za-z0-9+/=]+$/);
 
+    // 只读宽高，不自己生成缩略图 / 预览图（缩略图用 QQ 给的，客户端有原图时直接显示原图）。
     const info = await mediaOf(chatId);
     expect(info).toMatchObject({ state: 'stored', sha256: sha256(body), size: body.length, mime: 'image/png', width: 2000, height: 1000 });
-    expect(info.thumbhash).toBe(ref.thumbhash);
-    expect(info.thumbSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(info.previewSha256).toMatch(/^[0-9a-f]{64}$/);
-
-    const thumb = await sharp(await readBlob(info.thumbSha256!)).metadata();
-    expect(thumb).toMatchObject({ format: 'webp', width: THUMB_PX, height: THUMB_PX / 2 });
-    const preview = await sharp(await readBlob(info.previewSha256!)).metadata();
-    expect(preview).toMatchObject({ format: 'webp', width: 1280, height: 640 });
+    expect(info.thumbSha256).toBeUndefined();
+    expect(info.previewSha256).toBeUndefined();
+    expect(await readBlob(info.sha256!)).toEqual(body);
 
     // 原件计入会话占用；客户端经 chat_pts 收到"媒体已就绪"。
     const usage = await rows(t.db, sql`select sha256 from chat_blob_usage where chat_id = ${chatId}`);
     expect(usage).toEqual([{ sha256: sha256(body) }]);
     const diff = await getChatDifference(t.db, acc.accountId, chatId, before.chat_pts);
     expect(diff.messages).toHaveLength(1);
-    expect(diff.messages[0]!.segments[0]).toMatchObject({ media: { state: 'stored', thumbSha256: info.thumbSha256 } });
+    expect(diff.messages[0]!.segments[0]).toMatchObject({ media: { state: 'stored', sha256: sha256(body) } });
   });
 
   it('stores the same content once and reuses its variants; a known QQ md5 skips the download entirely', async () => {
@@ -184,20 +179,14 @@ describe('MediaFetcher', () => {
     const second = await ingestImage(nextPeer(), 1, { url: `${base}/file/b.png?copy`, size: body.length });
     await fetcher().runOnce();
     const secondInfo = await mediaOf(second.chatId);
-    expect(secondInfo).toMatchObject({
-      state: 'stored',
-      sha256: firstInfo.sha256,
-      thumbSha256: firstInfo.thumbSha256,
-      previewSha256: firstInfo.previewSha256,
-      thumbhash: firstInfo.thumbhash,
-    });
+    expect(secondInfo).toMatchObject({ state: 'stored', sha256: firstInfo.sha256, width: 800, height: 600 });
     expect(await one<{ n: number }>(t.db, sql`select count(*)::int as n from blobs`)).toEqual(blobsBefore);
 
     // 第三个会话带着 QQ md5：入库时就命中，不进下载队列，也带上了缩略图信息。
     const requests = hits.get('/file/b.png') ?? 0;
     const third = await ingestImage(nextPeer(), 1, { url: `${base}/file/b.png`, size: body.length, qqMd5: md5(body) });
-    expect(await refOf(third.chatId)).toMatchObject({ fetch_state: 'stored', sha256: firstInfo.sha256, thumbhash: firstInfo.thumbhash });
-    expect(await mediaOf(third.chatId)).toMatchObject({ state: 'stored', thumbSha256: firstInfo.thumbSha256, width: 800, height: 600 });
+    expect(await refOf(third.chatId)).toMatchObject({ fetch_state: 'stored', sha256: firstInfo.sha256 });
+    expect(await mediaOf(third.chatId)).toMatchObject({ state: 'stored', sha256: firstInfo.sha256, width: 800, height: 600 });
     expect(await fetcher().runOnce()).toBe(0);
     expect(hits.get('/file/b.png') ?? 0).toBe(requests);
   });
@@ -349,6 +338,9 @@ describe('MediaFetcher', () => {
     };
     const f = fetcher(new NapcatMediaSource(t.db, hub), { offlineRetryMs: 30_000 });
     const { chatId } = await ingestImage(nextPeer(), 1, { locator }); // 历史消息：没有现成链接
+    // 图片原图是按需的：像看大图时那样要原图（QQ 缩略图那条这里不测）。
+    await t.db.execute(sql`delete from media_refs where chat_id = ${chatId} and role = 'qq_thumb'`);
+    await ingest.requestMedia(acc.accountId, [{ chatId, seq: 1, ord: 0 }], 'original');
 
     expect(await f.runOnce()).toBe(1);
     const waiting = await refOf(chatId);

@@ -91,7 +91,7 @@ const MEDIA_STATES: Record<DomainMediaInfo['state'], MediaState> = {
   on_demand: MediaState.ON_DEMAND,
 };
 
-function mediaInfo(m: DomainMediaInfo) {
+export function mediaInfo(m: DomainMediaInfo) {
   return {
     ord: m.ord,
     state: MEDIA_STATES[m.state] ?? MediaState.UNSPECIFIED,

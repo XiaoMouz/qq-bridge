@@ -283,9 +283,8 @@ struct BlockView: View {
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
     case .image(let i):
-      MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId)
-        .onAppear { if i.media.state == .onDemand { requestMedia(i.media) } }
-        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media)) }
+      MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId, onNeedThumb: { requestMedia(i.media) })
+        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
     case .sticker(let sha, let summary):
       CachedImage(sha256: sha, chatId: context.chatId) {
         Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
@@ -300,7 +299,7 @@ struct BlockView: View {
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId)
         .onTapGesture {
           // 按需的视频：点一下开始下载，下好后再点播放。
-          if v.media.state == .onDemand { requestMedia(v.media) } else { context.actions.openMedia(MediaTarget(kind: .video, media: v.media)) }
+          if v.media.state == .onDemand { requestMedia(v.media) } else { context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
         }
         .overlay {
           Image(systemName: v.media.state == .onDemand ? "arrow.down.circle.fill" : v.media.state == .pending ? "hourglass.circle.fill" : "play.circle.fill")
@@ -377,6 +376,18 @@ struct MediaThumb: View {
   let width: UInt32
   let height: UInt32
   let chatId: Int64
+  /// 没有缩略图时调用（向服务端要 QQ 缩略图）。
+  var onNeedThumb: (() -> Void)? = nil
+  @Environment(\.session) private var session
+  @State private var localOriginal = false
+
+  /// 显示哪张：手机上已有原图就显示原图（缩小解码），否则 QQ 缩略图；都没有时服务端有原图就下原图。
+  private var displaySha: String? {
+    if localOriginal { return media.sha256 }
+    if !media.thumbSha256.isEmpty { return media.thumbSha256 }
+    if media.state == .stored, !media.sha256.isEmpty { return media.sha256 }
+    return nil
+  }
 
   var body: some View {
     let w = CGFloat(max(width, media.width, 1))
@@ -384,14 +395,12 @@ struct MediaThumb: View {
     let ratio = min(max(w / h, 0.4), 2.5)
     let maxW: CGFloat = 220
     let size = ratio >= 1 ? CGSize(width: maxW, height: maxW / ratio) : CGSize(width: maxW * ratio, height: maxW)
-    CachedImage(sha256: media.thumbSha256.isEmpty ? nil : media.thumbSha256, chatId: chatId) {
+    CachedImage(sha256: displaySha, chatId: chatId, maxPixel: 720) {
       ZStack {
         Rectangle().fill(.quaternary)
         if media.state == .expired || media.state == .failed {
           Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
-        } else if media.state == .purged {
-          Text("原图已清理").font(.caption).foregroundStyle(.secondary)
-        } else if media.state == .pending || media.state == .onDemand {
+        } else if displaySha == nil {
           ProgressView()
         }
       }
@@ -399,6 +408,11 @@ struct MediaThumb: View {
     .aspectRatio(contentMode: .fill)
     .frame(width: size.width, height: size.height)
     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .task(id: media.sha256) {
+      guard !media.sha256.isEmpty, let session else { return }
+      localOriginal = (try? await session.media.cachedFile(media.sha256)) != nil
+    }
+    .onAppear { if media.thumbSha256.isEmpty, media.state != .stored { onNeedThumb?() } }
   }
 }
 
