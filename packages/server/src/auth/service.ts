@@ -39,6 +39,13 @@ export class AuthService {
     return this.dummy;
   }
 
+  /** 改密码（已登录的设备令牌不受影响）。返回账号是否存在。 */
+  async setPassword(username: string, password: string): Promise<boolean> {
+    if (password.length < 8) throw new Error('password must be at least 8 characters');
+    const res = await this.db.execute(sql`update accounts set password_hash = ${await hash(password)} where username = ${username}`);
+    return (res.rowCount ?? 0) > 0;
+  }
+
   async createAccount(username: string, password: string): Promise<number> {
     if (password.length < 8) throw new Error('password must be at least 8 characters');
     const passwordHash = await hash(password);

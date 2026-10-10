@@ -20,3 +20,6 @@ deploy/.env
 DerivedData/
 xcuserdata/
 *.xcuserstate
+# XcodeGen 生成的工程
+ios/QQBridge/*.xcodeproj/
+ios/.build-app/

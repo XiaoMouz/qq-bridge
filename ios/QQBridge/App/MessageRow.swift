@@ -1,0 +1,459 @@
+// 一行聊天内容：消息气泡、服务事件灰条、发件箱里还没发出去的消息。
+import QQBridgeKit
+import QQBridgeProto
+import SwiftUI
+
+struct MessageContext {
+  let selfUin: Int64
+  let isGroup: Bool
+  let qqAccountId: Int64
+  let chatId: Int64
+  let store: LocalStore
+
+  func name(of userId: Int64) -> String {
+    if userId == selfUin { return "我" }
+    return (try? store.userName(qqAccountId: qqAccountId, userId: userId)) ?? String(userId)
+  }
+}
+
+struct MessageRow: View {
+  let item: ChatItem
+  let context: MessageContext
+  let previous: ChatItem?
+
+  var body: some View {
+    VStack(spacing: 6) {
+      if showsTime {
+        Text(Format.chatTime(item.time)).font(.caption2).foregroundStyle(.secondary).padding(.top, 8)
+      }
+      switch item {
+      case .event(let e):
+        Notice(text: EventText.describe(e, context: context))
+      case .message(let m) where m.state == .recalled:
+        Notice(text: "\(context.name(of: m.senderID)) 撤回了一条消息")
+      case .message(let m):
+        MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
+      case .outgoing(let o):
+        OutgoingRow(entry: o)
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  /// 和上一条隔了 5 分钟以上才显示时间。
+  private var showsTime: Bool {
+    guard let previous else { return true }
+    return item.time - previous.time > 300
+  }
+
+  /// 群里，连续同一个人发的只在第一条显示名字和头像。
+  private func showsSender(_ m: Qqbridge_V1_Message) -> Bool {
+    guard context.isGroup, m.senderID != context.selfUin else { return false }
+    if showsTime { return true }
+    if case .message(let p)? = previous, p.senderID == m.senderID, p.state != .recalled { return false }
+    return true
+  }
+}
+
+struct Notice: View {
+  let text: String
+  var body: some View {
+    Text(text)
+      .font(.caption)
+      .foregroundStyle(.secondary)
+      .multilineTextAlignment(.center)
+      .padding(.horizontal, 10)
+      .padding(.vertical, 4)
+      .background(.quaternary.opacity(0.5), in: Capsule())
+  }
+}
+
+struct MessageBubbleRow: View {
+  let message: Qqbridge_V1_Message
+  let context: MessageContext
+  let showsSender: Bool
+  @Environment(\.session) private var session
+
+  private var outgoing: Bool { message.senderID == context.selfUin }
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 8) {
+      if outgoing { Spacer(minLength: 48) }
+      if context.isGroup, !outgoing {
+        if showsSender {
+          let name = context.name(of: message.senderID)
+          AvatarView(
+            sha256: (try? context.store.peer(qqAccountId: context.qqAccountId, kind: .user, peerId: message.senderID))?.avatarSha256,
+            title: name,
+            seed: message.senderID,
+            size: 34
+          )
+        } else {
+          Color.clear.frame(width: 34, height: 1)
+        }
+      }
+      VStack(alignment: outgoing ? .trailing : .leading, spacing: 3) {
+        if showsSender {
+          Text(context.name(of: message.senderID)).font(.caption).foregroundStyle(.secondary)
+        }
+        MessageContent(message: message, context: context, outgoing: outgoing)
+        if !message.reactions.isEmpty { Reactions(reactions: message.reactions) }
+      }
+      if !outgoing { Spacer(minLength: 48) }
+    }
+  }
+}
+
+/// 气泡内容：按消息段排版。只有一张图 / 一个表情时不画气泡底色。
+struct MessageContent: View {
+  let message: Qqbridge_V1_Message
+  let context: MessageContext
+  let outgoing: Bool
+
+  var body: some View {
+    let blocks = Block.make(message.segments, context: context)
+    let bare = blocks.count == 1 && blocks[0].isBare
+    VStack(alignment: .leading, spacing: 6) {
+      ForEach(blocks.indices, id: \.self) { i in
+        BlockView(block: blocks[i], context: context, outgoing: outgoing)
+      }
+    }
+    .padding(bare ? 0 : 10)
+    .background {
+      if !bare {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .fill(outgoing ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.secondarySystemBackground)))
+      }
+    }
+    .foregroundStyle(outgoing && !bare ? Color.white : Color.primary)
+  }
+}
+
+/// 排版块：相邻的文字、@、表情合成一段富文本，其余各成一块。
+enum Block {
+  case text(AttributedString)
+  case reply(Int64)
+  case image(Qqbridge_V1_ImageSegment)
+  case sticker(sha256: String, summary: String)
+  case record(Qqbridge_V1_RecordSegment)
+  case video(Qqbridge_V1_VideoSegment)
+  case file(Qqbridge_V1_FileSegment)
+  case forward(Qqbridge_V1_ForwardSegment)
+  case card(String)
+
+  var isBare: Bool {
+    switch self {
+    case .sticker: true
+    case .image(let i): i.sticker
+    default: false
+    }
+  }
+
+  static func make(_ segments: [Qqbridge_V1_Segment], context: MessageContext) -> [Block] {
+    var out: [Block] = []
+    var text = AttributedString()
+    func flush() {
+      if !text.characters.isEmpty { out.append(.text(text)) }
+      text = AttributedString()
+    }
+    for seg in segments {
+      switch seg.kind {
+      case .text(let t): text += AttributedString(t.text)
+      case .mention(let m):
+        var a = AttributedString("@\(m.name.isEmpty ? context.name(of: m.userID) : m.name) ")
+        a.font = .body.bold()
+        text += a
+      case .mentionAll:
+        var a = AttributedString("@全体成员 ")
+        a.font = .body.bold()
+        text += a
+      case .face(let f): text += AttributedString(QQFace.text(f.faceID))
+      case .reply(let r): out.insert(.reply(r.seq), at: 0)
+      case .image(let i):
+        flush()
+        out.append(i.sticker ? .sticker(sha256: i.media.thumbSha256.isEmpty ? i.media.sha256 : i.media.thumbSha256, summary: i.summary) : .image(i))
+      case .record(let r): flush(); out.append(.record(r))
+      case .video(let v): flush(); out.append(.video(v))
+      case .file(let f): flush(); out.append(.file(f))
+      case .forward(let f): flush(); out.append(.forward(f))
+      case .marketFace(let f):
+        flush()
+        if f.hasMedia, !f.media.sha256.isEmpty {
+          out.append(.sticker(sha256: f.media.thumbSha256.isEmpty ? f.media.sha256 : f.media.thumbSha256, summary: f.summary))
+        } else {
+          out.append(.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary)))
+        }
+      case .lightApp(let a): flush(); out.append(.card(CardText.from(json: a.json, app: a.appName)))
+      case .xml: flush(); out.append(.card("[卡片消息]"))
+      case .markdown(let m): text += (try? AttributedString(markdown: m.content)) ?? AttributedString(m.content)
+      case .unknown, .none: text += AttributedString("[暂不支持的消息]")
+      }
+    }
+    flush()
+    return out
+  }
+}
+
+struct BlockView: View {
+  let block: Block
+  let context: MessageContext
+  let outgoing: Bool
+
+  var body: some View {
+    switch block {
+    case .text(let t):
+      Text(t).textSelection(.enabled)
+    case .reply(let seq):
+      ReplyQuote(seq: seq, context: context, outgoing: outgoing)
+    case .image(let i):
+      MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId)
+    case .sticker(let sha, let summary):
+      CachedImage(sha256: sha, chatId: context.chatId) {
+        Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
+      }
+      .aspectRatio(contentMode: .fit)
+      .frame(maxWidth: 140, maxHeight: 140)
+    case .record(let r):
+      VoiceBubble(record: r)
+    case .video(let v):
+      MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId)
+        .overlay {
+          Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
+        }
+        .overlay(alignment: .bottomTrailing) {
+          if v.durationSec > 0 {
+            Text(Format.duration(Int(v.durationSec))).font(.caption2.monospacedDigit()).padding(4)
+              .background(.black.opacity(0.5), in: Capsule()).foregroundStyle(.white).padding(6)
+          }
+        }
+    case .file(let f):
+      HStack(spacing: 10) {
+        Image(systemName: "doc.fill").font(.title2)
+        VStack(alignment: .leading) {
+          Text(f.name).lineLimit(2)
+          Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).opacity(0.7)
+        }
+      }
+    case .forward(let f):
+      VStack(alignment: .leading, spacing: 4) {
+        Text(f.title.isEmpty ? "聊天记录" : f.title).font(.subheadline.bold())
+        ForEach(Array(f.preview.prefix(4).enumerated()), id: \.offset) { _, line in
+          Text(line).font(.caption).lineLimit(1).opacity(0.8)
+        }
+        Divider()
+        Text(f.summary.isEmpty ? "查看聊天记录" : f.summary).font(.caption2).opacity(0.7)
+      }
+      .frame(minWidth: 180, alignment: .leading)
+    case .card(let text):
+      Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
+    }
+  }
+}
+
+/// 图片 / 视频封面：按原始比例显示缩略图，先用占位色块撑住大小，滚动时不跳。
+struct MediaThumb: View {
+  let media: Qqbridge_V1_MediaInfo
+  let width: UInt32
+  let height: UInt32
+  let chatId: Int64
+
+  var body: some View {
+    let w = CGFloat(max(width, media.width, 1))
+    let h = CGFloat(max(height, media.height, 1))
+    let ratio = min(max(w / h, 0.4), 2.5)
+    let maxW: CGFloat = 220
+    let size = ratio >= 1 ? CGSize(width: maxW, height: maxW / ratio) : CGSize(width: maxW * ratio, height: maxW)
+    CachedImage(sha256: media.thumbSha256.isEmpty ? nil : media.thumbSha256, chatId: chatId) {
+      ZStack {
+        Rectangle().fill(.quaternary)
+        if media.state == .expired || media.state == .failed {
+          Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
+        } else if media.state == .purged {
+          Text("原图已清理").font(.caption).foregroundStyle(.secondary)
+        } else if media.state == .pending {
+          ProgressView()
+        }
+      }
+    }
+    .aspectRatio(contentMode: .fill)
+    .frame(width: size.width, height: size.height)
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+  }
+}
+
+/// 语音：波形 + 时长（播放下一步做）。
+struct VoiceBubble: View {
+  let record: Qqbridge_V1_RecordSegment
+
+  var body: some View {
+    let bars = Array(record.media.waveform)
+    let seconds = Int(record.durationSec)
+    HStack(spacing: 8) {
+      Image(systemName: "play.fill")
+      HStack(alignment: .center, spacing: 2) {
+        ForEach(0..<max(bars.count, 1), id: \.self) { i in
+          let v = bars.isEmpty ? 0.3 : CGFloat(bars[i]) / 255
+          Capsule().frame(width: 2, height: 4 + 18 * v)
+        }
+      }
+      .frame(width: CGFloat(min(160, 60 + seconds * 4)), alignment: .leading)
+      .clipped()
+      Text("\(seconds)″").font(.caption.monospacedDigit())
+    }
+  }
+}
+
+struct ReplyQuote: View {
+  let seq: Int64
+  let context: MessageContext
+  let outgoing: Bool
+  @Environment(\.session) private var session
+  @State private var original: Qqbridge_V1_Message?
+  @State private var missing = false
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Rectangle().frame(width: 3).opacity(0.6)
+      VStack(alignment: .leading, spacing: 1) {
+        if let original {
+          Text(context.name(of: original.senderID)).font(.caption.bold())
+          Text(Format.preview(original)).font(.caption).lineLimit(2)
+        } else {
+          Text(missing ? "原消息已无法找到" : "…").font(.caption)
+        }
+      }
+      .opacity(0.85)
+    }
+    .fixedSize(horizontal: false, vertical: true)
+    .task(id: seq) {
+      // 本地有就直接用；没有就向服务端要这一条（服务端没有的会现场向 QQ 拉）。
+      if let local = try? context.store.message(chatId: context.chatId, seq: seq) {
+        original = local
+      } else if let fetched = await session?.sync.fetchMessage(chatId: context.chatId, seq: seq) {
+        original = fetched
+      } else {
+        missing = true
+      }
+    }
+  }
+}
+
+struct Reactions: View {
+  let reactions: [Qqbridge_V1_Reaction]
+  var body: some View {
+    HStack(spacing: 4) {
+      ForEach(reactions, id: \.emojiID) { r in
+        HStack(spacing: 2) {
+          Text(QQFace.text(r.emojiID))
+          Text("\(r.count)").monospacedDigit()
+        }
+        .font(.caption)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+      }
+    }
+  }
+}
+
+/// 还在发件箱里的消息（发送中 / 失败）。
+struct OutgoingRow: View {
+  let entry: Qqbridge_V1_OutboxEntry
+
+  var body: some View {
+    HStack(alignment: .bottom, spacing: 6) {
+      Spacer(minLength: 48)
+      switch entry.state {
+      case .failed:
+        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+      default:
+        Image(systemName: "clock").font(.caption).foregroundStyle(.secondary)
+      }
+      Text(entry.segments.map { seg in
+        switch seg.kind {
+        case .text(let t): t
+        case .image: "[图片]"
+        case .video: "[视频]"
+        case .record: "[语音]"
+        case .file: "[文件]"
+        case .faceID(let f): QQFace.text(f)
+        case .mentionUserID(let u): "@\(u) "
+        case .mentionAll: "@全体成员 "
+        case .none: ""
+        }
+      }.joined())
+      .padding(10)
+      .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+      .foregroundStyle(.white)
+    }
+  }
+}
+
+/// QQ 小黄脸：先用文字代替（以后换成图）。emoji 回应的 id 是码点。
+enum QQFace {
+  static func text(_ id: String) -> String {
+    if let code = Int(id), code > 0x2000, let scalar = Unicode.Scalar(code) { return String(Character(scalar)) }
+    return "[表情\(id)]"
+  }
+}
+
+/// 卡片消息（小程序、分享链接等）：从 JSON 里挑一句能看的。
+enum CardText {
+  static func from(json: String, app: String) -> String {
+    guard let data = json.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return "[卡片消息]"
+    }
+    if let prompt = obj["prompt"] as? String, !prompt.isEmpty { return prompt }
+    if let meta = obj["meta"] as? [String: Any] {
+      for v in meta.values {
+        if let d = v as? [String: Any], let title = (d["title"] ?? d["desc"]) as? String, !title.isEmpty { return title }
+      }
+    }
+    return "[卡片消息] \(app)"
+  }
+}
+
+/// 服务事件的一句话描述。
+enum EventText {
+  static func describe(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> String {
+    let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
+    let actor = e.actorID == 0 ? "" : context.name(of: e.actorID)
+    let target = e.targetID == 0 ? "" : context.name(of: e.targetID)
+    switch e.kind {
+    case "member_join": return "\(target.isEmpty ? actor : target) 加入了群聊"
+    case "member_leave": return "\(target.isEmpty ? actor : target) 离开了群聊"
+    case "admin_set": return "\(target) 成为管理员"
+    case "admin_unset": return "\(target) 不再是管理员"
+    case "mute": return target.isEmpty ? "\(actor) 开启了全员禁言" : "\(target) 被禁言"
+    case "unmute": return target.isEmpty ? "\(actor) 关闭了全员禁言" : "\(target) 被解除禁言"
+    case "card_change": return "\(target) 修改了群名片"
+    case "title": return "\(target) 获得了头衔 \(data["title"] as? String ?? "")"
+    case "group_name": return "\(actor) 修改群名为 \(data["name"] as? String ?? "")"
+    case "essence_add": return "\(actor) 设置了一条精华消息"
+    case "essence_remove": return "\(actor) 移除了一条精华消息"
+    case "poke": return "\(actor) 戳了戳 \(target)"
+    case "friend_add": return "你们已成为好友"
+    case "group_file": return "\(actor) 上传了文件 \(data["name"] as? String ?? "")"
+    case "call":
+      let video = (data["media"] as? String) == "video"
+      if (data["result"] as? String) == "answered" {
+        return "\(video ? "视频" : "语音")通话 \(Format.duration(data["durationSec"] as? Int ?? 0))"
+      }
+      return "未接\(video ? "视频" : "语音")通话"
+    case "gray_tip": return data["text"] as? String ?? "系统消息"
+    default: return "[\(e.kind)]"
+    }
+  }
+}
+
+extension Format {
+  static func chatTime(_ unix: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(unix))
+    if Calendar.current.isDateInToday(date) { return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale)) }
+    return date.formatted(.dateTime.month().day().hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
+  }
+
+  static func duration(_ seconds: Int) -> String {
+    String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+}

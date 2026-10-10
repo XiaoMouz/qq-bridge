@@ -158,7 +158,8 @@ export class ContactService {
 
   /** 好友列表与群列表（各一次请求）。返回数量。 */
   async refreshLists(qqAccountId: number): Promise<{ friends: number; groups: number }> {
-    const friends = (await this.ob11<Ob11[]>(qqAccountId, 'get_friend_list', { no_cache: true })) ?? [];
+    // 不加 no_cache：加了 NapCat 会逐个向 QQ 拉每个好友的详细资料（几百次请求，还大量超时），正是要避免的爬取。
+    const friends = (await this.ob11<Ob11[]>(qqAccountId, 'get_friend_list', {})) ?? [];
     const friendIds = new Set<number>();
     for (const f of friends) {
       const id = num(f.user_id);
@@ -183,7 +184,7 @@ export class ContactService {
         if (!friendIds.has(Number(p.peer_id))) await this.ingest.upsertPeer(qqAccountId, { kind: 'user', peerId: Number(p.peer_id), isFriend: false });
       }
     }
-    const groups = (await this.ob11<Ob11[]>(qqAccountId, 'get_group_list', { no_cache: true })) ?? [];
+    const groups = (await this.ob11<Ob11[]>(qqAccountId, 'get_group_list', {})) ?? [];
     for (const g of groups) {
       const id = num(g.group_id);
       if (!id) continue;

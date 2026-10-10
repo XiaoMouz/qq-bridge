@@ -106,12 +106,30 @@ extension LocalStore {
     try db.read { db in try Int64.fetchOne(db, sql: "select value from kv where key = 'pts'") ?? 0 }
   }
 
+  /// 记下本账号下各 QQ 号（qq_account_id → QQ 号），判断消息是不是自己发的。
+  public func setQqAccounts(_ accounts: [Qqbridge_V1_QqAccountInfo]) throws {
+    try db.write { db in
+      for a in accounts {
+        try db.execute(
+          sql: "insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
+          arguments: ["self:\(a.id)", a.uin]
+        )
+      }
+    }
+  }
+
+  /// 某个 QQ 号（qq_account_id）自己的号码；不知道时为 0。
+  public func selfUin(qqAccountId: Int64) throws -> Int64 {
+    try db.read { db in try Int64.fetchOne(db, sql: "select value from kv where key = ?", arguments: ["self:\(qqAccountId)"]) ?? 0 }
+  }
+
   /// 清空全部缓存（服务端要求重新同步、换账号时）。
   public func reset() throws {
     try db.write { db in
-      for table in ["kv", "dialog", "peer", "chatState", "message", "chatEvent", "outbox"] {
+      for table in ["dialog", "peer", "chatState", "message", "chatEvent", "outbox"] {
         try db.execute(sql: "delete from \(table)")
       }
+      try db.execute(sql: "delete from kv where key = 'pts'")
     }
   }
 }
@@ -321,6 +339,14 @@ extension LocalStore {
         arguments: [chatId, beforeSeq ?? Int64.max, limit]
       )
       return try rows.reversed().map { try Qqbridge_V1_Message(serializedBytes: $0) }
+    }
+  }
+
+  /// 本地的某一条消息。
+  public func message(chatId: Int64, seq: Int64) throws -> Qqbridge_V1_Message? {
+    try db.read { db in
+      try Data.fetchOne(db, sql: "select data from message where chatId = ? and seq = ?", arguments: [chatId, seq])
+        .map { try Qqbridge_V1_Message(serializedBytes: $0) }
     }
   }
 

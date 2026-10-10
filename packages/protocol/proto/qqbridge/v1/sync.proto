@@ -25,6 +25,14 @@ message GetStateRequest {}
 message GetStateResponse {
   int64 pts = 1;
   int64 server_time = 2;
+  // 本账号下的 QQ 号（客户端据此判断哪些消息是自己发的）。
+  repeated QqAccountInfo qq_accounts = 3;
+}
+
+message QqAccountInfo {
+  int64 id = 1;
+  int64 uin = 2;
+  string nickname = 3;
 }
 
 message GetDifferenceRequest {

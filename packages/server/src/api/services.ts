@@ -100,8 +100,17 @@ function authService(deps: ApiDeps): ServiceImpl<typeof AuthService> {
 function syncService(deps: ApiDeps): ServiceImpl<typeof SyncService> {
   return {
     async getState(_req, ctx) {
-      const { pts } = await getState(deps.db, requireAuth(ctx).accountId);
-      return { pts: BigInt(pts), serverTime: nowSec() };
+      const accountId = requireAuth(ctx).accountId;
+      const { pts } = await getState(deps.db, accountId);
+      const accounts = await rows<{ id: number; uin: number; nickname: string | null }>(
+        deps.db,
+        sql`select id, uin, nickname from qq_accounts where account_id = ${accountId} order by id`,
+      );
+      return {
+        pts: BigInt(pts),
+        serverTime: nowSec(),
+        qqAccounts: accounts.map((a) => ({ id: BigInt(a.id), uin: BigInt(a.uin), nickname: a.nickname ?? '' })),
+      };
     },
     async getDifference(req, ctx) {
       const limit = clampLimit(req.limit, 500, 2000);

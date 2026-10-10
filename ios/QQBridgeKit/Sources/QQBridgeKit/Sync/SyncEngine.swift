@@ -41,6 +41,7 @@ public actor SyncEngine {
   private var runTask: Task<Void, Never>?
   private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
   public private(set) var connection: ConnectionState = .connecting
+  private var fetchingMessages: [String: Task<Qqbridge_V1_Message?, Never>] = [:]
 
   public init(api: any SyncAPI, store: LocalStore, options: Options = Options()) {
     self.api = api
@@ -86,6 +87,8 @@ public actor SyncEngine {
     while !Task.isCancelled {
       do {
         emit(.connection(.connecting))
+        let state = try await api.getState()
+        try store.setQqAccounts(state.qqAccounts)
         try await catchUp()
         await prefetch()
         emit(.connection(.online))
@@ -243,6 +246,23 @@ public actor SyncEngine {
       contiguous: range
     )
     return res.messages.count
+  }
+
+  /// 取单条消息（例如回复引用的那条本地还没有）：放进本地库，但不并入已加载区间。同一条同时只取一次。
+  @discardableResult
+  public func fetchMessage(chatId: Int64, seq: Int64) async -> Qqbridge_V1_Message? {
+    let key = "\(chatId):\(seq)"
+    if let running = fetchingMessages[key] { return await running.value }
+    let task = Task<Qqbridge_V1_Message?, Never> {
+      guard let res = try? await api.getHistory(chatId: chatId, beforeSeq: seq + 1, limit: 1),
+        let m = res.messages.first(where: { $0.seq == seq })
+      else { return nil }
+      try? store.applyChat(chatId: chatId, messages: [m], events: [], newChatPts: nil)
+      return m
+    }
+    fetchingMessages[key] = task
+    defer { fetchingMessages[key] = nil }
+    return await task.value
   }
 
   /// 预取最近会话的首屏（以及已加载会话的变化），切换会话时直接读本地。

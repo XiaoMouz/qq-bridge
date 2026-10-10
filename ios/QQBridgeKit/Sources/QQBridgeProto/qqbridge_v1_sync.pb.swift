@@ -39,6 +39,25 @@ public nonisolated struct Qqbridge_V1_GetStateResponse: Sendable {
 
   public var serverTime: Int64 = 0
 
+  /// 本账号下的 QQ 号（客户端据此判断哪些消息是自己发的）。
+  public var qqAccounts: [Qqbridge_V1_QqAccountInfo] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_QqAccountInfo: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: Int64 = 0
+
+  public var uin: Int64 = 0
+
+  public var nickname: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -575,7 +594,7 @@ nonisolated extension Qqbridge_V1_GetStateRequest: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Qqbridge_V1_GetStateResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetStateResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pts\0\u{3}server_time\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pts\0\u{3}server_time\0\u{3}qq_accounts\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -585,6 +604,7 @@ nonisolated extension Qqbridge_V1_GetStateResponse: SwiftProtobuf.Message, Swift
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.pts) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.serverTime) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.qqAccounts) }()
       default: break
       }
     }
@@ -597,12 +617,56 @@ nonisolated extension Qqbridge_V1_GetStateResponse: SwiftProtobuf.Message, Swift
     if self.serverTime != 0 {
       try visitor.visitSingularInt64Field(value: self.serverTime, fieldNumber: 2)
     }
+    if !self.qqAccounts.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.qqAccounts, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_GetStateResponse, rhs: Qqbridge_V1_GetStateResponse) -> Bool {
     if lhs.pts != rhs.pts {return false}
     if lhs.serverTime != rhs.serverTime {return false}
+    if lhs.qqAccounts != rhs.qqAccounts {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_QqAccountInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".QqAccountInfo"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}uin\0\u{1}nickname\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.uin) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.nickname) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt64Field(value: self.id, fieldNumber: 1)
+    }
+    if self.uin != 0 {
+      try visitor.visitSingularInt64Field(value: self.uin, fieldNumber: 2)
+    }
+    if !self.nickname.isEmpty {
+      try visitor.visitSingularStringField(value: self.nickname, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_QqAccountInfo, rhs: Qqbridge_V1_QqAccountInfo) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.uin != rhs.uin {return false}
+    if lhs.nickname != rhs.nickname {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

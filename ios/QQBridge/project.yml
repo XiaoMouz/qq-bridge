@@ -1,0 +1,45 @@
+# Xcode 工程由 XcodeGen 生成：cd ios/QQBridge && xcodegen（.xcodeproj 不进 git）。
+name: QQBridge
+options:
+  bundleIdPrefix: com.xiaomouz
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  QQBridgeKit:
+    path: ../QQBridgeKit
+targets:
+  QQBridge:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - package: QQBridgeKit
+        product: QQBridgeKit
+      - package: QQBridgeKit
+        product: QQBridgeProto
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: QQ Bridge
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        # 服务端经 Tailscale 的 HTTPS 访问；开发时模拟器直连本机 http://127.0.0.1:8080。
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.qqbridge
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_PREVIEWS: YES

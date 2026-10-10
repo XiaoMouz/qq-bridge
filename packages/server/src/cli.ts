@@ -1,6 +1,7 @@
 // 服务端命令行：
 //   pnpm cli migrate                       执行数据库迁移
 //   pnpm cli create-owner <用户名>          创建所有者账号（密码从环境变量 OWNER_PASSWORD 读取，避免留在 shell 历史里）
+//   pnpm cli set-password <用户名>          重设密码（同样从 OWNER_PASSWORD 读取）
 //   pnpm cli serve                         启动 API 服务
 //   pnpm cli media:reprocess               补处理已存档的媒体（纠正类型、补缩略图 / 语音可播放版本 / 视频封面）
 //   pnpm cli inbox:reprocess <ignored|failed>  重新处理收件箱里被忽略 / 失败的上游事件（映射新增支持后用）
@@ -31,6 +32,17 @@ async function main(argv: string[]): Promise<void> {
       const id = await new AuthService(db).createAccount(username, password);
       await db.$client.end();
       console.log(`owner account created: id=${id}`);
+      return;
+    }
+    case 'set-password': {
+      const username = args[0];
+      const password = process.env.OWNER_PASSWORD;
+      if (!username || !password) throw new Error('usage: OWNER_PASSWORD=... pnpm cli set-password <username>');
+      const db = createDb(requireEnv('DATABASE_URL'));
+      const ok = await new AuthService(db).setPassword(username, password);
+      await db.$client.end();
+      if (!ok) throw new Error(`account ${username} does not exist`);
+      console.log(`password of ${username} updated`);
       return;
     }
     case 'serve': {
