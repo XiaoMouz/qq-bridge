@@ -111,8 +111,10 @@ function fetcher(source: MediaSource = new StoredUrlSource(), opts: FetcherOptio
   return new MediaFetcher(t.db, media, ingest, source, { backoffBaseMs: 60_000, pollMs: 20, ...opts }, new MediaProcessor(t.db, media));
 }
 
+// 私聊：媒体自动下载（群聊从不自动下载，见 on-demand.test.ts）。
+
 async function ingestImage(peerId: number, seq: number, media: Parameters<typeof imageMessage>[4]) {
-  return ingest.ingestMessage(acc.qqAccountId, imageMessage('group', peerId, seq, 9, media));
+  return ingest.ingestMessage(acc.qqAccountId, imageMessage('friend', peerId, seq, peerId, media));
 }
 
 async function refOf(chatId: number, seq = 1) {

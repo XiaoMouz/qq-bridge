@@ -66,7 +66,7 @@ describe('media dedupe, usages and storage accounting', () => {
     const content = randomBytes(5000);
 
     // 第一处出现：还没有这份内容 → 引用待下载；下载完成后消息里的媒体状态变为 stored。
-    const first = await ingest.ingestMessage(acc.qqAccountId, imageMessage('group', 1, 1, 7, { qqMd5: md5(content).toUpperCase(), size: 5000 }));
+    const first = await ingest.ingestMessage(acc.qqAccountId, imageMessage('friend', 1, 1, 1, { qqMd5: md5(content).toUpperCase(), size: 5000 }));
     const pending = await maybeOne<{ id: number; fetch_state: string }>(t.db, sql`select id, fetch_state from media_refs where chat_id = ${first.chatId}`);
     expect(pending?.fetch_state).toBe('pending');
     const blob = await media.storeBlob(Readable.from([content]), { kind: 'image', mime: 'image/png' });

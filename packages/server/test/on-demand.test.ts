@@ -70,7 +70,7 @@ async function store(content: Buffer) {
 }
 
 describe('image downloads', () => {
-  it('in normal chats: fetches only the QQ thumbnail right away; the original waits until it is opened', async () => {
+  it('in private chats: fetches only the QQ thumbnail right away; the original waits until it is opened', async () => {
     const s = seq++;
     await deps.ingest.ingestMessage(qqAccountId, photo('friend', 810001, s));
     const chatId = await chatIdOf('friend', 810001);
@@ -95,7 +95,7 @@ describe('image downloads', () => {
     expect(await blobState(orig.sha256)).toBe('present'); // 常用会话：看过的原图留着
   });
 
-  it('in muted / Group Helper groups: nothing is fetched until the image is shown', async () => {
+  it('in groups (muted or not): nothing is fetched until the image is shown', async () => {
     await setPolicy('group', 710001, 'muted');
     const chatId = await chatIdOf('group', 710001);
     const s = seq++;
@@ -122,7 +122,18 @@ describe('image downloads', () => {
     expect((await refs(chatId, s)).thumb).toMatchObject({ id: queued[0], fetch_state: 'pending' });
   });
 
-  it('when a muted group is unmuted, queues its thumbnails but leaves originals on demand', async () => {
+  it('normal (not muted) groups do not download on their own either', async () => {
+    await setPolicy('group', 710005, 'all');
+    const chatId = await chatIdOf('group', 710005);
+    const s = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, photo('group', 710005, s));
+    expect(await refs(chatId, s)).toMatchObject({
+      original: { fetch_state: 'on_demand', keep_original: null },
+      thumb: { fetch_state: 'on_demand' },
+    });
+  });
+
+  it('unmuting a group only changes whether originals are kept: groups never download on their own', async () => {
     await setPolicy('group', 710003, 'archived');
     const chatId = await chatIdOf('group', 710003);
     const s = seq++;
@@ -130,7 +141,7 @@ describe('image downloads', () => {
     await deps.dialogPrefs.setNotifyPolicy(accountId, chatId, 'all');
     expect(await refs(chatId, s)).toMatchObject({
       original: { fetch_state: 'on_demand', keep_original: null },
-      thumb: { fetch_state: 'pending' },
+      thumb: { fetch_state: 'on_demand' },
     });
   });
 

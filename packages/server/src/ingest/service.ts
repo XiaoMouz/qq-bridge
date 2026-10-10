@@ -43,14 +43,14 @@ interface LockedChat {
 }
 
 /**
- * 下载规则：
- * - 图片：原图一律按需（客户端点开看时才从 QQ 拿）；另建一条"QQ 缩略图"引用（role = qq_thumb，QQ 的 spec=720，
- *   长边约 1280px），常用会话（私聊、正常提醒的群）消息到了就下载，不常用会话（免打扰、群助手）显示到时才要。
- *   服务端不自己生成缩略图。
- * - 视频、文件：常用会话照常自动下载，不常用会话按需。
- * - 不常用会话里的内容不需要留原件（看过的原图之后由保留清理删掉）；同一内容若也出现在别的会话里，
- *   原件按"保留最久者优先"仍会留着。
+ * 下载规则（按会话类型，不看提醒设置）：
+ * - 私聊：QQ 缩略图（spec=720）、视频、文件、表情消息到了就下载；图片原图看大图时才从 QQ 拿。
+ * - 群聊：从不自动下载，客户端显示到 / 点开时才要（图片要 QQ 缩略图，视频文件要整个文件，表情要原图）。
+ * - 服务端不自己生成缩略图。
+ * 原件保留另看提醒设置：免打扰、群助手里的群不需要留原件（之后由保留清理删掉，缩略图留着）；
+ * 同一内容若也出现在别的会话里，原件按"保留最久者优先"仍会留着。
  */
+export const ON_DEMAND_SCENES: readonly string[] = ['group'];
 export const ON_DEMAND_POLICIES: readonly string[] = ['muted', 'archived'];
 export const ON_DEMAND_KINDS: readonly string[] = ['image', 'video', 'file'];
 export const QQ_THUMB_ROLE = 'qq_thumb';
@@ -129,11 +129,12 @@ export class IngestService {
         reused.set(media.ord, hit);
         segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
       }
-      const onDemandChat = ON_DEMAND_POLICIES.includes(chat.notify_policy);
+      const groupChat = ON_DEMAND_SCENES.includes(msg.scene);
+      const noOriginal = ON_DEMAND_POLICIES.includes(chat.notify_policy);
       const onDemand = new Set(
         msg.media
-          // 没有定位信息的图片（以后换不了新链接）还是立刻下原图；动画表情要原图才能动，常用会话照常下原图。
-          .filter((m) => !reused.has(m.ord) && ((isPhoto(m) && m.locator) || (onDemandChat && ON_DEMAND_KINDS.includes(m.kind))))
+          // 没有定位信息的图片（以后换不了新链接）还是立刻下原图；私聊的动画表情要原图才能动，照常下原图。
+          .filter((m) => !reused.has(m.ord) && ((isPhoto(m) && m.locator) || (groupChat && ON_DEMAND_KINDS.includes(m.kind))))
           .map((m) => m.ord),
       );
       for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
@@ -166,7 +167,7 @@ export class IngestService {
                       ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null},
                       ${hit ? 'stored' : onDemand.has(media.ord) ? 'on_demand' : 'pending'}, ${hit?.thumbhash ?? null},
                       ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time},
-                      ${onDemandChat && ON_DEMAND_KINDS.includes(media.kind) ? false : null})`,
+                      ${noOriginal && ON_DEMAND_KINDS.includes(media.kind) ? false : null})`,
         );
         if (hit) await addUsage(w.tx, chat.id, hit.sha256);
         if (isPhoto(media) && !hit?.thumbSha256 && media.locator) {
@@ -177,7 +178,7 @@ export class IngestService {
                         ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null},
                         ${media.qqFileId ?? null}, ${media.url ?? null},
                         ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                        ${onDemandChat ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
+                        ${groupChat ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
           );
         }
       }
@@ -617,8 +618,8 @@ export class IngestService {
   /**
    * 把已有数据按下载规则整理一遍（`cli media:apply-on-demand`）：
    * 1. 不常用会话（免打扰、群助手）里的图片、视频、文件标为不需要原件；
-   * 2. 还没下载的图片原图改为按需（所有会话）；不常用会话里还没下载的视频、文件改为按需；
-   * 3. 还没下载原图、也没有 QQ 缩略图引用的图片补一条（常用会话立刻排队，不常用会话等显示到时）。
+   * 2. 还没下载的图片原图改为按需（所有会话）；群聊里还没下载的视频、文件、表情、QQ 缩略图改为按需；
+   * 3. 还没下载原图、也没有 QQ 缩略图引用的图片补一条（私聊立刻排队，群聊等显示到时）。
    */
   async applyOnDemandToExisting(): Promise<{ marked: number; deferred: number; thumbs: number }> {
     const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
@@ -633,7 +634,7 @@ export class IngestService {
       sql`select r.chat_id, r.message_seq, r.chat_event_id, r.forward_bundle_id, r.node_path, r.ordinal, q.account_id
             from media_refs r join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
            where r.role <> ${QQ_THUMB_ROLE} and r.message_seq is not null and r.fetch_state in ('pending', 'failed')
-             and ((r.kind = 'image' and r.role <> 'sticker' and r.locator is not null) or (c.notify_policy in ${policies} and r.kind in ${kinds}))
+             and ((r.kind = 'image' and r.role <> 'sticker' and r.locator is not null) or (c.scene = 'group' and r.kind in ${kinds}))
            order by q.account_id, r.chat_id, r.message_seq`,
     );
     const byAccount = new Map<number, typeof targets>();
@@ -652,12 +653,17 @@ export class IngestService {
         });
       }
     }
+    // 群聊里排着队、还没下的 QQ 缩略图也改回按需（缩略图状态不写进消息）。
+    await this.db.execute(
+      sql`update media_refs r set fetch_state = 'on_demand', next_attempt_at = null from chats c
+           where r.chat_id = c.id and c.scene = 'group' and r.role = ${QQ_THUMB_ROLE} and r.fetch_state in ('pending', 'failed')`,
+    );
     const thumbs = await this.db.execute(
       sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
                                   qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
           select r.chat_id, r.message_seq, r.ordinal, ${QQ_THUMB_ROLE}, 'image', r.qq_md5, r.qq_md5_partial, r.qq_file_uuid,
                  r.qq_resource_id, r.qq_file_id, r.url, r.url_expires_at,
-                 case when c.notify_policy in ${policies} then 'on_demand' else 'pending' end, r.locator, r.sender_uin, r.time
+                 case when c.scene = 'group' then 'on_demand' else 'pending' end, r.locator, r.sender_uin, r.time
             from media_refs r join chats c on c.id = r.chat_id
            where r.kind = 'image' and r.role not in (${QQ_THUMB_ROLE}, 'sticker') and r.message_seq is not null and r.locator is not null
              and r.fetch_state = 'on_demand'
@@ -808,9 +814,7 @@ export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: numb
 }
 
 /**
- * 会话的通知策略变了：进出"按需下载"（免打扰、群助手）。
- * 变成按需：之后不需要原件（下一次保留清理时删掉，只留缩略图和预览图）；
- * 不再按需：恢复保留原件，还没下载的按需媒体排进下载队列。
+ * 会话的通知策略变了：进出免打扰 / 群助手只影响要不要留原件（下载规则按会话类型，不变）。
  */
 export async function applyOnDemandPolicy(w: WriteContext, chatId: number, before: string, after: string): Promise<void> {
   const was = ON_DEMAND_POLICIES.includes(before);
@@ -819,15 +823,7 @@ export async function applyOnDemandPolicy(w: WriteContext, chatId: number, befor
   const kinds = sql`(${sql.join(ON_DEMAND_KINDS.map((k) => sql`${k}`), sql`, `)})`;
   if (now) {
     await w.tx.execute(sql`update media_refs set keep_original = false where chat_id = ${chatId} and kind in ${kinds} and keep_original is null`);
-    return;
+  } else {
+    await w.tx.execute(sql`update media_refs set keep_original = null where chat_id = ${chatId} and kind in ${kinds} and keep_original = false`);
   }
-  await w.tx.execute(sql`update media_refs set keep_original = null where chat_id = ${chatId} and kind in ${kinds} and keep_original = false`);
-  // QQ 缩略图、视频、文件排进队列；图片原图在哪种会话里都是按需的，不动。
-  const queued = await rows<MediaRefTarget & { role: string }>(
-    w.tx,
-    sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null
-         where chat_id = ${chatId} and fetch_state = 'on_demand' and not (kind = 'image' and role not in (${QQ_THUMB_ROLE}, 'sticker'))
-     returning chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, role`,
-  );
-  for (const ref of queued) if (ref.role !== QQ_THUMB_ROLE) await updateMessageMedia(w, ref, { state: 'pending' });
 }
