@@ -520,29 +520,35 @@ public nonisolated struct Qqbridge_V1_TombstoneUpdate: Sendable {
   fileprivate var _tombstone: Qqbridge_V1_Tombstone? = nil
 }
 
-public nonisolated struct Qqbridge_V1_ChatMessageUpdate: Sendable {
+public nonisolated struct Qqbridge_V1_ChatMessageUpdate: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  public var chatID: Int64 = 0
+  public var chatID: Int64 {
+    get {_storage._chatID}
+    set {_uniqueStorage()._chatID = newValue}
+  }
 
-  public var chatPts: Int64 = 0
+  public var chatPts: Int64 {
+    get {_storage._chatPts}
+    set {_uniqueStorage()._chatPts = newValue}
+  }
 
   public var message: Qqbridge_V1_Message {
-    get {_message ?? Qqbridge_V1_Message()}
-    set {_message = newValue}
+    get {_storage._message ?? Qqbridge_V1_Message()}
+    set {_uniqueStorage()._message = newValue}
   }
   /// Returns true if `message` has been explicitly set.
-  public var hasMessage: Bool {self._message != nil}
+  public var hasMessage: Bool {_storage._message != nil}
   /// Clears the value of `message`. Subsequent reads from it will return its default value.
-  public mutating func clearMessage() {self._message = nil}
+  public mutating func clearMessage() {_uniqueStorage()._message = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _message: Qqbridge_V1_Message? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Qqbridge_V1_Heartbeat: Sendable {
@@ -1574,41 +1580,81 @@ nonisolated extension Qqbridge_V1_ChatMessageUpdate: SwiftProtobuf.Message, Swif
   public static let protoMessageName: String = _protobuf_package + ".ChatMessageUpdate"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{3}chat_pts\0\u{1}message\0")
 
+  fileprivate class _StorageClass {
+    var _chatID: Int64 = 0
+    var _chatPts: Int64 = 0
+    var _message: Qqbridge_V1_Message? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _chatID = source._chatID
+      _chatPts = source._chatPts
+      _message = source._message
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
-      case 2: try { try decoder.decodeSingularInt64Field(value: &self.chatPts) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._message) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularInt64Field(value: &_storage._chatID) }()
+        case 2: try { try decoder.decodeSingularInt64Field(value: &_storage._chatPts) }()
+        case 3: try { try decoder.decodeSingularMessageField(value: &_storage._message) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if self.chatID != 0 {
-      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if _storage._chatID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._chatID, fieldNumber: 1)
+      }
+      if _storage._chatPts != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._chatPts, fieldNumber: 2)
+      }
+      try { if let v = _storage._message {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+      } }()
     }
-    if self.chatPts != 0 {
-      try visitor.visitSingularInt64Field(value: self.chatPts, fieldNumber: 2)
-    }
-    try { if let v = self._message {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_ChatMessageUpdate, rhs: Qqbridge_V1_ChatMessageUpdate) -> Bool {
-    if lhs.chatID != rhs.chatID {return false}
-    if lhs.chatPts != rhs.chatPts {return false}
-    if lhs._message != rhs._message {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._chatID != rhs_storage._chatID {return false}
+        if _storage._chatPts != rhs_storage._chatPts {return false}
+        if _storage._message != rhs_storage._message {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

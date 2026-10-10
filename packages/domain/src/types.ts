@@ -81,6 +81,8 @@ export interface IncomingMessage {
   peerId: number;
   seq: number;
   senderId: number;
+  /** 发送者当时的显示名（群名片，没有就昵称），会话列表的预览里用。 */
+  senderName?: string;
   /** unix 秒。 */
   time: number;
   qqMsgId?: string;

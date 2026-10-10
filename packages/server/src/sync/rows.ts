@@ -24,6 +24,7 @@ export interface MessageRow {
   /** 最后一次变更时的 chat_pts。 */
   version: number;
   source: string;
+  senderName: string | null;
 }
 
 const MESSAGE_COLUMN_NAMES = [
@@ -43,6 +44,7 @@ const MESSAGE_COLUMN_NAMES = [
   'reactions',
   'version',
   'source',
+  'sender_name',
 ] as const;
 
 export const MESSAGE_COLUMNS = sql.raw(MESSAGE_COLUMN_NAMES.join(', '));
@@ -70,6 +72,7 @@ export function toMessage(r: DbRow): MessageRow {
     reactions: r.reactions ?? null,
     version: r.version,
     source: r.source,
+    senderName: r.sender_name ?? null,
   };
 }
 

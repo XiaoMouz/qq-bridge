@@ -176,6 +176,7 @@ export function messageToProto(m: MessageRow): Message {
     chatId: big(m.chatId),
     seq: big(m.seq),
     senderId: big(m.senderUin),
+    senderName: m.senderName ?? '',
     time: unix(m.time),
     kind: m.kind === 'service' ? MessageKind.SERVICE : m.kind === 'call' ? MessageKind.CALL : MessageKind.NORMAL,
     segments: m.segments.map(segmentToProto),

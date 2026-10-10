@@ -173,6 +173,7 @@ struct SettingsView: View {
   @State private var usage: MediaCacheUsage?
   @AppStorage("cacheCapGB") private var cacheCapGB = 2
   @AppStorage("cacheDays") private var cacheDays = 7
+  @AppStorage(DialogRow.linesKey) private var previewLines = 2
   @State private var confirmLogout = false
 
   var body: some View {
@@ -181,6 +182,14 @@ struct SettingsView: View {
         Section("服务器") {
           LabeledContent("地址", value: session.api.config.baseURL.absoluteString)
           LabeledContent("状态", value: statusText)
+        }
+        Section {
+          Picker("消息列表预览", selection: $previewLines) {
+            Text("两行").tag(2)
+            Text("三行").tag(3)
+          }
+        } footer: {
+          Text("两行：会话名，下一行「发送者：内容」。三行：会话名、发送者、内容各一行。")
         }
         Section {
           LabeledContent("已用", value: usage.map { ByteCountFormatter.string(fromByteCount: $0.totalBytes, countStyle: .file) } ?? "…")

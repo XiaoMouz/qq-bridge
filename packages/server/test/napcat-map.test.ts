@@ -186,6 +186,13 @@ describe('NapCat mapping', () => {
     expect(action.message.segments).toEqual([{ type: 'text', text: '军团还是联盟' }]);
   });
 
+  it('keeps the sender display name (group card first) for list previews', () => {
+    const r = { ...raw({ chatType: 2, peer: '123456', seq: 90, sender: '20002', elements: [el.text('hi')] }), sendMemberName: '群名片', sendNickName: '昵称' };
+    const action = mapRawMessage(r, { selfUin: SELF, source: 'realtime' });
+    if (action.type !== 'message') throw new Error(action.type);
+    expect(action.message.senderName).toBe('群名片');
+  });
+
   it('maps history messages without OneBot segments: no URL, but a locator to fetch one later', () => {
     const r = raw({ chatType: 2, peer: '123456', seq: 100, sender: '20002', elements: [el.pic({ md5: MD5_B, size: 10, w: 1, h: 1, sticker: true })] });
     const action = mapRawMessage(r, { selfUin: SELF, source: 'backfill' });

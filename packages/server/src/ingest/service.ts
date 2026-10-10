@@ -153,8 +153,8 @@ export class IngestService {
       const message = toMessage(
         await one(
           w.tx,
-          sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
-              values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${time}, 'normal',
+          sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, sender_name, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
+              values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, 'normal',
                       ${pgJson(segments)}::jsonb, ${plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts},
                       ${msg.source}, ${msg.raw === undefined ? null : pgJson(msg.raw)}::jsonb)
               returning ${MESSAGE_COLUMNS}`,

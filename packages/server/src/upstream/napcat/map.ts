@@ -391,6 +391,7 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
     peerId,
     seq,
     senderId,
+    ...((raw.sendMemberName || raw.sendNickName) ? { senderName: raw.sendMemberName || raw.sendNickName } : {}),
     time,
     ...(raw.msgId ? { qqMsgId: raw.msgId } : {}),
     ...(int(raw.msgRandom) ? { random: int(raw.msgRandom) } : {}),

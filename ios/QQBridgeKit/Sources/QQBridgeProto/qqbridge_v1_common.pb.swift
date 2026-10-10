@@ -867,6 +867,9 @@ public nonisolated struct Qqbridge_V1_Message: Sendable {
   /// 表情回应（QQ 的"贴表情"）。
   public var reactions: [Qqbridge_V1_Reaction] = []
 
+  /// 发送者当时的显示名（群名片，没有就昵称）；会话列表预览用，可能为空。
+  public var senderName: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2326,7 +2329,7 @@ nonisolated extension Qqbridge_V1_UnknownSegment: SwiftProtobuf.Message, SwiftPr
 
 nonisolated extension Qqbridge_V1_Message: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Message"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{3}sender_id\0\u{1}time\0\u{1}kind\0\u{1}segments\0\u{1}text\0\u{3}reply_to_seq\0\u{1}flags\0\u{1}state\0\u{3}recalled_by\0\u{3}recalled_at\0\u{1}version\0\u{1}reactions\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{3}sender_id\0\u{1}time\0\u{1}kind\0\u{1}segments\0\u{1}text\0\u{3}reply_to_seq\0\u{1}flags\0\u{1}state\0\u{3}recalled_by\0\u{3}recalled_at\0\u{1}version\0\u{1}reactions\0\u{3}sender_name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2348,6 +2351,7 @@ nonisolated extension Qqbridge_V1_Message: SwiftProtobuf.Message, SwiftProtobuf.
       case 12: try { try decoder.decodeSingularInt64Field(value: &self.recalledAt) }()
       case 13: try { try decoder.decodeSingularInt64Field(value: &self.version) }()
       case 14: try { try decoder.decodeRepeatedMessageField(value: &self.reactions) }()
+      case 15: try { try decoder.decodeSingularStringField(value: &self.senderName) }()
       default: break
       }
     }
@@ -2396,6 +2400,9 @@ nonisolated extension Qqbridge_V1_Message: SwiftProtobuf.Message, SwiftProtobuf.
     if !self.reactions.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.reactions, fieldNumber: 14)
     }
+    if !self.senderName.isEmpty {
+      try visitor.visitSingularStringField(value: self.senderName, fieldNumber: 15)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2414,6 +2421,7 @@ nonisolated extension Qqbridge_V1_Message: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs.recalledAt != rhs.recalledAt {return false}
     if lhs.version != rhs.version {return false}
     if lhs.reactions != rhs.reactions {return false}
+    if lhs.senderName != rhs.senderName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

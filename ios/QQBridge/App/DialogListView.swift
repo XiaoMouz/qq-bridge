@@ -196,13 +196,17 @@ struct ArchivedListView: View {
 }
 
 struct DialogRow: View {
+  static let linesKey = "dialogPreviewLines"
   let item: DialogItem
   let typing: Bool
+  @Environment(\.session) private var session
+  /// 2：会话名 +「发送者：内容」；3：会话名、发送者、内容各一行。
+  @AppStorage(DialogRow.linesKey) private var lines = 2
 
   var body: some View {
     HStack(spacing: 12) {
-      AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID)
-      VStack(alignment: .leading, spacing: 4) {
+      AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, size: lines == 3 ? 56 : 48)
+      VStack(alignment: .leading, spacing: lines == 3 ? 2 : 4) {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
           Text(item.title).font(.body.weight(.semibold)).lineLimit(1)
           if item.isMuted {
@@ -211,13 +215,40 @@ struct DialogRow: View {
           Spacer(minLength: 8)
           Text(Format.listTime(item.dialog.topTime)).font(.caption).foregroundStyle(.secondary)
         }
-        HStack(alignment: .firstTextBaseline) {
-          preview.font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        HStack(alignment: lines == 3 ? .bottom : .firstTextBaseline) {
+          VStack(alignment: .leading, spacing: 1) {
+            if lines == 3, let sender, !typing {
+              Text(sender).font(.subheadline).foregroundStyle(.primary).lineLimit(1)
+            }
+            preview.font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+          }
           Spacer(minLength: 8)
           Badges(dialog: item.dialog, muted: item.isMuted)
         }
       }
     }
+  }
+
+  /// 顶部消息的发送者：群里显示名字（群名片 > 昵称），自己发的显示"我"；私聊只在自己发的时候显示"我"。
+  private var sender: String? {
+    let m = item.dialog.topMessage
+    guard m.seq > 0, m.state != .recalled, m.kind == .normal, item.dialog.draft.segments.isEmpty else { return nil }
+    let selfUin = (try? session?.store.selfUin(qqAccountId: item.dialog.qqAccountID)) ?? 0
+    if m.senderID == selfUin { return "我" }
+    guard item.isGroup else { return nil }
+    if !m.senderName.isEmpty { return m.senderName }
+    return (try? session?.store.userName(qqAccountId: item.dialog.qqAccountID, userId: m.senderID)) ?? String(m.senderID)
+  }
+
+  /// 两行模式里内容前面带上"发送者："。
+  private var body2: Text {
+    let content = Text(Format.preview(item.dialog.topMessage))
+    // 名字太长（有的群名片几十个字）时截短，免得把内容挤没了。
+    if lines == 2, let sender {
+      let short = sender.count > 10 ? String(sender.prefix(10)) + "…" : sender
+      return Text("\(short)：").foregroundStyle(.primary.opacity(0.75)) + content
+    }
+    return content
   }
 
   @ViewBuilder private var preview: some View {
@@ -227,13 +258,13 @@ struct DialogRow: View {
     } else if !d.draft.segments.isEmpty {
       Text("[草稿] ").foregroundStyle(.red) + Text(d.draft.segments.map(\.text).joined())
     } else if d.unreadMentions > 0 {
-      Text("[有人@我] ").foregroundStyle(.red) + Text(Format.preview(d.topMessage))
+      Text("[有人@我] ").foregroundStyle(.red) + body2
     } else if d.unreadReplies > 0 {
-      Text("[有人回复我] ").foregroundStyle(.green) + Text(Format.preview(d.topMessage))
+      Text("[有人回复我] ").foregroundStyle(.green) + body2
     } else if d.unreadMentionAll > 0, d.mentionAllNotify {
-      Text("[@全体成员] ").foregroundStyle(.orange) + Text(Format.preview(d.topMessage))
+      Text("[@全体成员] ").foregroundStyle(.orange) + body2
     } else {
-      Text(Format.preview(d.topMessage))
+      body2
     }
   }
 }

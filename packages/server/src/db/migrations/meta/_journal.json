@@ -127,6 +127,13 @@
       "when": 1791616148884,
       "tag": "0017_group_file_blobs",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791616149884,
+      "tag": "0018_sender_name",
+      "breakpoints": true
     }
   ]
 }

@@ -205,6 +205,8 @@ message Message {
   int64 version = 13;
   // 表情回应（QQ 的"贴表情"）。
   repeated Reaction reactions = 14;
+  // 发送者当时的显示名（群名片，没有就昵称）；会话列表预览用，可能为空。
+  string sender_name = 15;
 }
 
 message Reaction {
