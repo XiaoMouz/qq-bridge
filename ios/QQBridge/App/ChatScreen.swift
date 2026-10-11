@@ -198,7 +198,7 @@ struct ChatScreen: View {
       Task { await setActive(false) }
     }
     .confirmationDialog(
-      "撤回这条消息？群里所有人都会看到它被撤回。",
+      "以群管理身份撤回这条消息？群里所有人都会看到它被撤回。",
       isPresented: Binding(get: { confirmRecall != nil }, set: { if !$0 { confirmRecall = nil } }),
       titleVisibility: .visible,
       presenting: confirmRecall
@@ -366,8 +366,8 @@ struct ChatScreen: View {
       }
     }
     actions.recall = { m in
-      // 自己的直接撤回；撤回别人的（群主 / 管理员）先确认。
-      if m.senderID == selfUin { recall(m) } else { confirmRecall = m }
+      // 普通撤回直接撤；用群主 / 管理员权限撤回的（别人的，或自己超过 2 分钟的）先确认。
+      if Date().timeIntervalSince1970 - Double(m.time) < 120, m.senderID == selfUin { recall(m) } else { confirmRecall = m }
     }
     actions.openMedia = { mediaTarget = $0 }
     actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }

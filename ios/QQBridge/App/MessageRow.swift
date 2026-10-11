@@ -29,18 +29,26 @@ struct MessageContext {
   /// - 自己的消息：2 分钟内；群主撤回自己的不限时间。
   /// - 群主：管理员和成员的消息，不限时间。
   /// - 管理员：普通成员的消息，不限时间。
+  /// 普通撤回（自己 2 分钟内的消息）和群管理撤回（用群主 / 管理员权限）分开显示。
+  enum RecallKind {
+    case normal
+    case owner
+    case admin
+  }
+
   @MainActor
-  func canRecall(_ m: Qqbridge_V1_Message) -> Bool {
-    guard m.state != .recalled else { return false }
+  func recallKind(_ m: Qqbridge_V1_Message) -> RecallKind? {
+    guard m.state != .recalled else { return nil }
     let mine = isGroup ? role(of: selfUin) : "member"
     if m.senderID == selfUin {
-      return mine == "owner" || Date().timeIntervalSince1970 - Double(m.time) < 120
+      if Date().timeIntervalSince1970 - Double(m.time) < 120 { return .normal }
+      return mine == "owner" ? .owner : nil
     }
-    guard isGroup else { return false }
+    guard isGroup else { return nil }
     switch mine {
-    case "owner": return role(of: m.senderID) != "owner"
-    case "admin": return role(of: m.senderID) == "member"
-    default: return false
+    case "owner": return role(of: m.senderID) != "owner" ? .owner : nil
+    case "admin": return role(of: m.senderID) == "member" ? .admin : nil
+    default: return nil
     }
   }
 
@@ -186,8 +194,15 @@ struct MessageBubbleRow: View {
         }
       }
     }
-    if context.canRecall(message) {
+    switch context.recallKind(message) {
+    case .normal:
       Button("撤回", systemImage: "arrow.uturn.backward", role: .destructive) { context.actions.recall(message) }
+    case .owner:
+      Button("以群主身份撤回", systemImage: "crown", role: .destructive) { context.actions.recall(message) }
+    case .admin:
+      Button("以管理员身份撤回", systemImage: "shield.lefthalf.filled", role: .destructive) { context.actions.recall(message) }
+    case nil:
+      EmptyView()
     }
   }
 }
