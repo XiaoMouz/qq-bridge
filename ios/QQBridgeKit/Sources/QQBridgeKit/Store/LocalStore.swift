@@ -200,6 +200,15 @@ extension LocalStore {
     }
   }
 
+  /// 最新那段连续加载区间里的消息条数（聊天页能显示的上限）和区间下界。
+  public func loadedWindow(chatId: Int64) throws -> (count: Int, floor: Int64) {
+    try db.read { db in
+      let floor = try Self.chatState(chatId, db).newestLoadedLowerBound ?? 0
+      let count = try Int.fetchOne(db, sql: "select count(*) from message where chatId = ? and seq >= ?", arguments: [chatId, floor]) ?? 0
+      return (count, floor)
+    }
+  }
+
   /// 本地有的、seq 不小于 fromSeq 的消息条数（跳到某条消息时，用来算聊天页至少要显示多少条）。
   public func messageCount(chatId: Int64, fromSeq: Int64) throws -> Int {
     try db.read { db in

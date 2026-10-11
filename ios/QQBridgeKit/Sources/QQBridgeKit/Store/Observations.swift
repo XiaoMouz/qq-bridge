@@ -84,10 +84,13 @@ extension LocalStore {
   /// 一个会话最近 limit 条消息（以及这段时间里的服务事件、还没发出去的消息），按时间升序。
   public func observeChat(chatId: Int64, limit: Int) -> AsyncValueObservation<[ChatItem]> {
     ValueObservation.tracking { db in
+      // 只显示最新那段连续加载的消息（以及之后实时收到的）：单独拉回来的旧消息（例如回复引用的原消息）
+      // 和最新这段不连续，混进来会让日期乱跳、中间缺一大段。
+      let floor = try LocalStore.chatState(chatId, db).newestLoadedLowerBound ?? 0
       let messages = try Data.fetchAll(
         db,
-        sql: "select data from message where chatId = ? order by seq desc limit ?",
-        arguments: [chatId, limit]
+        sql: "select data from message where chatId = ? and seq >= ? order by seq desc limit ?",
+        arguments: [chatId, floor, limit]
       ).reversed().map { try Qqbridge_V1_Message(serializedBytes: $0) }
       let from = messages.first?.time ?? 0
       let events = try Data.fetchAll(

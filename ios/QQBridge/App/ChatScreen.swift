@@ -17,6 +17,8 @@ struct ChatScreen: View {
   @State private var peer: Qqbridge_V1_Peer?
   @State private var selfUin: Int64 = 0
   @State private var loadingOlder = false
+  /// 正在向服务端要更早的消息（顶部显示加载中）。
+  @State private var fetchingOlder = false
   @State private var reachedStart = false
   @State private var composer = Composer()
   @State private var members = GroupMembers()
@@ -109,9 +111,20 @@ struct ChatScreen: View {
       onScrollDate: { time in showScrollDay(time) },
       scrollRequest: scrollRequest
     )
-    // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章。
+    // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
-      if let scrollDay, notice == nil {
+      if fetchingOlder, notice == nil {
+        HStack(spacing: 6) {
+          ProgressView().controlSize(.small)
+          Text("正在加载更早的消息").font(.footnote)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .glassEffect(.regular, in: Capsule())
+        .padding(.top, 6)
+        .transition(.opacity)
+        .allowsHitTesting(false)
+      } else if let scrollDay, notice == nil {
         Text(scrollDay)
           .font(.footnote.weight(.medium))
           .padding(.horizontal, 12)
@@ -571,9 +584,10 @@ struct ChatScreen: View {
   private func jump(to seq: Int64) async {
     var guardPages = 0
     while let first = items.firstMessageSeq, first > seq, !reachedStart, guardPages < 20 {
+      let window = try? session.store.loadedWindow(chatId: chatId)
       let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
-      if need >= limit {
-        // 本地已经有了，只是列表没显示那么多。
+      if let window, seq >= window.floor, need >= limit {
+        // 已经在连续区间里了，只是列表没显示那么多。
         limit = need + 20
       } else {
         let got = (try? await session.sync.loadOlder(chatId, limit: 100)) ?? 0
@@ -809,11 +823,14 @@ struct ChatScreen: View {
     loadingOlder = true
     Task {
       defer { loadingOlder = false }
-      let localCount = (try? session.store.messages(chatId: chatId, limit: limit + 1).count) ?? 0
+      // 连续区间里本地还有没显示的：先放大显示范围；都显示了才向服务端要更早的。
+      let localCount = (try? session.store.loadedWindow(chatId: chatId).count) ?? 0
       if localCount > limit {
         limit += 60
         return
       }
+      fetchingOlder = true
+      defer { fetchingOlder = false }
       let got = (try? await session.sync.loadOlder(chatId, limit: 60)) ?? 0
       if got == 0 { reachedStart = true } else { limit += got }
     }
