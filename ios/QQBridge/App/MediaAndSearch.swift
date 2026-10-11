@@ -15,6 +15,8 @@ struct MediaViewer: View {
   /// 放不了时的说明（过期、下载失败）。
   @State private var videoMessage: String?
   @State private var fetching = false
+  @State private var visible = false
+  @State private var dragProgress: CGFloat = 0
 
   var body: some View {
     if target.kind == .image {
@@ -25,25 +27,59 @@ struct MediaViewer: View {
   }
 
   private var videoBody: some View {
-    MediaPopover(aspect: videoAspect) {
-      EmptyView()
-    } content: {
-      ZStack {
-        Color.black
-        if let player {
-          InlineVideoPlayer(player: player)
-        } else if let videoMessage {
-          Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
-        } else {
-          VStack(spacing: 10) {
-            ProgressView().tint(.white)
-            if fetching { Text("正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8)) }
+    ZStack {
+      // 和看大图一样：压暗的毛玻璃背景，下拉时变淡。
+      Rectangle()
+        .fill(.ultraThinMaterial)
+        .environment(\.colorScheme, .dark)
+        .overlay(Color.black.opacity(0.6))
+        .opacity(visible ? Double(1 - dragProgress * 0.9) : 0)
+        .ignoresSafeArea()
+      VStack(spacing: 8) {
+        // 关闭按钮单独一行，不压在播放器自带的按钮（全屏、静音）上。
+        HStack {
+          Spacer()
+          Button(action: close) {
+            Image(systemName: "xmark")
+              .font(.system(size: 16, weight: .bold))
+              .foregroundStyle(.white)
+              .frame(width: 40, height: 40)
+              .background(Circle().fill(.black.opacity(0.55)))
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("关闭")
+        }
+        .padding(.horizontal, 16)
+        .opacity(dragProgress == 0 ? 1 : 0)
+        ZStack {
+          if let player {
+            // 系统播放器：自带全屏、画中画、隔空播放、静音、进度。
+            InlineVideoPlayer(player: player, onDrag: { dragProgress = $0 }, onDismiss: close)
+          } else if let videoMessage {
+            Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
+          } else {
+            VStack(spacing: 10) {
+              ProgressView().tint(.white)
+              if fetching { Text("正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8)) }
+            }
           }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
+      .scaleEffect(visible ? 1 : 0.92)
+      .opacity(visible ? 1 : 0)
     }
+    .onAppear { withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true } }
     .task { await loadVideo() }
     .onDisappear { VideoPlayback.shared.previewClosed(player) }
+  }
+
+  private func close() {
+    withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
+      var t = Transaction()
+      t.disablesAnimations = true
+      withTransaction(t) { dismiss() }
+    }
   }
 
   /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。

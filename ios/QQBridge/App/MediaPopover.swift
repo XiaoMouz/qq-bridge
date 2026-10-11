@@ -127,12 +127,58 @@ struct MediaPopover<Content: View, Accessory: View>: View {
 /// 系统播放器（自带全屏、画中画、音量），放在卡片里。
 struct InlineVideoPlayer: UIViewControllerRepresentable {
   let player: AVPlayer
+  /// 往下拖视频：进度 0…1。
+  var onDrag: (CGFloat) -> Void = { _ in }
+  /// 拖够了松手：关闭。
+  var onDismiss: (() -> Void)? = nil
 
-  func makeUIViewController(context _: Context) -> AVPlayerViewController {
-    VideoPlayback.shared.controller(for: player)
+  func makeCoordinator() -> DragToDismiss { DragToDismiss() }
+
+  func makeUIViewController(context: Context) -> AVPlayerViewController {
+    let vc = VideoPlayback.shared.controller(for: player)
+    if onDismiss != nil {
+      let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(DragToDismiss.pan(_:)))
+      pan.delegate = context.coordinator
+      vc.view.addGestureRecognizer(pan)
+    }
+    return vc
   }
 
-  func updateUIViewController(_: AVPlayerViewController, context _: Context) {}
+  func updateUIViewController(_: AVPlayerViewController, context: Context) {
+    context.coordinator.onDrag = onDrag
+    context.coordinator.onDismiss = onDismiss
+  }
+
+  /// 往下拖关闭（和看大图一样）；只认明显往下的拖动，不影响播放器的进度条、音量。
+  @MainActor final class DragToDismiss: NSObject, @MainActor UIGestureRecognizerDelegate {
+    var onDrag: (CGFloat) -> Void = { _ in }
+    var onDismiss: (() -> Void)?
+
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+      guard let pan = g as? UIPanGestureRecognizer, let view = pan.view else { return false }
+      let v = pan.velocity(in: view)
+      return v.y > 0 && abs(v.y) > abs(v.x) * 1.5
+    }
+
+    func gestureRecognizer(_: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer) -> Bool { false }
+
+    @objc func pan(_ g: UIPanGestureRecognizer) {
+      guard let view = g.view else { return }
+      let t = g.translation(in: view)
+      let progress = min(1, max(0, t.y / 300))
+      switch g.state {
+      case .changed:
+        let scale = 1 - progress * 0.25
+        view.transform = CGAffineTransform(translationX: t.x, y: max(0, t.y)).scaledBy(x: scale, y: scale)
+        onDrag(progress)
+      case .ended where t.y > 120 || g.velocity(in: view).y > 900:
+        onDismiss?()
+      default:
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) { view.transform = .identity }
+        onDrag(0)
+      }
+    }
+  }
 }
 
 /// 正在放的视频：放在 App 级别，关掉预览后画中画里的视频还能接着放；退到后台自动转成画中画（有后台音频权限）。
