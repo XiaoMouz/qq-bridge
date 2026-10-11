@@ -25,6 +25,8 @@ struct ChatScreen: View {
   @State private var selection = MessageSelection()
   /// 要转发的消息和方式（选好会话后发给服务端）。
   @State private var pendingForward: PendingForward?
+  /// 撤回别人的消息前先确认。
+  @State private var confirmRecall: Qqbridge_V1_Message?
   @State private var voice = VoicePlayer()
   @State private var actions = ChatActions()
   @State private var sendError: String?
@@ -195,6 +197,14 @@ struct ChatScreen: View {
       voice.stop()
       Task { await setActive(false) }
     }
+    .confirmationDialog(
+      "撤回这条消息？群里所有人都会看到它被撤回。",
+      isPresented: Binding(get: { confirmRecall != nil }, set: { if !$0 { confirmRecall = nil } }),
+      titleVisibility: .visible,
+      presenting: confirmRecall
+    ) { m in
+      Button("撤回", role: .destructive) { recall(m) }
+    }
     .alert("发送失败", isPresented: .constant(sendError != nil), presenting: sendError) { _ in
       Button("好") { sendError = nil }
     } message: { Text($0) }
@@ -356,12 +366,8 @@ struct ChatScreen: View {
       }
     }
     actions.recall = { m in
-      Task {
-        var req = Qqbridge_V1_RecallMessageRequest()
-        req.chatID = chatId
-        req.seq = m.seq
-        do { _ = try await session.api.messages.recallMessage(request: req, headers: session.api.headers).get() } catch { sendError = "撤回失败：\(error)" }
-      }
+      // 自己的直接撤回；撤回别人的（群主 / 管理员）先确认。
+      if m.senderID == selfUin { recall(m) } else { confirmRecall = m }
     }
     actions.openMedia = { mediaTarget = $0 }
     actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }
@@ -473,6 +479,19 @@ struct ChatScreen: View {
       try await session.sender.send(chatId: chatId, segments: [seg])
     } catch {
       sendError = "视频发送失败：\(error)"
+    }
+  }
+
+  private func recall(_ m: Qqbridge_V1_Message) {
+    Task {
+      var req = Qqbridge_V1_RecallMessageRequest()
+      req.chatID = chatId
+      req.seq = m.seq
+      do {
+        _ = try await session.api.messages.recallMessage(request: req, headers: session.api.headers).get()
+      } catch {
+        sendError = "撤回失败：\(LoadState.describe(error))"
+      }
     }
   }
 

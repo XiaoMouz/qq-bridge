@@ -24,6 +24,30 @@ struct MessageContext {
     if isGroup, let n = members.displayName(userId) { return n }
     return (try? store.userName(qqAccountId: qqAccountId, userId: userId)) ?? String(userId)
   }
+
+  /// 能不能撤回（QQ 的规则，最终以 QQ 的结果为准）：
+  /// - 自己的消息：2 分钟内；群主撤回自己的不限时间。
+  /// - 群主：管理员和成员的消息，不限时间。
+  /// - 管理员：普通成员的消息，不限时间。
+  @MainActor
+  func canRecall(_ m: Qqbridge_V1_Message) -> Bool {
+    guard m.state != .recalled else { return false }
+    let mine = isGroup ? role(of: selfUin) : "member"
+    if m.senderID == selfUin {
+      return mine == "owner" || Date().timeIntervalSince1970 - Double(m.time) < 120
+    }
+    guard isGroup else { return false }
+    switch mine {
+    case "owner": return role(of: m.senderID) != "owner"
+    case "admin": return role(of: m.senderID) == "member"
+    default: return false
+    }
+  }
+
+  @MainActor
+  private func role(of userId: Int64) -> String {
+    members.byId[userId]?.role ?? "member"
+  }
 }
 
 struct MessageRow: View {
@@ -162,7 +186,7 @@ struct MessageBubbleRow: View {
         }
       }
     }
-    if outgoing, !recalled, Date().timeIntervalSince1970 - Double(message.time) < 120 {
+    if context.canRecall(message) {
       Button("撤回", systemImage: "arrow.uturn.backward", role: .destructive) { context.actions.recall(message) }
     }
   }
