@@ -125,6 +125,27 @@ message GetStorageOverviewResponse {
   uint64 cold_bytes = 7;
   // 是否配置了冷存储（MEDIA_COLD_ROOT）。
   bool cold_tier_enabled = 8;
+  // 服务端上所有内容按用途分类（去重后的实际字节数），见 StorageCategory.category。
+  repeated StorageCategory categories = 9;
+  // 热存储 / 冷存储所在磁盘的容量。
+  repeated StorageVolume volumes = 10;
+}
+
+message StorageCategory {
+  // image（图片原图）/ qq_thumb（QQ 缩略图）/ sticker（表情）/ video / record（语音）/ file（文件）
+  // / group_file（群文件）/ avatar（头像）/ derived（服务端生成的缩略图、预览图、语音转码）/ other。
+  string category = 1;
+  uint64 bytes = 2;
+  uint32 count = 3;
+}
+
+message StorageVolume {
+  // hot / cold。
+  string tier = 1;
+  // 盘没挂上（冷存储的外接硬盘拔了）时为 false，容量为 0。
+  bool available = 2;
+  uint64 total_bytes = 3;
+  uint64 free_bytes = 4;
 }
 
 message ChatStorage {

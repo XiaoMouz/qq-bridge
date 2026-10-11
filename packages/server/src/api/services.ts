@@ -259,6 +259,18 @@ function dialogService(deps: ApiDeps): ServiceImpl<typeof DialogService> {
         throw interactionError(error);
       }
     },
+    async openChat(req, ctx) {
+      const scene = req.scene === Scene.FRIEND ? 'friend' : req.scene === Scene.GROUP ? 'group' : null;
+      if (!scene) throw new ConnectError('scene must be FRIEND or GROUP', Code.InvalidArgument);
+      const peerId = toSafeNumber(req.peerId, 'peer_id');
+      if (peerId <= 0) throw new ConnectError('peer_id is required', Code.InvalidArgument);
+      try {
+        return { chatId: BigInt(await deps.ingest.openChat(requireAuth(ctx).accountId, scene, peerId)) };
+      } catch (error) {
+        if (error instanceof NotFoundError) throw new ConnectError(error.message, Code.NotFound);
+        throw error;
+      }
+    },
     async setActiveChat(req, ctx) {
       const auth = requireAuth(ctx);
       const chatId = toSafeNumber(req.chatId, 'chat_id');
@@ -594,6 +606,13 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
         coldBytes: BigInt(o.coldBytes),
         coldTierEnabled: deps.tiering.enabled,
         chats: o.chats.map(chatStorageToProto),
+        categories: (await deps.media.storageCategories()).map((c) => ({ category: c.category, bytes: BigInt(c.bytes), count: c.count })),
+        volumes: (await deps.media.volumes()).map((v) => ({
+          tier: v.tier,
+          available: v.available,
+          totalBytes: BigInt(v.totalBytes),
+          freeBytes: BigInt(v.freeBytes),
+        })),
       };
     },
     async listStickers(req, ctx) {
@@ -821,14 +840,25 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
     try {
       return await fn();
     } catch (error) {
-      if (error instanceof ContactError) throw new ConnectError(error.message, Code.NotFound);
+      if (error instanceof ContactError) throw new ConnectError(error.message, error.code === 'failed' ? Code.FailedPrecondition : Code.NotFound);
+      if (error instanceof Error && error.message === 'QQ is offline') throw new ConnectError(error.message, Code.Unavailable);
       throw error;
     }
   };
   const secs = (d: Date | null) => BigInt(d ? Math.floor(d.getTime() / 1000) : 0);
   return {
     async listFriends(_req, ctx) {
-      return wrap(async () => ({ friends: (await deps.contacts.listPeers(requireAuth(ctx).accountId, 'user')).map(peerToProto) }));
+      const accountId = requireAuth(ctx).accountId;
+      return wrap(async () => ({
+        friends: (await deps.contacts.listPeers(accountId, 'user')).map(peerToProto),
+        categories: (await deps.contacts.listCategories(accountId)).map((c) => ({
+          id: c.id,
+          name: c.name,
+          sort: c.sort,
+          specialCare: c.specialCare,
+          userIds: c.userIds.map((id) => BigInt(id)),
+        })),
+      }));
     },
     async listGroups(_req, ctx) {
       return wrap(async () => ({ groups: (await deps.contacts.listPeers(requireAuth(ctx).accountId, 'group')).map(peerToProto) }));
@@ -918,10 +948,21 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
       });
     },
     async getAvatars(req, ctx) {
+      const accountId = requireAuth(ctx).accountId;
       const ids = req.userIds.map((id) => toSafeNumber(id, 'user_ids')).filter((id) => id > 0);
-      const found = await wrap(() => deps.contacts.avatars(requireAuth(ctx).accountId, ids));
-      deps.logger.debug({ requested: ids.length, found: found.size }, 'GetAvatars');
-      return { avatars: [...found].map(([userId, sha256]) => ({ userId: BigInt(userId), sha256 })) };
+      const groupIds = req.groupIds.map((id) => toSafeNumber(id, 'group_ids')).filter((id) => id > 0);
+      const found = ids.length > 0 ? await wrap(() => deps.contacts.avatars(accountId, ids)) : new Map<number, string>();
+      const groups = groupIds.length > 0 ? await wrap(() => deps.contacts.groupAvatars(accountId, groupIds)) : new Map<number, string>();
+      deps.logger.debug({ requested: ids.length + groupIds.length, found: found.size + groups.size }, 'GetAvatars');
+      return {
+        avatars: [...found].map(([userId, sha256]) => ({ userId: BigInt(userId), sha256 })),
+        groups: [...groups].map(([groupId, sha256]) => ({ userId: BigInt(groupId), sha256 })),
+      };
+    },
+    async deleteFriend(req, ctx) {
+      const userId = toSafeNumber(req.userId, 'user_id');
+      await wrap(() => deps.contacts.deleteFriend(requireAuth(ctx).accountId, userId));
+      return {};
     },
     async refreshContacts(_req, ctx) {
       const auth = requireAuth(ctx);

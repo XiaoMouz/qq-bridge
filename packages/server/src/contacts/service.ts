@@ -51,9 +51,20 @@ export interface GroupMemberRow {
   lastSentAt: Date | null;
 }
 
+export interface FriendCategory {
+  id: number;
+  name: string;
+  sort: number;
+  userIds: number[];
+  specialCare: boolean;
+}
+
+/** QQ 的"特别关心"分组：里面的人同时也在自己原本的分组里。 */
+const SPECIAL_CARE = 9999;
+
 export class ContactError extends Error {
   constructor(
-    readonly code: 'not_found',
+    readonly code: 'not_found' | 'failed',
     message: string,
   ) {
     super(message);
@@ -151,31 +162,41 @@ export class ContactService {
 
   /** 一批人的头像：超过一天没检查过（或从没有过）的才下载，最多 4 个并发。返回 userId → sha256。 */
   async avatars(accountId: number, userIds: number[]): Promise<Map<number, string>> {
-    const qq = await this.qqAccountOf(accountId);
-    const ids = [...new Set(userIds)].slice(0, 50);
+    return this.batchAvatars(await this.qqAccountOf(accountId), 'user', userIds);
+  }
+
+  /** 一批群的头像（联系人页的群列表），规则同上；只处理已知的群。 */
+  async groupAvatars(accountId: number, groupIds: number[]): Promise<Map<number, string>> {
+    return this.batchAvatars(await this.qqAccountOf(accountId), 'group', groupIds);
+  }
+
+  private async batchAvatars(qq: number, kind: 'user' | 'group', peerIds: number[]): Promise<Map<number, string>> {
+    const ids = [...new Set(peerIds)].slice(0, 50);
     if (ids.length === 0) return new Map();
     const list = sql.join(ids.map((i) => sql`${i}`), sql`, `);
     const known = await rows<{ peer_id: number; avatar_sha256: string | null; checked: string | null }>(
       this.db,
       sql`select peer_id, avatar_sha256, extra->>'avatarCheckedAt' as checked from peers
-           where qq_account_id = ${qq} and kind = 'user' and peer_id in (${list})`,
+           where qq_account_id = ${qq} and kind = ${kind} and peer_id in (${list})`,
     );
     const byId = new Map(known.map((k) => [Number(k.peer_id), k]));
     const stale = ids.filter((id) => {
       const k = byId.get(id);
+      // 群只处理已知的（群号是我们自己列出来的）；人可以是没资料的群友。
+      if (kind === 'group' && !k) return false;
       return !k?.checked || Date.now() - Number(k.checked) > this.o.avatarMaxAgeMs;
     });
     for (let i = 0; i < stale.length; i += 4) {
       await Promise.all(
         stale.slice(i, i + 4).map(async (id) => {
-          const key = `${qq}:user:${id}`;
+          const key = `${qq}:${kind}:${id}`;
           if (this.avatarInFlight.has(key)) return;
           this.avatarInFlight.add(key);
           try {
-            if (!byId.has(id)) await this.ingest.upsertPeer(qq, { kind: 'user', peerId: id }); // 没资料的群友：先建一行
-            await this.refreshAvatar(qq, 'user', id);
+            if (!byId.has(id)) await this.ingest.upsertPeer(qq, { kind, peerId: id }); // 没资料的群友：先建一行
+            await this.refreshAvatar(qq, kind, id);
           } catch (error) {
-            this.o.logger?.warn({ err: error, id }, 'avatar refresh failed');
+            this.o.logger?.warn({ err: error, kind, id }, 'avatar refresh failed');
           } finally {
             this.avatarInFlight.delete(key);
           }
@@ -184,7 +205,7 @@ export class ContactService {
     }
     const after = await rows<{ peer_id: number; avatar_sha256: string | null }>(
       this.db,
-      sql`select peer_id, avatar_sha256 from peers where qq_account_id = ${qq} and kind = 'user' and peer_id in (${list})`,
+      sql`select peer_id, avatar_sha256 from peers where qq_account_id = ${qq} and kind = ${kind} and peer_id in (${list})`,
     );
     return new Map(after.filter((a) => a.avatar_sha256).map((a) => [Number(a.peer_id), a.avatar_sha256!]));
   }
@@ -196,10 +217,35 @@ export class ContactService {
     await this.markAvatarChecked(qqAccountId, kind, peerId);
   }
 
-  /** 好友列表与群列表（各一次请求）。返回数量。 */
+  /** 好友列表（带分组）与群列表（各一次请求）。返回数量。 */
   async refreshLists(qqAccountId: number): Promise<{ friends: number; groups: number }> {
+    // 优先用带分组的列表；NapCat 旧版本没有时退回普通好友列表（没有分组信息）。
     // 不加 no_cache：加了 NapCat 会逐个向 QQ 拉每个好友的详细资料（几百次请求，还大量超时），正是要避免的爬取。
-    const friends = (await this.ob11<Ob11[]>(qqAccountId, 'get_friend_list', {})) ?? [];
+    const withCategory = await this.ob11<Ob11[]>(qqAccountId, 'get_friends_with_category', {}).catch(() => null);
+    const categories: { id: number; name: string; sort: number; expected: number }[] = [];
+    const membership = new Map<number, { categoryId: number; specialCare: boolean }>();
+    let friends: Ob11[];
+    if (Array.isArray(withCategory) && withCategory.length > 0) {
+      const seen = new Map<number, Ob11>();
+      for (const c of withCategory) {
+        const id = Number(c.categoryId);
+        if (!Number.isInteger(id)) continue;
+        categories.push({ id, name: String(c.categoryName ?? ''), sort: Number(c.categorySortId) || 0, expected: Number(c.categoryMbCount) || 0 });
+        for (const b of Array.isArray(c.buddyList) ? (c.buddyList as Ob11[]) : []) {
+          const uid = num(b.user_id);
+          if (!uid) continue;
+          const m = membership.get(uid) ?? { categoryId: num(b.category_id) ?? 0, specialCare: false };
+          if (id === SPECIAL_CARE) m.specialCare = true;
+          else m.categoryId = id;
+          membership.set(uid, m);
+          seen.set(uid, b);
+        }
+      }
+      friends = [...seen.values()];
+    } else {
+      friends = (await this.ob11<Ob11[]>(qqAccountId, 'get_friend_list', {})) ?? [];
+    }
+
     const friendIds = new Set<number>();
     for (const f of friends) {
       const id = num(f.user_id);
@@ -214,8 +260,19 @@ export class ContactService {
         ...(str(f.long_nick) ? { sign: str(f.long_nick)! } : {}),
       });
     }
-    // 不再是好友的（被删、删了对方）。
-    if (friends.length > 0) {
+
+    // QQ 刚登录时好友列表是一点点加载的（例如 767 个好友只返回了 3 个）：这时既不能把没列出来的人当成"不再是好友"，
+    // 也不能拿残缺的分组覆盖。判断标准：比分组里报的人数、或者上次的好友数少一半以上。
+    const before = await maybeOne<{ n: number }>(
+      this.db,
+      sql`select count(*)::int as n from peers where qq_account_id = ${qqAccountId} and kind = 'user' and is_friend`,
+    );
+    const expected = categories.filter((c) => c.id !== SPECIAL_CARE).reduce((sum, c) => sum + c.expected, 0);
+    const complete = friendIds.size > 0 && friendIds.size >= expected * 0.9 && friendIds.size >= (before?.n ?? 0) * 0.5;
+    if (!complete) {
+      this.o.logger?.warn({ qqAccountId, listed: friendIds.size, expected, before: before?.n }, 'friend list looks incomplete; keeping existing friends and categories');
+    } else {
+      // 不再是好友的（被删、删了对方）。
       const formerly = await rows<{ peer_id: number }>(
         this.db,
         sql`select peer_id from peers where qq_account_id = ${qqAccountId} and kind = 'user' and is_friend`,
@@ -223,7 +280,9 @@ export class ContactService {
       for (const p of formerly) {
         if (!friendIds.has(Number(p.peer_id))) await this.ingest.upsertPeer(qqAccountId, { kind: 'user', peerId: Number(p.peer_id), isFriend: false });
       }
+      if (categories.length > 0) await this.saveCategories(qqAccountId, categories, membership);
     }
+
     const groups = (await this.ob11<Ob11[]>(qqAccountId, 'get_group_list', {})) ?? [];
     for (const g of groups) {
       const id = num(g.group_id);
@@ -354,6 +413,62 @@ export class ContactService {
            order by coalesce(nullif(remark, ''), name)`,
     );
     return list.map(toPeer);
+  }
+
+  /** 好友分组（按 QQ 里的顺序；特别关心在最前）。 */
+  async listCategories(accountId: number): Promise<FriendCategory[]> {
+    const qq = await this.qqAccountOf(accountId);
+    const cats = await rows<{ category_id: number; name: string; sort: number }>(
+      this.db,
+      sql`select category_id, name, sort from friend_categories where qq_account_id = ${qq} order by (category_id = ${SPECIAL_CARE}) desc, sort, category_id`,
+    );
+    if (cats.length === 0) return [];
+    const members = await rows<{ peer_id: number; category_id: number | null; special: boolean | null }>(
+      this.db,
+      sql`select peer_id, (extra->>'categoryId')::int as category_id, (extra->>'specialCare')::boolean as special
+            from peers where qq_account_id = ${qq} and kind = 'user' and is_friend
+           order by coalesce(nullif(remark, ''), name)`,
+    );
+    return cats.map((c) => ({
+      id: c.category_id,
+      name: c.name,
+      sort: c.sort,
+      specialCare: c.category_id === SPECIAL_CARE,
+      userIds: members
+        .filter((m) => (c.category_id === SPECIAL_CARE ? m.special === true : m.category_id === c.category_id))
+        .map((m) => Number(m.peer_id)),
+    }));
+  }
+
+  /** 删除好友：在 QQ 里删掉，再把本地标成"不是好友"（会话和聊天记录都保留）。 */
+  async deleteFriend(accountId: number, userId: number): Promise<void> {
+    const qq = await this.qqAccountOf(accountId);
+    const res = await this.ob11<{ valid?: boolean; message?: string }>(qq, 'delete_friend', { user_id: String(userId) });
+    if (res && res.valid === false) throw new ContactError('failed', res.message || 'QQ refused to delete this friend');
+    await this.ingest.upsertPeer(qq, { kind: 'user', peerId: userId, isFriend: false });
+  }
+
+  private async saveCategories(
+    qqAccountId: number,
+    categories: { id: number; name: string; sort: number }[],
+    membership: Map<number, { categoryId: number; specialCare: boolean }>,
+  ): Promise<void> {
+    const ids = [...membership.keys()];
+    await this.db.transaction(async (tx) => {
+      await tx.execute(sql`delete from friend_categories where qq_account_id = ${qqAccountId}`);
+      for (const c of categories) {
+        await tx.execute(
+          sql`insert into friend_categories (qq_account_id, category_id, name, sort) values (${qqAccountId}, ${c.id}, ${c.name}, ${c.sort})`,
+        );
+      }
+      if (ids.length === 0) return;
+      await tx.execute(
+        sql`update peers p set extra = p.extra || jsonb_build_object('categoryId', v.category_id, 'specialCare', v.special)
+              from jsonb_to_recordset(${JSON.stringify(ids.map((i) => ({ peer_id: i, category_id: membership.get(i)!.categoryId, special: membership.get(i)!.specialCare })))}::jsonb)
+                   as v(peer_id bigint, category_id int, special boolean)
+             where p.qq_account_id = ${qqAccountId} and p.kind = 'user' and p.peer_id = v.peer_id`,
+      );
+    });
   }
 
   /** 刷新一个人的资料和头像。 */

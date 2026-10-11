@@ -277,6 +277,50 @@ public nonisolated struct Qqbridge_V1_GetStorageOverviewResponse: Sendable {
   /// 是否配置了冷存储（MEDIA_COLD_ROOT）。
   public var coldTierEnabled: Bool = false
 
+  /// 服务端上所有内容按用途分类（去重后的实际字节数），见 StorageCategory.category。
+  public var categories: [Qqbridge_V1_StorageCategory] = []
+
+  /// 热存储 / 冷存储所在磁盘的容量。
+  public var volumes: [Qqbridge_V1_StorageVolume] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_StorageCategory: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// image（图片原图）/ qq_thumb（QQ 缩略图）/ sticker（表情）/ video / record（语音）/ file（文件）
+  /// / group_file（群文件）/ avatar（头像）/ derived（服务端生成的缩略图、预览图、语音转码）/ other。
+  public var category: String = String()
+
+  public var bytes: UInt64 = 0
+
+  public var count: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_StorageVolume: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// hot / cold。
+  public var tier: String = String()
+
+  /// 盘没挂上（冷存储的外接硬盘拔了）时为 false，容量为 0。
+  public var available: Bool = false
+
+  public var totalBytes: UInt64 = 0
+
+  public var freeBytes: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1262,7 +1306,7 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewRequest: SwiftProtobuf.Messa
 
 nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetStorageOverviewResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}physical_bytes\0\u{3}logical_bytes\0\u{3}dedup_saved_bytes\0\u{3}blob_count\0\u{1}chats\0\u{3}hot_bytes\0\u{3}cold_bytes\0\u{3}cold_tier_enabled\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}physical_bytes\0\u{3}logical_bytes\0\u{3}dedup_saved_bytes\0\u{3}blob_count\0\u{1}chats\0\u{3}hot_bytes\0\u{3}cold_bytes\0\u{3}cold_tier_enabled\0\u{1}categories\0\u{1}volumes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1278,6 +1322,8 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.hotBytes) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.coldBytes) }()
       case 8: try { try decoder.decodeSingularBoolField(value: &self.coldTierEnabled) }()
+      case 9: try { try decoder.decodeRepeatedMessageField(value: &self.categories) }()
+      case 10: try { try decoder.decodeRepeatedMessageField(value: &self.volumes) }()
       default: break
       }
     }
@@ -1308,6 +1354,12 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
     if self.coldTierEnabled != false {
       try visitor.visitSingularBoolField(value: self.coldTierEnabled, fieldNumber: 8)
     }
+    if !self.categories.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.categories, fieldNumber: 9)
+    }
+    if !self.volumes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.volumes, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1320,6 +1372,93 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
     if lhs.hotBytes != rhs.hotBytes {return false}
     if lhs.coldBytes != rhs.coldBytes {return false}
     if lhs.coldTierEnabled != rhs.coldTierEnabled {return false}
+    if lhs.categories != rhs.categories {return false}
+    if lhs.volumes != rhs.volumes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StorageCategory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StorageCategory"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}category\0\u{1}bytes\0\u{1}count\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.category) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.bytes) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.count) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.category.isEmpty {
+      try visitor.visitSingularStringField(value: self.category, fieldNumber: 1)
+    }
+    if self.bytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.bytes, fieldNumber: 2)
+    }
+    if self.count != 0 {
+      try visitor.visitSingularUInt32Field(value: self.count, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StorageCategory, rhs: Qqbridge_V1_StorageCategory) -> Bool {
+    if lhs.category != rhs.category {return false}
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.count != rhs.count {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StorageVolume: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StorageVolume"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tier\0\u{1}available\0\u{3}total_bytes\0\u{3}free_bytes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.tier) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.available) }()
+      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.totalBytes) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.freeBytes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.tier.isEmpty {
+      try visitor.visitSingularStringField(value: self.tier, fieldNumber: 1)
+    }
+    if self.available != false {
+      try visitor.visitSingularBoolField(value: self.available, fieldNumber: 2)
+    }
+    if self.totalBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.totalBytes, fieldNumber: 3)
+    }
+    if self.freeBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.freeBytes, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StorageVolume, rhs: Qqbridge_V1_StorageVolume) -> Bool {
+    if lhs.tier != rhs.tier {return false}
+    if lhs.available != rhs.available {return false}
+    if lhs.totalBytes != rhs.totalBytes {return false}
+    if lhs.freeBytes != rhs.freeBytes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

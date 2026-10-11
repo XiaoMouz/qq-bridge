@@ -125,19 +125,33 @@ final class GroupMembers {
   }
 }
 
-/// 成员头像：聊天页显示到谁就批量要谁的（服务端按天缓存，不经 QQ 协议）。
+/// 头像：显示到谁就批量要谁的（服务端按天缓存，不经 QQ 协议）。人和群分开记。
 @MainActor
 @Observable
 final class AvatarBook {
   private(set) var sha256: [Int64: String] = [:]
+  private(set) var groupSha256: [Int64: String] = [:]
   private var requested: Set<Int64> = []
+  private var requestedGroups: Set<Int64> = []
   private var pending: Set<Int64> = []
+  private var pendingGroups: Set<Int64> = []
   private var flushTask: Task<Void, Never>?
 
   func want(_ userId: Int64, session: Session) {
     guard userId > 0, !requested.contains(userId) else { return }
     requested.insert(userId)
     pending.insert(userId)
+    schedule(session)
+  }
+
+  func wantGroup(_ groupId: Int64, session: Session) {
+    guard groupId > 0, !requestedGroups.contains(groupId) else { return }
+    requestedGroups.insert(groupId)
+    pendingGroups.insert(groupId)
+    schedule(session)
+  }
+
+  private func schedule(_ session: Session) {
     // 攒 150ms 再一起要；不取消已排上的任务（取消会连带取消里面的网络请求，这批头像就丢了）。
     guard flushTask == nil else { return }
     flushTask = Task { [weak self] in
@@ -147,15 +161,21 @@ final class AvatarBook {
   }
 
   private func flush(session: Session) async {
-    while !pending.isEmpty {
+    while !pending.isEmpty || !pendingGroups.isEmpty {
       let ids = Array(pending.prefix(50))
+      let groups = Array(pendingGroups.prefix(50 - ids.count))
       pending.subtract(ids)
+      pendingGroups.subtract(groups)
       var req = Qqbridge_V1_GetAvatarsRequest()
       req.userIds = ids
+      req.groupIds = groups
       if let res = try? await session.api.contacts.getAvatars(request: req, headers: session.api.headers).get() {
         for a in res.avatars { sha256[a.userID] = a.sha256 }
+        for a in res.groups { groupSha256[a.userID] = a.sha256 }
       } else {
-        requested.subtract(ids)  // 失败的下次再要
+        // 失败的下次再要。
+        requested.subtract(ids)
+        requestedGroups.subtract(groups)
       }
     }
     flushTask = nil

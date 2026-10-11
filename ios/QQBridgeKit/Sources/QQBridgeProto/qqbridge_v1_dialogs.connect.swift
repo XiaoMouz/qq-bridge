@@ -44,6 +44,10 @@ public protocol Qqbridge_V1_DialogServiceClientInterface: Sendable {
     /// 让对方看到"正在输入"（只有私聊支持；群聊直接忽略）。客户端在输入时每几秒调用一次，服务端会限流。
     @available(iOS 13, *)
     func `setTyping`(request: Qqbridge_V1_SetTypingRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetTypingResponse>
+
+    /// 和某个好友 / 群发起会话：会话还不存在时新建（经 pts 推给所有设备），返回会话 id。
+    @available(iOS 13, *)
+    func `openChat`(request: Qqbridge_V1_OpenChatRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_OpenChatResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_DialogServiceClientInterface`.
@@ -94,6 +98,11 @@ public final class Qqbridge_V1_DialogServiceClient: Qqbridge_V1_DialogServiceCli
         return await self.client.unary(path: "/qqbridge.v1.DialogService/SetTyping", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `openChat`(request: Qqbridge_V1_OpenChatRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_OpenChatResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.DialogService/OpenChat", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let listDialogs = Connect.MethodSpec(name: "ListDialogs", service: "qqbridge.v1.DialogService", type: .unary)
@@ -104,6 +113,7 @@ public final class Qqbridge_V1_DialogServiceClient: Qqbridge_V1_DialogServiceCli
             public static let saveDraft = Connect.MethodSpec(name: "SaveDraft", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setActiveChat = Connect.MethodSpec(name: "SetActiveChat", service: "qqbridge.v1.DialogService", type: .unary)
             public static let setTyping = Connect.MethodSpec(name: "SetTyping", service: "qqbridge.v1.DialogService", type: .unary)
+            public static let openChat = Connect.MethodSpec(name: "OpenChat", service: "qqbridge.v1.DialogService", type: .unary)
         }
     }
 }

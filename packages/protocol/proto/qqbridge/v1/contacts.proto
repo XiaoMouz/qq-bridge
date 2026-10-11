@@ -25,13 +25,32 @@ service ContactService {
   rpc ListGroupFiles(ListGroupFilesRequest) returns (ListGroupFilesResponse);
   // 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
   rpc FetchGroupFile(FetchGroupFileRequest) returns (FetchGroupFileResponse);
+  // 删除好友（同时从 QQ 删除，对方的好友列表里也会没有你）。
+  rpc DeleteFriend(DeleteFriendRequest) returns (DeleteFriendResponse);
 }
 
 message ListFriendsRequest {}
 
 message ListFriendsResponse {
   repeated Peer friends = 1;
+  // QQ 里的好友分组（按 QQ 里的顺序）。"特别关心"是一个额外的分组，里面的人同时也在自己原本的分组里。
+  repeated FriendCategory categories = 2;
 }
+
+message FriendCategory {
+  int32 id = 1;
+  string name = 2;
+  int32 sort = 3;
+  repeated int64 user_ids = 4;
+  // 特别关心（id 9999）。
+  bool special_care = 5;
+}
+
+message DeleteFriendRequest {
+  int64 user_id = 1;
+}
+
+message DeleteFriendResponse {}
 
 message ListGroupsRequest {}
 
@@ -112,6 +131,8 @@ message RefreshContactsResponse {
 
 message GetAvatarsRequest {
   repeated int64 user_ids = 1;
+  // 群头像（联系人页的群列表）。
+  repeated int64 group_ids = 2;
 }
 
 message UserAvatar {
@@ -121,6 +142,8 @@ message UserAvatar {
 
 message GetAvatarsResponse {
   repeated UserAvatar avatars = 1;
+  // 群头像：user_id 字段放群号。
+  repeated UserAvatar groups = 2;
 }
 
 message ListGroupNoticesRequest {

@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Dialog, OutgoingSegment } from "./common_pb.ts";
+import type { Dialog, OutgoingSegment, Scene } from "./common_pb.ts";
 import { file_qqbridge_v1_common } from "./common_pb.ts";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,46 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/dialogs.proto.
  */
 export const file_qqbridge_v1_dialogs: GenFile = /*@__PURE__*/
-  fileDesc("ChlxcWJyaWRnZS92MS9kaWFsb2dzLnByb3RvEgtxcWJyaWRnZS52MSJUChJMaXN0RGlhbG9nc1JlcXVlc3QSDQoFbGltaXQYASABKA0SFgoOYmVmb3JlX2NoYXRfaWQYAiABKAMSFwoPYmVmb3JlX3RvcF90aW1lGAMgASgDIkgKE0xpc3REaWFsb2dzUmVzcG9uc2USCwoDcHRzGAEgASgDEiQKB2RpYWxvZ3MYAiADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2ciMwoPTWFya1JlYWRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSDwoHbWF4X3NlcRgCIAEoAyIjChBNYXJrUmVhZFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiJwoUU2V0QWN0aXZlQ2hhdFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAyIXChVTZXRBY3RpdmVDaGF0UmVzcG9uc2UiMwoQU2V0UGlubmVkUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEg4KBnBpbm5lZBgCIAEoCCIkChFTZXRQaW5uZWRSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIIjkKFlNldE5vdGlmeVBvbGljeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIOCgZwb2xpY3kYAiABKAkiKgoXU2V0Tm90aWZ5UG9saWN5UmVzcG9uc2USDwoHY2hhbmdlZBgBIAEoCCJpChBTYXZlRHJhZnRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSLgoIc2VnbWVudHMYAiADKAsyHC5xcWJyaWRnZS52MS5PdXRnb2luZ1NlZ21lbnQSFAoMcmVwbHlfdG9fc2VxGAMgASgDIiQKEVNhdmVEcmFmdFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiIwoQU2V0VHlwaW5nUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDIiEKEVNldFR5cGluZ1Jlc3BvbnNlEgwKBHNlbnQYASABKAgiPgoaU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIPCgdlbmFibGVkGAIgASgIIi4KG1NldE1lbnRpb25BbGxOb3RpZnlSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIMq4FCg1EaWFsb2dTZXJ2aWNlElAKC0xpc3REaWFsb2dzEh8ucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXF1ZXN0GiAucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXNwb25zZRJHCghNYXJrUmVhZBIcLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVxdWVzdBodLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVzcG9uc2USSgoJU2V0UGlubmVkEh0ucXFicmlkZ2UudjEuU2V0UGlubmVkUmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNldFBpbm5lZFJlc3BvbnNlElwKD1NldE5vdGlmeVBvbGljeRIjLnFxYnJpZGdlLnYxLlNldE5vdGlmeVBvbGljeVJlcXVlc3QaJC5xcWJyaWRnZS52MS5TZXROb3RpZnlQb2xpY3lSZXNwb25zZRJoChNTZXRNZW50aW9uQWxsTm90aWZ5EicucXFicmlkZ2UudjEuU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QaKC5xcWJyaWRnZS52MS5TZXRNZW50aW9uQWxsTm90aWZ5UmVzcG9uc2USSgoJU2F2ZURyYWZ0Eh0ucXFicmlkZ2UudjEuU2F2ZURyYWZ0UmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNhdmVEcmFmdFJlc3BvbnNlElYKDVNldEFjdGl2ZUNoYXQSIS5xcWJyaWRnZS52MS5TZXRBY3RpdmVDaGF0UmVxdWVzdBoiLnFxYnJpZGdlLnYxLlNldEFjdGl2ZUNoYXRSZXNwb25zZRJKCglTZXRUeXBpbmcSHS5xcWJyaWRnZS52MS5TZXRUeXBpbmdSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuU2V0VHlwaW5nUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
+  fileDesc("ChlxcWJyaWRnZS92MS9kaWFsb2dzLnByb3RvEgtxcWJyaWRnZS52MSJFCg9PcGVuQ2hhdFJlcXVlc3QSIQoFc2NlbmUYASABKA4yEi5xcWJyaWRnZS52MS5TY2VuZRIPCgdwZWVyX2lkGAIgASgDIiMKEE9wZW5DaGF0UmVzcG9uc2USDwoHY2hhdF9pZBgBIAEoAyJUChJMaXN0RGlhbG9nc1JlcXVlc3QSDQoFbGltaXQYASABKA0SFgoOYmVmb3JlX2NoYXRfaWQYAiABKAMSFwoPYmVmb3JlX3RvcF90aW1lGAMgASgDIkgKE0xpc3REaWFsb2dzUmVzcG9uc2USCwoDcHRzGAEgASgDEiQKB2RpYWxvZ3MYAiADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2ciMwoPTWFya1JlYWRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSDwoHbWF4X3NlcRgCIAEoAyIjChBNYXJrUmVhZFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiJwoUU2V0QWN0aXZlQ2hhdFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAyIXChVTZXRBY3RpdmVDaGF0UmVzcG9uc2UiMwoQU2V0UGlubmVkUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEg4KBnBpbm5lZBgCIAEoCCIkChFTZXRQaW5uZWRSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIIjkKFlNldE5vdGlmeVBvbGljeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIOCgZwb2xpY3kYAiABKAkiKgoXU2V0Tm90aWZ5UG9saWN5UmVzcG9uc2USDwoHY2hhbmdlZBgBIAEoCCJpChBTYXZlRHJhZnRSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSLgoIc2VnbWVudHMYAiADKAsyHC5xcWJyaWRnZS52MS5PdXRnb2luZ1NlZ21lbnQSFAoMcmVwbHlfdG9fc2VxGAMgASgDIiQKEVNhdmVEcmFmdFJlc3BvbnNlEg8KB2NoYW5nZWQYASABKAgiIwoQU2V0VHlwaW5nUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDIiEKEVNldFR5cGluZ1Jlc3BvbnNlEgwKBHNlbnQYASABKAgiPgoaU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIPCgdlbmFibGVkGAIgASgIIi4KG1NldE1lbnRpb25BbGxOb3RpZnlSZXNwb25zZRIPCgdjaGFuZ2VkGAEgASgIMvcFCg1EaWFsb2dTZXJ2aWNlElAKC0xpc3REaWFsb2dzEh8ucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXF1ZXN0GiAucXFicmlkZ2UudjEuTGlzdERpYWxvZ3NSZXNwb25zZRJHCghNYXJrUmVhZBIcLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVxdWVzdBodLnFxYnJpZGdlLnYxLk1hcmtSZWFkUmVzcG9uc2USSgoJU2V0UGlubmVkEh0ucXFicmlkZ2UudjEuU2V0UGlubmVkUmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNldFBpbm5lZFJlc3BvbnNlElwKD1NldE5vdGlmeVBvbGljeRIjLnFxYnJpZGdlLnYxLlNldE5vdGlmeVBvbGljeVJlcXVlc3QaJC5xcWJyaWRnZS52MS5TZXROb3RpZnlQb2xpY3lSZXNwb25zZRJoChNTZXRNZW50aW9uQWxsTm90aWZ5EicucXFicmlkZ2UudjEuU2V0TWVudGlvbkFsbE5vdGlmeVJlcXVlc3QaKC5xcWJyaWRnZS52MS5TZXRNZW50aW9uQWxsTm90aWZ5UmVzcG9uc2USSgoJU2F2ZURyYWZ0Eh0ucXFicmlkZ2UudjEuU2F2ZURyYWZ0UmVxdWVzdBoeLnFxYnJpZGdlLnYxLlNhdmVEcmFmdFJlc3BvbnNlElYKDVNldEFjdGl2ZUNoYXQSIS5xcWJyaWRnZS52MS5TZXRBY3RpdmVDaGF0UmVxdWVzdBoiLnFxYnJpZGdlLnYxLlNldEFjdGl2ZUNoYXRSZXNwb25zZRJKCglTZXRUeXBpbmcSHS5xcWJyaWRnZS52MS5TZXRUeXBpbmdSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuU2V0VHlwaW5nUmVzcG9uc2USRwoIT3BlbkNoYXQSHC5xcWJyaWRnZS52MS5PcGVuQ2hhdFJlcXVlc3QaHS5xcWJyaWRnZS52MS5PcGVuQ2hhdFJlc3BvbnNlYgZwcm90bzM", [file_qqbridge_v1_common]);
+
+/**
+ * @generated from message qqbridge.v1.OpenChatRequest
+ */
+export type OpenChatRequest = Message<"qqbridge.v1.OpenChatRequest"> & {
+  /**
+   * @generated from field: qqbridge.v1.Scene scene = 1;
+   */
+  scene: Scene;
+
+  /**
+   * @generated from field: int64 peer_id = 2;
+   */
+  peerId: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.OpenChatRequest.
+ * Use `create(OpenChatRequestSchema)` to create a new message.
+ */
+export const OpenChatRequestSchema: GenMessage<OpenChatRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_dialogs, 0);
+
+/**
+ * @generated from message qqbridge.v1.OpenChatResponse
+ */
+export type OpenChatResponse = Message<"qqbridge.v1.OpenChatResponse"> & {
+  /**
+   * @generated from field: int64 chat_id = 1;
+   */
+  chatId: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.OpenChatResponse.
+ * Use `create(OpenChatResponseSchema)` to create a new message.
+ */
+export const OpenChatResponseSchema: GenMessage<OpenChatResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_dialogs, 1);
 
 /**
  * @generated from message qqbridge.v1.ListDialogsRequest
@@ -41,7 +80,7 @@ export type ListDialogsRequest = Message<"qqbridge.v1.ListDialogsRequest"> & {
  * Use `create(ListDialogsRequestSchema)` to create a new message.
  */
 export const ListDialogsRequestSchema: GenMessage<ListDialogsRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 0);
+  messageDesc(file_qqbridge_v1_dialogs, 2);
 
 /**
  * @generated from message qqbridge.v1.ListDialogsResponse
@@ -63,7 +102,7 @@ export type ListDialogsResponse = Message<"qqbridge.v1.ListDialogsResponse"> & {
  * Use `create(ListDialogsResponseSchema)` to create a new message.
  */
 export const ListDialogsResponseSchema: GenMessage<ListDialogsResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 1);
+  messageDesc(file_qqbridge_v1_dialogs, 3);
 
 /**
  * @generated from message qqbridge.v1.MarkReadRequest
@@ -85,7 +124,7 @@ export type MarkReadRequest = Message<"qqbridge.v1.MarkReadRequest"> & {
  * Use `create(MarkReadRequestSchema)` to create a new message.
  */
 export const MarkReadRequestSchema: GenMessage<MarkReadRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 2);
+  messageDesc(file_qqbridge_v1_dialogs, 4);
 
 /**
  * @generated from message qqbridge.v1.MarkReadResponse
@@ -102,7 +141,7 @@ export type MarkReadResponse = Message<"qqbridge.v1.MarkReadResponse"> & {
  * Use `create(MarkReadResponseSchema)` to create a new message.
  */
 export const MarkReadResponseSchema: GenMessage<MarkReadResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 3);
+  messageDesc(file_qqbridge_v1_dialogs, 5);
 
 /**
  * @generated from message qqbridge.v1.SetActiveChatRequest
@@ -119,7 +158,7 @@ export type SetActiveChatRequest = Message<"qqbridge.v1.SetActiveChatRequest"> &
  * Use `create(SetActiveChatRequestSchema)` to create a new message.
  */
 export const SetActiveChatRequestSchema: GenMessage<SetActiveChatRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 4);
+  messageDesc(file_qqbridge_v1_dialogs, 6);
 
 /**
  * @generated from message qqbridge.v1.SetActiveChatResponse
@@ -132,7 +171,7 @@ export type SetActiveChatResponse = Message<"qqbridge.v1.SetActiveChatResponse">
  * Use `create(SetActiveChatResponseSchema)` to create a new message.
  */
 export const SetActiveChatResponseSchema: GenMessage<SetActiveChatResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 5);
+  messageDesc(file_qqbridge_v1_dialogs, 7);
 
 /**
  * @generated from message qqbridge.v1.SetPinnedRequest
@@ -154,7 +193,7 @@ export type SetPinnedRequest = Message<"qqbridge.v1.SetPinnedRequest"> & {
  * Use `create(SetPinnedRequestSchema)` to create a new message.
  */
 export const SetPinnedRequestSchema: GenMessage<SetPinnedRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 6);
+  messageDesc(file_qqbridge_v1_dialogs, 8);
 
 /**
  * @generated from message qqbridge.v1.SetPinnedResponse
@@ -171,7 +210,7 @@ export type SetPinnedResponse = Message<"qqbridge.v1.SetPinnedResponse"> & {
  * Use `create(SetPinnedResponseSchema)` to create a new message.
  */
 export const SetPinnedResponseSchema: GenMessage<SetPinnedResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 7);
+  messageDesc(file_qqbridge_v1_dialogs, 9);
 
 /**
  * @generated from message qqbridge.v1.SetNotifyPolicyRequest
@@ -193,7 +232,7 @@ export type SetNotifyPolicyRequest = Message<"qqbridge.v1.SetNotifyPolicyRequest
  * Use `create(SetNotifyPolicyRequestSchema)` to create a new message.
  */
 export const SetNotifyPolicyRequestSchema: GenMessage<SetNotifyPolicyRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 8);
+  messageDesc(file_qqbridge_v1_dialogs, 10);
 
 /**
  * @generated from message qqbridge.v1.SetNotifyPolicyResponse
@@ -210,7 +249,7 @@ export type SetNotifyPolicyResponse = Message<"qqbridge.v1.SetNotifyPolicyRespon
  * Use `create(SetNotifyPolicyResponseSchema)` to create a new message.
  */
 export const SetNotifyPolicyResponseSchema: GenMessage<SetNotifyPolicyResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 9);
+  messageDesc(file_qqbridge_v1_dialogs, 11);
 
 /**
  * @generated from message qqbridge.v1.SaveDraftRequest
@@ -237,7 +276,7 @@ export type SaveDraftRequest = Message<"qqbridge.v1.SaveDraftRequest"> & {
  * Use `create(SaveDraftRequestSchema)` to create a new message.
  */
 export const SaveDraftRequestSchema: GenMessage<SaveDraftRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 10);
+  messageDesc(file_qqbridge_v1_dialogs, 12);
 
 /**
  * @generated from message qqbridge.v1.SaveDraftResponse
@@ -254,7 +293,7 @@ export type SaveDraftResponse = Message<"qqbridge.v1.SaveDraftResponse"> & {
  * Use `create(SaveDraftResponseSchema)` to create a new message.
  */
 export const SaveDraftResponseSchema: GenMessage<SaveDraftResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 11);
+  messageDesc(file_qqbridge_v1_dialogs, 13);
 
 /**
  * @generated from message qqbridge.v1.SetTypingRequest
@@ -271,7 +310,7 @@ export type SetTypingRequest = Message<"qqbridge.v1.SetTypingRequest"> & {
  * Use `create(SetTypingRequestSchema)` to create a new message.
  */
 export const SetTypingRequestSchema: GenMessage<SetTypingRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 12);
+  messageDesc(file_qqbridge_v1_dialogs, 14);
 
 /**
  * @generated from message qqbridge.v1.SetTypingResponse
@@ -290,7 +329,7 @@ export type SetTypingResponse = Message<"qqbridge.v1.SetTypingResponse"> & {
  * Use `create(SetTypingResponseSchema)` to create a new message.
  */
 export const SetTypingResponseSchema: GenMessage<SetTypingResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 13);
+  messageDesc(file_qqbridge_v1_dialogs, 15);
 
 /**
  * @generated from message qqbridge.v1.SetMentionAllNotifyRequest
@@ -312,7 +351,7 @@ export type SetMentionAllNotifyRequest = Message<"qqbridge.v1.SetMentionAllNotif
  * Use `create(SetMentionAllNotifyRequestSchema)` to create a new message.
  */
 export const SetMentionAllNotifyRequestSchema: GenMessage<SetMentionAllNotifyRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 14);
+  messageDesc(file_qqbridge_v1_dialogs, 16);
 
 /**
  * @generated from message qqbridge.v1.SetMentionAllNotifyResponse
@@ -329,7 +368,7 @@ export type SetMentionAllNotifyResponse = Message<"qqbridge.v1.SetMentionAllNoti
  * Use `create(SetMentionAllNotifyResponseSchema)` to create a new message.
  */
 export const SetMentionAllNotifyResponseSchema: GenMessage<SetMentionAllNotifyResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_dialogs, 15);
+  messageDesc(file_qqbridge_v1_dialogs, 17);
 
 /**
  * @generated from service qqbridge.v1.DialogService
@@ -416,6 +455,16 @@ export const DialogService: GenService<{
     methodKind: "unary";
     input: typeof SetTypingRequestSchema;
     output: typeof SetTypingResponseSchema;
+  },
+  /**
+   * 和某个好友 / 群发起会话：会话还不存在时新建（经 pts 推给所有设备），返回会话 id。
+   *
+   * @generated from rpc qqbridge.v1.DialogService.OpenChat
+   */
+  openChat: {
+    methodKind: "unary";
+    input: typeof OpenChatRequestSchema;
+    output: typeof OpenChatResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_qqbridge_v1_dialogs, 0);

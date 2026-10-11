@@ -23,6 +23,17 @@ service DialogService {
   rpc SetActiveChat(SetActiveChatRequest) returns (SetActiveChatResponse);
   // 让对方看到"正在输入"（只有私聊支持；群聊直接忽略）。客户端在输入时每几秒调用一次，服务端会限流。
   rpc SetTyping(SetTypingRequest) returns (SetTypingResponse);
+  // 和某个好友 / 群发起会话：会话还不存在时新建（经 pts 推给所有设备），返回会话 id。
+  rpc OpenChat(OpenChatRequest) returns (OpenChatResponse);
+}
+
+message OpenChatRequest {
+  Scene scene = 1;
+  int64 peer_id = 2;
+}
+
+message OpenChatResponse {
+  int64 chat_id = 1;
 }
 
 message ListDialogsRequest {

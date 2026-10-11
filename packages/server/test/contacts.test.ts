@@ -34,6 +34,8 @@ class FakeQq {
   groups: Record<string, unknown>[] = [];
   strangers = new Map<number, Record<string, unknown>>();
   members: Record<string, unknown>[] = [];
+  categories: Record<string, unknown>[] | null = null;
+  deleteResult: Record<string, unknown> | null = null;
   isConnected() {
     return true;
   }
@@ -50,6 +52,11 @@ class FakeQq {
         return { group_id: p.params.group_id, group_name: '新群名', member_count: 3, max_member_count: 200, group_memo: '群简介' } as T;
       case 'get_group_member_list':
         return this.members as T;
+      case 'get_friends_with_category':
+        if (!this.categories) throw new Error('unsupported');
+        return this.categories as T;
+      case 'delete_friend':
+        return this.deleteResult as T;
     }
     throw new Error(p.name);
   }
@@ -151,5 +158,60 @@ describe('ContactService', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(fetches).toBe(1);
     expect(qq.calls).toEqual([]); // 不经 QQ 协议
+  });
+
+  it('syncs friend categories, and keeps everything when QQ returns a half-loaded friend list', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const qq = new FakeQq();
+    const contacts = new ContactService(t.db, ingest, media, null, () => qq, { fetchAvatar: async () => null });
+    const buddy = (id: number, name: string, category: number) => ({ user_id: id, nickname: name, remark: '', category_id: category });
+    qq.categories = [
+      { categoryId: 9999, categorySortId: 0, categoryName: '特别关心', categoryMbCount: 1, buddyList: [buddy(40001, '甲', 1)] },
+      { categoryId: 0, categorySortId: 1, categoryName: '我的好友', categoryMbCount: 2, buddyList: [buddy(40002, 'B', 0), buddy(40003, 'C', 0)] },
+      { categoryId: 1, categorySortId: 2, categoryName: '同学', categoryMbCount: 1, buddyList: [buddy(40001, '甲', 1)] },
+    ];
+    expect(await contacts.refreshLists(acc.qqAccountId)).toEqual({ friends: 3, groups: 0 });
+    expect(await contacts.listCategories(acc.accountId)).toEqual([
+      { id: 9999, name: '特别关心', sort: 0, specialCare: true, userIds: [40001] },
+      { id: 0, name: '我的好友', sort: 1, specialCare: false, userIds: [40002, 40003] },
+      { id: 1, name: '同学', sort: 2, specialCare: false, userIds: [40001] },
+    ]);
+
+    // 刚登录时 QQ 只给了一部分好友：不能把其他人当成删了好友，也不能用残缺的分组覆盖。
+    qq.categories = [{ categoryId: 0, categorySortId: 1, categoryName: '我的好友', categoryMbCount: 2, buddyList: [buddy(40002, 'B', 0)] }];
+    await contacts.refreshLists(acc.qqAccountId);
+    expect((await contacts.listPeers(acc.accountId, 'user')).map((p) => p.peerId).sort()).toEqual([40001, 40002, 40003]);
+    expect((await contacts.listCategories(acc.accountId)).map((c) => c.name)).toEqual(['特别关心', '我的好友', '同学']);
+  });
+
+  it('deletes a friend in QQ and locally; reports QQ refusing', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const qq = new FakeQq();
+    const contacts = new ContactService(t.db, ingest, media, null, () => qq, { fetchAvatar: async () => null });
+    qq.friends = [{ user_id: 41001, nickname: '甲', remark: '' }];
+    await contacts.refreshLists(acc.qqAccountId);
+    qq.deleteResult = { valid: false, message: '好友不存在' };
+    await expect(contacts.deleteFriend(acc.accountId, 41001)).rejects.toMatchObject({ code: 'failed', message: '好友不存在' });
+    qq.deleteResult = null;
+    await contacts.deleteFriend(acc.accountId, 41001);
+    expect(await contacts.listPeers(acc.accountId, 'user')).toEqual([]);
+  });
+
+  it('loads group avatars for the contact list, only for known groups', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const qq = new FakeQq();
+    const urls: string[] = [];
+    const red = await png('#f00');
+    const contacts = new ContactService(t.db, ingest, media, null, () => qq, { fetchAvatar: async (url) => (urls.push(url), red) });
+    qq.groups = [{ group_id: 960001, group_name: '群一', member_count: 3 }];
+    await contacts.refreshLists(acc.qqAccountId);
+    const found = await contacts.groupAvatars(acc.accountId, [960001, 960002]);
+    expect([...found.keys()]).toEqual([960001]);
+    expect(urls).toEqual(['https://p.qlogo.cn/gh/960001/960001/640/']);
+    await contacts.groupAvatars(acc.accountId, [960001]); // 一天内不重复下载
+    expect(urls).toHaveLength(1);
   });
 });

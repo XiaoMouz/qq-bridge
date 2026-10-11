@@ -51,6 +51,20 @@ export interface StorageOverview {
   chats: ChatStorageSummary[];
 }
 
+export interface StorageCategoryStat {
+  /** image / qq_thumb / sticker / video / record / file / group_file / avatar / derived / other。 */
+  category: string;
+  bytes: number;
+  count: number;
+}
+
+export interface StorageVolumeStat {
+  tier: 'hot' | 'cold';
+  available: boolean;
+  totalBytes: number;
+  freeBytes: number;
+}
+
 export interface ChatStorageSummary {
   chatId: number;
   scene: Scene;
@@ -440,6 +454,59 @@ export class MediaService {
         coldBytes: Number(r.cold_bytes),
       })),
     };
+  }
+
+  /**
+   * 服务端上所有内容按用途分类（去重后，每份内容只算一次）。优先级：消息里的媒体（按第一次出现时的角色和类型）
+   * → 群文件 → 头像 → 服务端生成的派生内容（缩略图、预览图、语音转码）→ 其他。
+   */
+  async storageCategories(): Promise<StorageCategoryStat[]> {
+    const list = await rows<{ category: string; bytes: number; count: number }>(
+      this.db,
+      sql`with first_ref as (
+            select distinct on (sha256) sha256, role, kind from media_refs where sha256 is not null order by sha256, id
+          ), cls as (
+            select b.size,
+                   case
+                     when r.role = 'qq_thumb' then 'qq_thumb'
+                     when r.role = 'sticker' or r.kind = 'sticker' or (r.sha256 is null and b.kind = 'sticker') then 'sticker'
+                     when r.kind = 'image' then 'image'
+                     when r.kind = 'video' then 'video'
+                     when r.kind in ('record', 'audio') then 'record'
+                     when r.kind = 'file' then 'file'
+                     when g.sha256 is not null then 'group_file'
+                     when a.sha256 is not null then 'avatar'
+                     when v.sha256 is not null then 'derived'
+                     else 'other'
+                   end as category
+              from blobs b
+              left join first_ref r on r.sha256 = b.sha256
+              left join (select distinct sha256 from group_file_blobs) g on g.sha256 = b.sha256
+              left join (select distinct avatar_sha256 as sha256 from peers where avatar_sha256 is not null) a on a.sha256 = b.sha256
+              left join (select distinct variant_sha256 as sha256 from blob_variants) v on v.sha256 = b.sha256
+             where b.state = 'present'
+          )
+          select category, coalesce(sum(size), 0)::bigint as bytes, count(*)::int as count from cls group by category order by bytes desc`,
+    );
+    return list.map((r) => ({ category: r.category, bytes: Number(r.bytes), count: r.count }));
+  }
+
+  /** 热存储 / 冷存储所在磁盘的容量（冷存储的盘没挂上时 available = false）。 */
+  async volumes(): Promise<StorageVolumeStat[]> {
+    const stat = async (tier: 'hot' | 'cold', backend: StorageBackend | null): Promise<StorageVolumeStat | null> => {
+      if (!backend) return null;
+      const b = backend as StorageBackend & { root?: string; available?: () => boolean };
+      const root = b.root;
+      const available = b.available ? b.available() : true;
+      if (!root || !available) return { tier, available: false, totalBytes: 0, freeBytes: 0 };
+      try {
+        const s = await fs.statfs(root);
+        return { tier, available: true, totalBytes: s.blocks * s.bsize, freeBytes: s.bavail * s.bsize };
+      } catch {
+        return { tier, available: false, totalBytes: 0, freeBytes: 0 };
+      }
+    };
+    return (await Promise.all([stat('hot', this.backend), stat('cold', this.cold)])).filter((v): v is StorageVolumeStat => v !== null);
   }
 
   /** 单个会话的占用明细：按类型拆分（逻辑 / 独占 / 冷热 / 已清理），以及最大的内容。 */

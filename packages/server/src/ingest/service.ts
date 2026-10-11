@@ -248,6 +248,22 @@ export class IngestService {
     });
   }
 
+  /** 发起会话（联系人页点"发消息"）：会话已有就直接返回，没有就新建（经 pts 推给所有设备）。 */
+  async openChat(accountId: number, scene: Scene, peerId: number): Promise<number> {
+    const qq = await maybeOne<{ id: number }>(this.db, sql`select id from qq_accounts where account_id = ${accountId} order by id limit 1`);
+    if (!qq) throw new NotFoundError('no QQ account is linked');
+    const existing = await maybeOne<{ id: number }>(
+      this.db,
+      sql`select id from chats where qq_account_id = ${qq.id} and scene = ${scene} and peer_id = ${peerId}`,
+    );
+    if (existing) return existing.id;
+    return this.writers.forAccount(accountId).run(async (w) => {
+      const chat = await lockOrCreateChat(w.tx, qq.id, scene, peerId, 0);
+      w.touchDialog(chat.id);
+      return chat.id;
+    });
+  }
+
   /** 客户端标记已读到 maxSeq。 */
   async markRead(accountId: number, chatId: number, maxSeq: number): Promise<boolean> {
     return this.writers.forAccount(accountId).run(async (w) => {

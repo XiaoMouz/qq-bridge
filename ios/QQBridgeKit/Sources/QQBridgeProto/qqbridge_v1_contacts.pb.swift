@@ -37,6 +37,52 @@ public nonisolated struct Qqbridge_V1_ListFriendsResponse: Sendable {
 
   public var friends: [Qqbridge_V1_Peer] = []
 
+  /// QQ 里的好友分组（按 QQ 里的顺序）。"特别关心"是一个额外的分组，里面的人同时也在自己原本的分组里。
+  public var categories: [Qqbridge_V1_FriendCategory] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_FriendCategory: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: Int32 = 0
+
+  public var name: String = String()
+
+  public var sort: Int32 = 0
+
+  public var userIds: [Int64] = []
+
+  /// 特别关心（id 9999）。
+  public var specialCare: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_DeleteFriendRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var userID: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_DeleteFriendResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -290,6 +336,9 @@ public nonisolated struct Qqbridge_V1_GetAvatarsRequest: Sendable {
 
   public var userIds: [Int64] = []
 
+  /// 群头像（联系人页的群列表）。
+  public var groupIds: [Int64] = []
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -315,6 +364,9 @@ public nonisolated struct Qqbridge_V1_GetAvatarsResponse: Sendable {
   // methods supported on all messages.
 
   public var avatars: [Qqbridge_V1_UserAvatar] = []
+
+  /// 群头像：user_id 字段放群号。
+  public var groups: [Qqbridge_V1_UserAvatar] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -597,7 +649,7 @@ nonisolated extension Qqbridge_V1_ListFriendsRequest: SwiftProtobuf.Message, Swi
 
 nonisolated extension Qqbridge_V1_ListFriendsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListFriendsResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}friends\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}friends\0\u{1}categories\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -606,6 +658,7 @@ nonisolated extension Qqbridge_V1_ListFriendsResponse: SwiftProtobuf.Message, Sw
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.friends) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.categories) }()
       default: break
       }
     }
@@ -615,11 +668,114 @@ nonisolated extension Qqbridge_V1_ListFriendsResponse: SwiftProtobuf.Message, Sw
     if !self.friends.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.friends, fieldNumber: 1)
     }
+    if !self.categories.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.categories, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_ListFriendsResponse, rhs: Qqbridge_V1_ListFriendsResponse) -> Bool {
     if lhs.friends != rhs.friends {return false}
+    if lhs.categories != rhs.categories {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_FriendCategory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FriendCategory"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}sort\0\u{3}user_ids\0\u{3}special_care\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.sort) }()
+      case 4: try { try decoder.decodeRepeatedInt64Field(value: &self.userIds) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.specialCare) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt32Field(value: self.id, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    if self.sort != 0 {
+      try visitor.visitSingularInt32Field(value: self.sort, fieldNumber: 3)
+    }
+    if !self.userIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.userIds, fieldNumber: 4)
+    }
+    if self.specialCare != false {
+      try visitor.visitSingularBoolField(value: self.specialCare, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_FriendCategory, rhs: Qqbridge_V1_FriendCategory) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.sort != rhs.sort {return false}
+    if lhs.userIds != rhs.userIds {return false}
+    if lhs.specialCare != rhs.specialCare {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteFriendRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteFriendRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.userID != 0 {
+      try visitor.visitSingularInt64Field(value: self.userID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteFriendRequest, rhs: Qqbridge_V1_DeleteFriendRequest) -> Bool {
+    if lhs.userID != rhs.userID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteFriendResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteFriendResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteFriendResponse, rhs: Qqbridge_V1_DeleteFriendResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1131,7 +1287,7 @@ nonisolated extension Qqbridge_V1_RefreshContactsResponse: SwiftProtobuf.Message
 
 nonisolated extension Qqbridge_V1_GetAvatarsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetAvatarsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_ids\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_ids\0\u{3}group_ids\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1140,6 +1296,7 @@ nonisolated extension Qqbridge_V1_GetAvatarsRequest: SwiftProtobuf.Message, Swif
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedInt64Field(value: &self.userIds) }()
+      case 2: try { try decoder.decodeRepeatedInt64Field(value: &self.groupIds) }()
       default: break
       }
     }
@@ -1149,11 +1306,15 @@ nonisolated extension Qqbridge_V1_GetAvatarsRequest: SwiftProtobuf.Message, Swif
     if !self.userIds.isEmpty {
       try visitor.visitPackedInt64Field(value: self.userIds, fieldNumber: 1)
     }
+    if !self.groupIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.groupIds, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_GetAvatarsRequest, rhs: Qqbridge_V1_GetAvatarsRequest) -> Bool {
     if lhs.userIds != rhs.userIds {return false}
+    if lhs.groupIds != rhs.groupIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1196,7 +1357,7 @@ nonisolated extension Qqbridge_V1_UserAvatar: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Qqbridge_V1_GetAvatarsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetAvatarsResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}avatars\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}avatars\0\u{1}groups\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1205,6 +1366,7 @@ nonisolated extension Qqbridge_V1_GetAvatarsResponse: SwiftProtobuf.Message, Swi
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.avatars) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.groups) }()
       default: break
       }
     }
@@ -1214,11 +1376,15 @@ nonisolated extension Qqbridge_V1_GetAvatarsResponse: SwiftProtobuf.Message, Swi
     if !self.avatars.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.avatars, fieldNumber: 1)
     }
+    if !self.groups.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.groups, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_GetAvatarsResponse, rhs: Qqbridge_V1_GetAvatarsResponse) -> Bool {
     if lhs.avatars != rhs.avatars {return false}
+    if lhs.groups != rhs.groups {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

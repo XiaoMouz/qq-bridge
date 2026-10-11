@@ -134,6 +134,13 @@
       "when": 1791616149884,
       "tag": "0018_sender_name",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791616150884,
+      "tag": "0019_friend_categories",
+      "breakpoints": true
     }
   ]
 }

@@ -52,6 +52,10 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     /// 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
     @available(iOS 13, *)
     func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse>
+
+    /// 删除好友（同时从 QQ 删除，对方的好友列表里也会没有你）。
+    @available(iOS 13, *)
+    func `deleteFriend`(request: Qqbridge_V1_DeleteFriendRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_DeleteFriendResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_ContactServiceClientInterface`.
@@ -117,6 +121,11 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
         return await self.client.unary(path: "/qqbridge.v1.ContactService/FetchGroupFile", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `deleteFriend`(request: Qqbridge_V1_DeleteFriendRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_DeleteFriendResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/DeleteFriend", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let listFriends = Connect.MethodSpec(name: "ListFriends", service: "qqbridge.v1.ContactService", type: .unary)
@@ -130,6 +139,7 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let listGroupEssence = Connect.MethodSpec(name: "ListGroupEssence", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupFiles = Connect.MethodSpec(name: "ListGroupFiles", service: "qqbridge.v1.ContactService", type: .unary)
             public static let fetchGroupFile = Connect.MethodSpec(name: "FetchGroupFile", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let deleteFriend = Connect.MethodSpec(name: "DeleteFriend", service: "qqbridge.v1.ContactService", type: .unary)
         }
     }
 }

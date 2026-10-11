@@ -59,7 +59,7 @@ export class LocalFsBackend implements StorageBackend {
   private readonly blobDir: string;
   private readonly tmpDir: string;
 
-  constructor(root: string) {
+  constructor(readonly root: string) {
     this.blobDir = path.join(root, 'blobs');
     this.tmpDir = path.join(root, 'tmp');
   }

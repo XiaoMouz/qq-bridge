@@ -9,8 +9,15 @@ struct UserProfileView: View {
   let userId: Int64
   let groupMember: Qqbridge_V1_GroupMember?
   var onMention: (() -> Void)? = nil
+  /// 从联系人点开：显示发消息、消息提醒、删除好友。
+  var contactActions = false
+  var onDeleted: (() -> Void)? = nil
+  @Environment(AppModel.self) private var model
   @State private var profile: Qqbridge_V1_UserProfile?
   @State private var loading = true
+  @State private var dialog: DialogItem?
+  @State private var confirmDelete = false
+  @State private var actionError: String?
 
   var body: some View {
     List {
@@ -51,16 +58,84 @@ struct UserProfileView: View {
       if let onMention {
         Section { Button("@\(displayName)", systemImage: "at", action: onMention) }
       }
+      if contactActions {
+        Section {
+          Button("发消息", systemImage: "message") { Task { await openChat() } }
+        }
+        Section("消息设置") {
+          Picker("消息提醒", selection: Binding(get: { dialog?.isMuted == true ? "muted" : "all" }, set: { p in Task { await setPolicy(p) } })) {
+            Text("接收并提醒").tag("all")
+            Text("接收不提醒").tag("muted")
+          }
+          if let d = dialog {
+            Toggle("置顶", isOn: Binding(get: { d.dialog.pinned }, set: { on in
+              var req = Qqbridge_V1_SetPinnedRequest()
+              req.chatID = d.id
+              req.pinned = on
+              Task { _ = await session.api.dialogs.setPinned(request: req, headers: session.api.headers) }
+            }))
+          }
+        }
+        if profile?.peer.isFriend ?? true {
+          Section {
+            Button("删除好友", role: .destructive) { confirmDelete = true }
+          }
+        }
+      }
     }
     .navigationTitle("资料")
     .navigationBarTitleDisplayMode(.inline)
     .overlay { if loading && profile == nil { ProgressView() } }
+    .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
+      Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
+    }
+    .alert("操作失败", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } }), presenting: actionError) { _ in
+      Button("好") { actionError = nil }
+    } message: { Text($0) }
+    .task {
+      guard contactActions else { return }
+      do {
+        for try await list in session.store.observeDialogs(limit: 5000) {
+          dialog = list.first { !$0.isGroup && $0.dialog.peerID == userId }
+        }
+      } catch {}
+    }
     .task {
       var req = Qqbridge_V1_GetUserProfileRequest()
       req.userID = userId
       req.refresh = true
       profile = try? await session.api.contacts.getUserProfile(request: req, headers: session.api.headers).get().profile
       loading = false
+    }
+  }
+
+  private func openChat() async {
+    do {
+      model.pendingChat = try await DialogActions.openChat(session, scene: .friend, peerId: userId)
+    } catch {
+      actionError = LoadState.describe(error)
+    }
+  }
+
+  /// 消息提醒：会话还没有时先建出来（设置挂在会话上）。
+  private func setPolicy(_ policy: String) async {
+    do {
+      let chatId: Int64
+      if let id = dialog?.id { chatId = id } else { chatId = try await DialogActions.openChat(session, scene: .friend, peerId: userId) }
+      DialogActions.setPolicy(chatId, session, policy == "all" ? "default" : policy)
+    } catch {
+      actionError = LoadState.describe(error)
+    }
+  }
+
+  private func deleteFriend() async {
+    var req = Qqbridge_V1_DeleteFriendRequest()
+    req.userID = userId
+    do {
+      _ = try await session.api.contacts.deleteFriend(request: req, headers: session.api.headers).get()
+      onDeleted?()
+    } catch {
+      actionError = LoadState.describe(error)
     }
   }
 
@@ -80,7 +155,9 @@ struct GroupInfoView: View {
   let dialog: Qqbridge_V1_Dialog
   let members: GroupMembers
   let avatars: AvatarBook
-  let onMention: (Int64) -> Void
+  var onMention: ((Int64) -> Void)? = nil
+  /// 从联系人点开时有：顶部显示"发消息"。
+  var onOpenChat: (() -> Void)? = nil
   @State private var profile: Qqbridge_V1_GroupProfile?
   @State private var current: Qqbridge_V1_Dialog?
   @State private var profileUser: ProfileTarget?
@@ -104,6 +181,10 @@ struct GroupInfoView: View {
         if let sign = profile?.peer.sign, !sign.isEmpty {
           Text(sign).font(.subheadline).foregroundStyle(.secondary)
         }
+      }
+
+      if let onOpenChat {
+        Section { Button("发消息", systemImage: "message", action: onOpenChat) }
       }
 
       Section("消息设置") {
@@ -145,7 +226,9 @@ struct GroupInfoView: View {
             }
           }
           .tint(.primary)
-          .contextMenu { Button("@\(memberName(m))", systemImage: "at") { onMention(m.userID) } }
+          .contextMenu {
+            if let onMention { Button("@\(memberName(m))", systemImage: "at") { onMention(m.userID) } }
+          }
         }
       }
     }
@@ -153,10 +236,12 @@ struct GroupInfoView: View {
     .navigationBarTitleDisplayMode(.inline)
     .sheet(item: $profileUser) { t in
       NavigationStack {
-        UserProfileView(session: session, userId: t.userId, groupMember: members.byId[t.userId]) {
-          profileUser = nil
-          onMention(t.userId)
-        }
+        UserProfileView(session: session, userId: t.userId, groupMember: members.byId[t.userId], onMention: onMention.map { mention in
+          {
+            profileUser = nil
+            mention(t.userId)
+          }
+        })
       }
       .presentationDetents([.medium, .large])
     }
