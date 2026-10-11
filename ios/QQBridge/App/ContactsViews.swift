@@ -139,7 +139,17 @@ struct ContactsView: View {
     !p.remark.isEmpty ? p.remark : (!p.name.isEmpty ? p.name : String(p.peerID))
   }
 
+  private static func sorted(_ list: [Qqbridge_V1_Peer]) -> [Qqbridge_V1_Peer] {
+    let name = { (p: Qqbridge_V1_Peer) in !p.remark.isEmpty ? p.remark : p.name }
+    return list.sorted { name($0).localizedStandardCompare(name($1)) == .orderedAscending }
+  }
+
   private func load(refresh: Bool) async {
+    // 先用本地缓存显示（名字、头像都有），再等服务端的列表和分组。
+    if friends.isEmpty, groups.isEmpty {
+      friends = Self.sorted((try? session.store.peers(kind: .user, friendsOnly: true)) ?? [])
+      groups = Self.sorted((try? session.store.peers(kind: .group)) ?? [])
+    }
     let api = session.api
     if refresh { _ = await api.contacts.refreshContacts(request: .init(), headers: api.headers) }
     do {

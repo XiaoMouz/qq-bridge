@@ -14,6 +14,8 @@ struct UserProfileView: View {
   var onDeleted: (() -> Void)? = nil
   @Environment(AppModel.self) private var model
   @State private var profile: Qqbridge_V1_UserProfile?
+  /// 本地缓存的资料：打开时先用它显示名字、头像、签名，服务端刷新回来再换成新的。
+  @State private var cached: Qqbridge_V1_Peer?
   @State private var loading = true
   @State private var dialog: DialogItem?
   @State private var confirmDelete = false
@@ -23,17 +25,17 @@ struct UserProfileView: View {
     List {
       Section {
         HStack(spacing: 16) {
-          AvatarView(sha256: profile?.peer.avatarSha256, title: displayName, seed: userId, size: 72)
+          AvatarView(sha256: peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }, title: displayName, seed: userId, size: 72)
           VStack(alignment: .leading, spacing: 4) {
             Text(displayName).font(.title3.bold())
-            if let p = profile?.peer, !p.remark.isEmpty, !p.name.isEmpty, p.remark != p.name {
+            if let p = peer, !p.remark.isEmpty, !p.name.isEmpty, p.remark != p.name {
               Text("昵称：\(p.name)").font(.subheadline).foregroundStyle(.secondary)
             }
             Text("QQ \(String(userId))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).textSelection(.enabled)
           }
         }
         .padding(.vertical, 4)
-        if let sign = profile?.peer.sign, !sign.isEmpty {
+        if let sign = peer?.sign, !sign.isEmpty {
           Text(sign).font(.subheadline).foregroundStyle(.secondary)
         }
       }
@@ -76,7 +78,7 @@ struct UserProfileView: View {
             }))
           }
         }
-        if profile?.peer.isFriend ?? true {
+        if peer?.isFriend ?? true {
           Section {
             Button("删除好友", role: .destructive) { confirmDelete = true }
           }
@@ -85,7 +87,8 @@ struct UserProfileView: View {
     }
     .navigationTitle("资料")
     .navigationBarTitleDisplayMode(.inline)
-    .overlay { if loading && profile == nil { ProgressView() } }
+    .overlay { if loading && profile == nil && cached == nil { ProgressView() } }
+    .onAppear { if cached == nil { cached = try? session.store.peer(kind: .user, peerId: userId) } }
     .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
       Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
     }
@@ -139,9 +142,11 @@ struct UserProfileView: View {
     }
   }
 
+  private var peer: Qqbridge_V1_Peer? { profile?.peer ?? cached }
+
   private var displayName: String {
     if let m = groupMember, !m.card.isEmpty { return m.card }
-    if let p = profile?.peer {
+    if let p = peer {
       if !p.remark.isEmpty { return p.remark }
       if !p.name.isEmpty { return p.name }
     }
@@ -159,6 +164,8 @@ struct GroupInfoView: View {
   /// 从联系人点开时有：顶部显示"发消息"。
   var onOpenChat: (() -> Void)? = nil
   @State private var profile: Qqbridge_V1_GroupProfile?
+  /// 本地缓存的群资料：先显示群名、头像、人数、简介。
+  @State private var cached: Qqbridge_V1_Peer?
   @State private var current: Qqbridge_V1_Dialog?
   @State private var profileUser: ProfileTarget?
   @State private var memberQuery = ""
@@ -169,16 +176,18 @@ struct GroupInfoView: View {
     List {
       Section {
         HStack(spacing: 16) {
-          AvatarView(sha256: profile?.peer.avatarSha256, title: profile?.peer.name ?? "", seed: dialog.peerID, size: 72)
+          AvatarView(sha256: groupPeer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }, title: groupName, seed: dialog.peerID, size: 72)
           VStack(alignment: .leading, spacing: 4) {
-            Text(profile?.peer.name ?? String(dialog.peerID)).font(.title3.bold())
+            Text(groupName).font(.title3.bold())
             Text("群号 \(String(dialog.peerID))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).textSelection(.enabled)
             if let p = profile {
               Text("\(p.peer.memberCount) / \(p.maxMemberCount) 人").font(.subheadline).foregroundStyle(.secondary)
+            } else if let c = cached, c.memberCount > 0 {
+              Text("\(c.memberCount) 人").font(.subheadline).foregroundStyle(.secondary)
             }
           }
         }
-        if let sign = profile?.peer.sign, !sign.isEmpty {
+        if let sign = groupPeer?.sign, !sign.isEmpty {
           Text(sign).font(.subheadline).foregroundStyle(.secondary)
         }
       }
@@ -234,6 +243,7 @@ struct GroupInfoView: View {
     }
     .navigationTitle("群资料")
     .navigationBarTitleDisplayMode(.inline)
+    .onAppear { if cached == nil { cached = try? session.store.peer(kind: .group, peerId: dialog.peerID) } }
     .sheet(item: $profileUser) { t in
       NavigationStack {
         UserProfileView(session: session, userId: t.userId, groupMember: members.byId[t.userId], onMention: onMention.map { mention in
@@ -259,6 +269,13 @@ struct GroupInfoView: View {
         }
       } catch {}
     }
+  }
+
+  private var groupPeer: Qqbridge_V1_Peer? { profile?.peer ?? cached }
+
+  private var groupName: String {
+    if let p = groupPeer, !p.name.isEmpty { return p.name }
+    return String(dialog.peerID)
   }
 
   private var filteredMembers: [Qqbridge_V1_GroupMember] {

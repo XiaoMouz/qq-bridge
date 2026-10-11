@@ -200,6 +200,26 @@ extension LocalStore {
     }
   }
 
+  /// 不指定 QQ 号查联系人 / 群（只登录一个 QQ 号时用；资料页先用它显示，再等服务端刷新）。
+  public func peer(kind: Qqbridge_V1_PeerKind, peerId: Int64) throws -> Qqbridge_V1_Peer? {
+    try db.read { db in
+      try Data.fetchOne(
+        db,
+        sql: "select data from peer where kind = ? and peerId = ? limit 1",
+        arguments: [kind.rawValue, peerId]
+      ).map { try Qqbridge_V1_Peer(serializedBytes: $0) }
+    }
+  }
+
+  /// 本地缓存的全部好友 / 群（联系人页先显示它，再等服务端的列表和分组）。
+  public func peers(kind: Qqbridge_V1_PeerKind, friendsOnly: Bool = false) throws -> [Qqbridge_V1_Peer] {
+    try db.read { db in
+      try Data.fetchAll(db, sql: "select data from peer where kind = ?", arguments: [kind.rawValue])
+        .map { try Qqbridge_V1_Peer(serializedBytes: $0) }
+        .filter { !friendsOnly || $0.isFriend }
+    }
+  }
+
   public func outbox(chatId: Int64) throws -> [Qqbridge_V1_OutboxEntry] {
     try db.read { db in
       try Data.fetchAll(db, sql: "select data from outbox where chatId = ? order by createdAt", arguments: [chatId])
