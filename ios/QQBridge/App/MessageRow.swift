@@ -221,6 +221,16 @@ struct MessageBubbleRow: View {
     }
   }
 
+  static func isSticker(_ m: Qqbridge_V1_Message) -> Bool {
+    m.segments.contains { seg in
+      switch seg.kind {
+      case .image(let i): i.sticker
+      case .marketFace: true
+      default: false
+      }
+    }
+  }
+
   /// 能加到"我的表情"的图片 / 表情（一条消息里的第一个）。
   static func stickerable(_ m: Qqbridge_V1_Message) -> Qqbridge_V1_MediaInfo? {
     for seg in m.segments {
@@ -239,7 +249,10 @@ struct MessageBubbleRow: View {
       Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
     }
     Button("多选", systemImage: "checkmark.circle") { context.selection.start(with: message.seq) }
-    if !message.text.isEmpty {
+    if let image = Self.stickerable(message) {
+      // 复制图片 / 表情：剪贴板里放图片本身（别的 App 也能粘贴）+ 服务端的 sha256（粘到本 App 别的会话不用重新上传）。
+      Button("复制", systemImage: "doc.on.doc") { context.actions.copyMedia(image, Self.isSticker(message)) }
+    } else if !message.text.isEmpty {
       Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
     }
     if let image = Self.stickerable(message) {
@@ -738,6 +751,16 @@ struct OutgoingRow: View {
       default:
         Image(systemName: "clock").font(.caption).foregroundStyle(.secondary)
       }
+      if let image = entry.segments.compactMap({ seg -> Qqbridge_V1_OutgoingMedia? in if case .image(let i) = seg.kind { i } else { nil } }).first {
+        // 图片、表情：直接显示（已经在服务端了）。
+        CachedImage(sha256: image.sha256, maxPixel: 420, animated: image.sticker) {
+          RoundedRectangle(cornerRadius: 12).fill(.quaternary).frame(width: 140, height: 140)
+        }
+        .aspectRatio(contentMode: .fit)
+        .frame(maxWidth: image.sticker ? 140 : 220, maxHeight: image.sticker ? 140 : 280)
+        .clipShape(RoundedRectangle(cornerRadius: image.sticker ? 0 : 14, style: .continuous))
+        .opacity(0.8)
+      } else {
       Text(entry.segments.map { seg in
         switch seg.kind {
         case .text(let t): t
@@ -755,6 +778,7 @@ struct OutgoingRow: View {
       .padding(10)
       .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
       .foregroundStyle(.white)
+      }
     }
     .contextMenu {
       if entry.state == .failed {

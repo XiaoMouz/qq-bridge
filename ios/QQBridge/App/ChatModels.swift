@@ -15,6 +15,8 @@ final class Composer {
   var replyTo: Qqbridge_V1_Message?
   /// 刚输入了 "@"：弹出选人。
   var pickingMention = false
+  /// 待发送的附件（输入框上方）。
+  var attachments: [Attachment] = []
 
   func insertMention(userId: Int64, name: String, replacingTrailingAt: Bool = false) {
     if replacingTrailingAt, text.hasSuffix("@") { text.removeLast() }
@@ -99,6 +101,10 @@ final class Composer {
     tokens = []
     replyTo = nil
   }
+
+  func update(_ id: UUID, _ state: Attachment.State) {
+    if let i = attachments.firstIndex(where: { $0.id == id }) { attachments[i].state = state }
+  }
 }
 
 /// 聊天页里各处要用的动作，由 ChatScreen 实现。
@@ -115,6 +121,8 @@ final class ChatActions {
   var forward: (Qqbridge_V1_Message) -> Void = { _ in }
   var playVoice: (Qqbridge_V1_RecordSegment) -> Void = { _ in }
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
+  /// 复制图片 / 表情到剪贴板。
+  var copyMedia: (Qqbridge_V1_MediaInfo, Bool) -> Void = { _, _ in }
   /// 跳到这条消息（点回复引用）。
   var jumpTo: (Int64) -> Void = { _ in }
   /// 把这张图片 / 表情加到"我的表情"（seq：所在消息，原图没下载时要用）。
@@ -549,4 +557,41 @@ final class BubbleFrames {
   private var frames: [Int64: CGRect] = [:]
   func set(_ seq: Int64, _ rect: CGRect) { frames[seq] = rect }
   func frame(_ seq: Int64) -> CGRect? { frames[seq] }
+}
+
+/// 输入框上方待发送的附件：选好的照片、视频、文件、粘贴或拖进来的图片。点发送时才上传、发出。
+struct Attachment: Identifiable {
+  enum Payload {
+    /// 照片（已转成 JPEG）。
+    case image(Data)
+    case video(URL)
+    case file(URL, name: String)
+    /// 服务端已有的图片 / 表情（从别的消息复制来的）：不用再上传。
+    case stored(sha256: String, sticker: Bool)
+  }
+
+  enum State: Equatable {
+    case ready
+    case uploading(Double)
+    case failed(String)
+  }
+
+  let id = UUID()
+  let payload: Payload
+  /// 预览图（文件没有，用图标）。
+  let preview: UIImage?
+  var state: State = .ready
+
+  var isFile: Bool { if case .file = payload { true } else { false } }
+  var fileName: String? { if case .file(_, let name) = payload { name } else { nil } }
+}
+
+/// 复制消息里的图片 / 表情时放进剪贴板的自定义类型：粘贴到本 App 时直接用服务端已有的内容。
+enum MediaPasteboard {
+  static let type = "com.xiaomouz.betterchat.media"
+
+  struct Payload: Codable {
+    let sha256: String
+    let sticker: Bool
+  }
 }

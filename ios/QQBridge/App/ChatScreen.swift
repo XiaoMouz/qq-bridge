@@ -62,6 +62,10 @@ struct ChatScreen: View {
   @State private var seenMentions: Set<Int64> = []
   /// 屏幕中间偏上的一行提示（例如跳转的消息加载不到），过两秒消失。
   @State private var notice: String?
+  /// 剪贴板里有图片：输入框获得焦点时显示"粘贴图片"。
+  @State private var canPaste = false
+  /// 有东西拖到聊天页上方：显示"松手发送"。
+  @State private var dropTargeted = false
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
@@ -178,6 +182,18 @@ struct ChatScreen: View {
       .animation(.snappy, value: atBottom)
       .animation(.snappy, value: mentions.count)
     }
+    // 拖进来的照片、视频、文件：松手直接发送。
+    .dropDestination(for: DroppedItem.self) { items, _ in
+      Task {
+        for item in items { if let a = await AttachmentLoader.load(file: item.url) { composer.attachments.append(a) } }
+        sendAll()
+      }
+      return !items.isEmpty
+    } isTargeted: { dropTargeted = $0 }
+    .overlay { if dropTargeted { DropHint().transition(.opacity) } }
+    .animation(.easeOut(duration: 0.15), value: dropTargeted)
+    .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
+    .onChange(of: inputFocused) { _, focused in if focused { checkPasteboard() } }
     .safeAreaBar(edge: .bottom) {
       if selection.active { selectionBar } else { inputArea }
     }
@@ -291,12 +307,13 @@ struct ChatScreen: View {
     .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 20, selectionBehavior: .ordered, matching: .any(of: [.images, .videos]))
     .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
       guard case .success(let urls) = result else { return }
-      Task { for url in urls { await sendFile(url) } }
+      Task { for url in urls { if let a = await AttachmentLoader.load(file: url) { composer.attachments.append(a) } } }
     }
     .onChange(of: photoItems) { _, items in
       guard !items.isEmpty else { return }
       photoItems = []
-      Task { for item in items { await sendPhoto(item) } }
+      // 选好的先放进输入框上方，点发送才发。
+      Task { for item in items { if let a = await AttachmentLoader.load(item) { composer.attachments.append(a) } } }
     }
     .onDisappear {
       if model.openChatId == chatId { model.openChatId = nil }
@@ -369,6 +386,22 @@ struct ChatScreen: View {
         }
         .padding(.horizontal, 16)
       }
+      if !composer.attachments.isEmpty {
+        AttachmentTray(composer: composer)
+      }
+      if canPaste, inputFocused, composer.attachments.isEmpty {
+        Button {
+          if let a = AttachmentLoader.fromPasteboard() { composer.attachments.append(a) }
+          canPaste = false
+        } label: {
+          Label("粘贴图片", systemImage: "doc.on.clipboard").font(.footnote)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .glassEffect(.regular.interactive(), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+      }
       if let reply = composer.replyTo {
         HStack(spacing: 8) {
           Rectangle().fill(.tint).frame(width: 3)
@@ -412,7 +445,7 @@ struct ChatScreen: View {
         }
         // 右：有字时发送，没字时按住录语音。
         if hasText, !recorder.recording {
-          Button(action: sendText) {
+          Button(action: sendAll) {
             Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundStyle(.white)
               .frame(width: 34, height: 34)
               .background(Circle().fill(Color.accentColor))
@@ -520,6 +553,12 @@ struct ChatScreen: View {
     Task { _ = await session.api.messages.markMentionsSeen(request: req, headers: session.api.headers) }
   }
 
+  /// 只看剪贴板里有没有图片（不读内容，不会弹出"允许粘贴"）。
+  private func checkPasteboard() {
+    let pb = UIPasteboard.general
+    canPaste = pb.hasImages || pb.contains(pasteboardTypes: [MediaPasteboard.type])
+  }
+
   private func showScrollDay(_ time: Int64?) {
     scrollDayHide?.cancel()
     if let time {
@@ -531,6 +570,22 @@ struct ChatScreen: View {
         if !Task.isCancelled { scrollDay = nil }
       }
     }
+  }
+
+  private func copyMedia(_ media: Qqbridge_V1_MediaInfo, sticker: Bool) async {
+    let sha = media.state == .stored && !media.sha256.isEmpty ? media.sha256 : (media.thumbSha256.isEmpty ? nil : media.thumbSha256)
+    guard let sha, let file = try? await session.media.file(for: sha, chatId: chatId), let data = try? Data(contentsOf: file) else {
+      show("图片还没下载好")
+      return
+    }
+    var item: [String: Any] = [MediaPasteboard.type: (try? JSONEncoder().encode(MediaPasteboard.Payload(sha256: sha, sticker: sticker))) ?? Data()]
+    if data.starts(with: [0x47, 0x49, 0x46]) {
+      item[UTType.gif.identifier] = data
+    } else if let image = UIImage(data: data), let png = image.pngData() {
+      item[UTType.png.identifier] = png
+    }
+    UIPasteboard.general.setItems([item])
+    show("已复制")
   }
 
   /// 加到"我的表情"：原图还没下载就先让服务端从 QQ 拉。
@@ -643,6 +698,7 @@ struct ChatScreen: View {
     }
     actions.openMedia = { mediaTarget = $0 }
     actions.jumpTo = { seq in Task { await jump(to: seq) } }
+    actions.copyMedia = { media, sticker in Task { await copyMedia(media, sticker: sticker) } }
     actions.addSticker = { media, seq in Task { await addSticker(media, seq: seq) } }
     actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }
     actions.openFile = { file in
@@ -670,7 +726,7 @@ struct ChatScreen: View {
 
   // MARK: 发送
 
-  private var hasText: Bool { !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  private var hasText: Bool { !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composer.attachments.isEmpty }
 
   private func startRecording() {
     recorder.onAutoFinish = { finishRecording(cancelled: false) }
@@ -701,6 +757,67 @@ struct ChatScreen: View {
       } catch {
         sendError = "语音发送失败：\(error)"
       }
+    }
+  }
+
+  /// 点发送：先把附件逐个上传、发出（每个一条；第一条带回复），再发文字。
+  private func sendAll() {
+    let pending = composer.attachments.filter { if case .uploading = $0.state { false } else { true } }
+    guard !pending.isEmpty else {
+      sendText()
+      return
+    }
+    var reply = composer.replyTo?.seq
+    let hasWords = !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    Task {
+      for a in pending {
+        if await send(a, replyTo: reply) { reply = nil }
+      }
+      if hasWords {
+        if reply == nil { composer.replyTo = nil }
+        sendText()
+      } else if reply == nil {
+        composer.replyTo = nil
+      }
+    }
+  }
+
+  /// 上传并发出一个附件；成功后从预览条移除。
+  private func send(_ a: Attachment, replyTo: Int64?) async -> Bool {
+    composer.update(a.id, .uploading(0))
+    let progress: @Sendable (Double) -> Void = { p in Task { @MainActor in composer.update(a.id, .uploading(p)) } }
+    do {
+      var seg = Qqbridge_V1_OutgoingSegment()
+      var reply = replyTo
+      switch a.payload {
+      case .image(let data):
+        let isGif = data.starts(with: [0x47, 0x49, 0x46])
+        let uploaded = try await session.api.upload(data, mime: isGif ? "image/gif" : "image/jpeg", name: isGif ? "image.gif" : "photo.jpg")
+        seg.image.sha256 = uploaded.sha256
+      case .stored(let sha, let sticker):
+        seg.image.sha256 = sha
+        if sticker {
+          seg.image.sticker = true
+          seg.image.summary = "[动画表情]"
+        }
+      case .video(let url):
+        let uploaded = try await session.api.uploadFile(at: url, mime: "video/mp4", name: url.lastPathComponent, progress: progress)
+        seg.video.sha256 = uploaded.sha256
+        reply = nil  // 视频、文件不能带回复
+      case .file(let url, let name):
+        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let uploaded = try await session.api.uploadFile(at: url, mime: mime, name: name, progress: progress)
+        seg.file.sha256 = uploaded.sha256
+        seg.file.name = name
+        reply = nil
+      }
+      try await session.sender.send(chatId: chatId, segments: [seg], replyToSeq: reply)
+      composer.attachments.removeAll { $0.id == a.id }
+      return reply != nil
+    } catch {
+      composer.update(a.id, .failed("\(error)"))
+      sendError = "发送失败：\(LoadState.describe(error))"
+      return false
     }
   }
 
@@ -807,7 +924,7 @@ struct ChatScreen: View {
     }
   }
 
-  static func jpeg(_ image: UIImage) -> Data? {
+  nonisolated static func jpeg(_ image: UIImage) -> Data? {
     let maxSide: CGFloat = 2560
     let scale = min(1, maxSide / max(image.size.width, image.size.height))
     let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -909,6 +1026,20 @@ struct FloatingChatButton: View {
           .background(Color.accentColor, in: Capsule())
           .offset(x: 6, y: -6)
       }
+    }
+  }
+}
+
+/// 拖进来的东西：先落到临时文件再处理。
+struct DroppedItem: Transferable {
+  let url: URL
+  static var transferRepresentation: some TransferRepresentation {
+    FileRepresentation(importedContentType: .item) { received in
+      let dir = FileManager.default.temporaryDirectory.appendingPathComponent("drop-\(UUID().uuidString)")
+      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      let dest = dir.appendingPathComponent(received.file.lastPathComponent)
+      try FileManager.default.copyItem(at: received.file, to: dest)
+      return DroppedItem(url: dest)
     }
   }
 }
