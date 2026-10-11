@@ -164,7 +164,7 @@ struct StorageView: View {
       VStack(alignment: .leading, spacing: 8) {
         HStack(alignment: .firstTextBaseline) {
           Text(Bytes.text(used)).font(.title2.bold().monospacedDigit())
-          Text(cap.map { "/ \(Bytes.text($0))" } ?? "/ 不限").foregroundStyle(.secondary)
+          Text(cacheCapGB == 0 ? "/ 不限" : "/ \(cacheCapGB) GB").foregroundStyle(.secondary)
           Spacer()
           Text("\(usage?.fileCount ?? 0) 个文件").font(.caption).foregroundStyle(.secondary)
         }
@@ -173,7 +173,8 @@ struct StorageView: View {
       .padding(.vertical, 4)
       let top = (usage?.byChat ?? [:]).sorted { $0.value > $1.value }.prefix(5)
       ForEach(Array(top), id: \.key) { chatId, bytes in
-        LabeledContent(dialogs[chatId]?.title ?? "会话 \(chatId)", value: Bytes.text(bytes))
+        // 0 = 不属于任何会话（头像等）。
+        LabeledContent(chatId == 0 ? "其他" : dialogs[chatId]?.title ?? "会话 \(chatId)", value: Bytes.text(bytes))
       }
       Picker("上限", selection: $cacheCapGB) {
         ForEach([1, 2, 5, 10, 0], id: \.self) { Text($0 == 0 ? "不限" : "\($0) GB").tag($0) }
