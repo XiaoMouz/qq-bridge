@@ -50,6 +50,7 @@ struct ChatScreen: View {
   @State private var highlight = MessageHighlight()
   @State private var lookup = ChatLookup()
   @State private var timeReveal = TimeReveal()
+  @State private var bubbleFrames = BubbleFrames()
   /// 往上翻时顶部显示的日期（停下一会儿后消失）。
   @State private var scrollDay: String?
   @State private var scrollDayHide: Task<Void, Never>?
@@ -94,7 +95,8 @@ struct ChatScreen: View {
         session: session,
         highlight: highlight,
         lookup: lookup,
-        timeReveal: timeReveal
+        timeReveal: timeReveal,
+        bubbleFrames: bubbleFrames
       ),
       onReachTop: loadOlder,
       onBottomChange: { bottom in

@@ -20,8 +20,9 @@ struct MessageContext {
   let highlight: MessageHighlight
   /// 名字、头像、被回复消息的内存缓存：滚动时不在主线程查数据库。
   let lookup: ChatLookup
-  /// 从右边缘往左拖：所有消息一起左移，露出发送时间。
+  /// 在空白处往左拖：所有消息一起左移，露出发送时间。
   let timeReveal: TimeReveal
+  let bubbleFrames: BubbleFrames
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
   @MainActor
@@ -105,7 +106,8 @@ struct MessageRow: View {
       }
     }
     .frame(maxWidth: .infinity)
-    // 从右边缘往左拖：内容整体左移，右边露出发送时间（今天只显示时刻，昨天、更早的带日期）。
+    .coordinateSpace(.named(MessageRow.space))
+    // 在空白处往左拖：内容整体左移，右边露出发送时间（今天只显示时刻，昨天、更早的带日期）。
     .offset(x: revealsTime ? -context.timeReveal.offset : 0)
     .overlay(alignment: .bottomTrailing) {
       if revealsTime, context.timeReveal.offset > 0 {
@@ -125,6 +127,9 @@ struct MessageRow: View {
     }
     .animation(.easeOut(duration: 0.4), value: context.highlight.seq)
   }
+
+  /// 行内坐标系的名字（气泡位置用）。
+  static let space = "messageRow"
 
   private var revealsTime: Bool {
     if case .event = item { return false }
@@ -203,6 +208,7 @@ struct MessageBubbleRow: View {
         HStack(alignment: .bottom, spacing: 6) {
           if recalled, outgoing { RecalledTag(text: recalledText) }
           MessageContent(message: message, context: context, outgoing: outgoing)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MessageRow.space)) } action: { context.bubbleFrames.set(message.seq, $0) }
             // 动图表情是 UIKit 视图、透明的地方不算点中：整块都算，长按才弹得出菜单。
             .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
             .contentShape(Rectangle())

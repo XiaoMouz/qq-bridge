@@ -542,3 +542,11 @@ enum MentionAvatar {
     return out
   }
 }
+
+/// 每条消息的气泡在它那一行里的位置（行内坐标）：横向拖动时据此判断按在气泡上（回复）还是空白处（看时间）。
+@MainActor
+final class BubbleFrames {
+  private var frames: [Int64: CGRect] = [:]
+  func set(_ seq: Int64, _ rect: CGRect) { frames[seq] = rect }
+  func frame(_ seq: Int64) -> CGRect? { frames[seq] }
+}

@@ -119,7 +119,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     collectionView.addSubview(replyArrow)
   }
 
-  // MARK: 横向拖动：从右边缘拖 = 露出时间；在某条消息上拖 = 回复它
+  // MARK: 横向拖动：按在气泡上拖 = 回复这条；按在空白处拖 = 露出时间
 
   private enum PanMode {
     case times
@@ -130,7 +130,6 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill",
                                                       withConfiguration: UIImage.SymbolConfiguration(pointSize: 26)))
   private static let replyThreshold: CGFloat = 64
-  private static let edgeZone: CGFloat = 56
   private var replyArmed = false
 
   func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
@@ -139,16 +138,19 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     let v = pan.velocity(in: collectionView)
     // 只认往左、明显横向的拖动（往右是系统的返回手势）。
     guard v.x < 0, abs(v.x) > abs(v.y) * 1.5 else { return false }
-    let point = pan.location(in: view)
-    if point.x > view.bounds.width - Self.edgeZone {
-      panMode = .times
-      return true
-    }
     let p = pan.location(in: collectionView)
-    guard let indexPath = collectionView.indexPathForItem(at: p), let cell = collectionView.cellForItem(at: indexPath),
-      let id = dataSource.itemIdentifier(for: indexPath), case .message(let m)? = byId[id], m.state != .recalled
-    else { return false }
-    panMode = .reply(cell: cell, message: m)
+    if let indexPath = collectionView.indexPathForItem(at: p), let cell = collectionView.cellForItem(at: indexPath),
+      let id = dataSource.itemIdentifier(for: indexPath), case .message(let m)? = byId[id], m.state != .recalled,
+      let bubble = messageContext?.bubbleFrames.frame(m.seq)
+    {
+      // 行内坐标 = 单元格内容坐标减去边距（左右 12、上下 2）；UIKit 换算时已经处理了翻转。
+      let local = pan.location(in: cell.contentView)
+      if bubble.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x - 12, y: local.y - 2)) {
+        panMode = .reply(cell: cell, message: m)
+        return true
+      }
+    }
+    panMode = .times
     return true
   }
 
