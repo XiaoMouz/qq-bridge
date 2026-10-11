@@ -64,7 +64,7 @@ struct LoginView: View {
           .disabled(busy || username.isEmpty || password.isEmpty)
         }
       }
-      .navigationTitle("QQ Bridge")
+      .navigationTitle("BetterChat")
       .onAppear {
         if server.trimmingCharacters(in: .whitespaces).isEmpty {
           #if targetEnvironment(simulator)
@@ -91,7 +91,7 @@ struct LoginView: View {
     do {
       let (_, response) = try await URLSession.shared.data(for: req)
       let ok = (response as? HTTPURLResponse)?.statusCode == 200
-      reachability = ok ? "✓ 服务器连得上" : "✗ 地址能连上，但不是 QQ Bridge 服务器"
+      reachability = ok ? "✓ 服务器连得上" : "✗ 地址能连上，但不是 BetterChat 的服务器"
     } catch {
       if !Task.isCancelled { reachability = "✗ 连不上：\(error.localizedDescription)" }
     }

@@ -33,7 +33,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: QQ Bridge
+        CFBundleDisplayName: BetterChat
         NSMicrophoneUsageDescription: 按住麦克风录语音消息
         NSPhotoLibraryUsageDescription: 选择要发送的照片
         NSPhotoLibraryAddUsageDescription: 把聊天里的图片保存到相册

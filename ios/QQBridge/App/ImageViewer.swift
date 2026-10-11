@@ -165,7 +165,7 @@ struct ImageViewer: View {
   private func save(_ file: URL) async {
     let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
     guard status == .authorized || status == .limited else {
-      show("没有相册权限：请在系统设置里允许 QQ Bridge 添加照片")
+      show("没有相册权限：请在系统设置里允许 BetterChat 添加照片")
       return
     }
     let named = editableCopy(file)

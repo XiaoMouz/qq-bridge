@@ -386,7 +386,7 @@ struct ChatScreen: View {
       do {
         try await recorder.start()
       } catch {
-        sendError = (error as? VoiceRecorder.StartError) == .denied ? "没有麦克风权限：请在系统设置里允许 QQ Bridge 使用麦克风" : "录不了音：没有找到可用的麦克风"
+        sendError = (error as? VoiceRecorder.StartError) == .denied ? "没有麦克风权限：请在系统设置里允许 BetterChat 使用麦克风" : "录不了音：没有找到可用的麦克风"
       }
     }
   }
