@@ -35,7 +35,7 @@ struct ChatScreen: View {
   @State private var showInfo = false
   @State private var showStickers = false
   @State private var recorder = VoiceRecorder()
-  @State private var photoItem: PhotosPickerItem?
+  @State private var photoItems: [PhotosPickerItem] = []
   @State private var showPhotos = false
   @State private var showFiles = false
   /// 正在上传的附件：名字和进度（0…1）。
@@ -99,7 +99,16 @@ struct ChatScreen: View {
         if selection.active {
           Button("取消") { selection.end() }
         } else {
-          Button("详情", systemImage: isGroup ? "person.3" : "person.crop.circle") { showInfo = true }
+          if isGroup {
+            Button("详情", systemImage: "person.3") { showInfo = true }
+          } else if let d = dialog {
+            // 私聊：右上角显示对方头像，点开是资料页。
+            Button { showInfo = true } label: {
+              AvatarView(sha256: peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 } ?? avatars.sha256[d.peerID], title: title, seed: d.peerID, size: 32)
+                .onAppear { if peer?.avatarSha256.isEmpty ?? true { avatars.want(d.peerID, session: session) } }
+            }
+            .accessibilityLabel("资料")
+          }
         }
       }
     }
@@ -168,15 +177,16 @@ struct ChatScreen: View {
       if isGroup, new.hasSuffix("@"), new.count == old.count + 1 { composer.pickingMention = true }
       // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
     }
-    .photosPicker(isPresented: $showPhotos, selection: $photoItem, matching: .any(of: [.images, .videos]))
+    // 一次最多选 20 张 / 个，按选择的顺序逐条发出。
+    .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 20, selectionBehavior: .ordered, matching: .any(of: [.images, .videos]))
     .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
       guard case .success(let urls) = result else { return }
       Task { for url in urls { await sendFile(url) } }
     }
-    .onChange(of: photoItem) { _, item in
-      guard let item else { return }
-      photoItem = nil
-      Task { await sendPhoto(item) }
+    .onChange(of: photoItems) { _, items in
+      guard !items.isEmpty else { return }
+      photoItems = []
+      Task { for item in items { await sendPhoto(item) } }
     }
     .onDisappear {
       if model.openChatId == chatId { model.openChatId = nil }

@@ -214,7 +214,8 @@ enum Block {
   case text([Inline])
   case reply(Int64)
   case image(Qqbridge_V1_ImageSegment)
-  case sticker(media: Qqbridge_V1_MediaInfo, summary: String)
+  /// size：表情的原始尺寸（不知道时为 nil，按正方形显示）。
+  case sticker(media: Qqbridge_V1_MediaInfo, summary: String, size: CGSize?)
   case record(Qqbridge_V1_RecordSegment)
   case video(Qqbridge_V1_VideoSegment)
   case file(Qqbridge_V1_FileSegment)
@@ -228,6 +229,21 @@ enum Block {
     case .text(let runs): Inline.jumboFaces(runs) != nil
     default: false
     }
+  }
+
+  static func size(_ width: UInt32, _ height: UInt32, _ media: Qqbridge_V1_MediaInfo) -> CGSize? {
+    if width > 0, height > 0 { return CGSize(width: Int(width), height: Int(height)) }
+    if media.width > 0, media.height > 0 { return CGSize(width: Int(media.width), height: Int(media.height)) }
+    return nil
+  }
+
+  /// 表情显示的大小：按原始比例放进 140×140 的框里。先定好大小，不等图片加载——
+  /// 聊天列表的格子按第一次排版时的大小定高，图片加载完不会再撑开（否则第一次进会话时表情会被压得很小）。
+  static func stickerFrame(_ size: CGSize?) -> CGSize {
+    let box: CGFloat = 140
+    guard let size, size.width > 0, size.height > 0 else { return CGSize(width: box, height: box) }
+    let scale = box / max(size.width, size.height)
+    return CGSize(width: max(40, size.width * scale), height: max(40, size.height * scale))
   }
 
   @MainActor static func make(_ segments: [Qqbridge_V1_Segment], context: MessageContext) -> [Block] {
@@ -258,7 +274,7 @@ enum Block {
       case .reply(let r): out.insert(.reply(r.seq), at: 0)
       case .image(let i):
         flush()
-        out.append(i.sticker ? .sticker(media: i.media, summary: i.summary) : .image(i))
+        out.append(i.sticker ? .sticker(media: i.media, summary: i.summary, size: Block.size(i.width, i.height, i.media)) : .image(i))
       case .record(let r): flush(); out.append(.record(r))
       case .video(let v): flush(); out.append(.video(v))
       case .file(let f): flush(); out.append(.file(f))
@@ -266,7 +282,7 @@ enum Block {
       case .marketFace(let f):
         flush()
         if f.hasMedia, !f.media.sha256.isEmpty {
-          out.append(.sticker(media: f.media, summary: f.summary))
+          out.append(.sticker(media: f.media, summary: f.summary, size: Block.size(0, 0, f.media)))
         } else {
           out.append(.text([.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary))]))
         }
@@ -311,14 +327,14 @@ struct BlockView: View {
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId, onNeedThumb: { requestMedia(i.media) })
         .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
-    case .sticker(let media, let summary):
+    case .sticker(let media, let summary, let size):
       // 表情用原图（会动）；原图还没有时先显示以前的缩略图，不常用会话里显示到时才向服务端要原图。
       let sha = media.state == .stored && !media.sha256.isEmpty ? media.sha256 : (media.thumbSha256.isEmpty ? nil : media.thumbSha256)
       CachedImage(sha256: sha, chatId: context.chatId, maxPixel: 420, animated: true) {
         Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
       }
       .aspectRatio(contentMode: .fit)
-      .frame(maxWidth: 140, maxHeight: 140)
+      .frame(width: Block.stickerFrame(size).width, height: Block.stickerFrame(size).height)
       .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
       VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
