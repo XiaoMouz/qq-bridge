@@ -8,12 +8,15 @@ struct DialogListView: View {
   @Environment(AppModel.self) private var model
   @State private var items: [DialogItem] = []
   @State private var path = NavigationPath()
+  /// 上一次"再点消息标签"跳到的会话：下次从它后面接着找。
+  @State private var lastJumped: Int64?
 
   private var visible: [DialogItem] { items.filter { !$0.isArchived } }
   private var archived: [DialogItem] { items.filter(\.isArchived) }
 
   var body: some View {
     NavigationStack(path: $path) {
+      ScrollViewReader { proxy in
       List {
         let pinned = visible.filter(\.dialog.pinned)
         let rest = visible.filter { !$0.dialog.pinned }
@@ -30,6 +33,8 @@ struct DialogListView: View {
         ForEach(rest.filter { $0.dialog.topTime < archiveTime }) { row($0) }
       }
       .listStyle(.plain)
+      .onChange(of: model.nextUnreadTick) { jumpToNextUnread(proxy) }
+      }
       .navigationTitle("消息")
       .navigationDestination(for: Route.self) { route in
         switch route {
@@ -60,6 +65,27 @@ struct DialogListView: View {
       model.pendingChat = nil
       path = NavigationPath([Route.chat(chatId)])
     }
+  }
+
+  /// 再点一次"消息"标签：在会话里就先回到列表；在列表就滚到下一个有未读（算进角标的）的会话，到底了从头再来。
+  private func jumpToNextUnread(_ proxy: ScrollViewProxy) {
+    if !path.isEmpty {
+      path = NavigationPath()
+      return
+    }
+    // 和列表的显示顺序一致（群助手里的不算，它们在单独的列表里）。
+    let pinned = visible.filter(\.dialog.pinned)
+    let rest = visible.filter { !$0.dialog.pinned }
+    let order = (pinned + rest).filter { $0.badgeCount > 0 }.map(\.id)
+    guard !order.isEmpty else { return }
+    let next: Int64
+    if let last = lastJumped, let i = order.firstIndex(of: last), i + 1 < order.count {
+      next = order[i + 1]
+    } else {
+      next = order[0]
+    }
+    lastJumped = next
+    withAnimation { proxy.scrollTo(next, anchor: .top) }
   }
 
   private func row(_ item: DialogItem) -> some View {

@@ -18,6 +18,7 @@ import {
   SyncService,
   type SubscribeResponseSchema,
 } from '@qqbridge/protocol';
+import { MessageFlag } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { CallError } from '../calls/service.ts';
 import { ContactError, type UserProfile } from '../contacts/service.ts';
@@ -346,6 +347,21 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         }
       }
       return { chatPts: BigInt(res.chatPts), messages: res.messages.map(messageToProto), events: res.events.map(chatEventToProto) };
+    },
+    async listUnreadMentions(req, ctx) {
+      const auth = requireAuth(ctx);
+      const chatId = toSafeNumber(req.chatId, 'chat_id');
+      const afterSeq = toSafeNumber(req.afterSeq, 'after_seq');
+      const mask = MessageFlag.mentionsMe | MessageFlag.mentionAll | MessageFlag.replyToMe;
+      const list = await rows<{ seq: number; flags: number }>(
+        deps.db,
+        sql`select m.seq, m.flags from messages m
+              join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
+             where q.account_id = ${auth.accountId} and m.chat_id = ${chatId} and m.seq > ${afterSeq}
+               and m.sender_uin <> q.uin and m.state = 'normal' and (m.flags & ${mask}) <> 0
+             order by m.seq desc limit 200`,
+      );
+      return { mentions: list.map((m) => ({ seq: BigInt(m.seq), flags: m.flags & mask })) };
     },
     async forwardMessages(req, ctx) {
       const auth = requireAuth(ctx);

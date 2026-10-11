@@ -149,12 +149,20 @@ describe('PushNotifier', () => {
     expect((await receive(textMessage('group', 300, seq++, 401, { extra: [{ type: 'mention_all' }] }))).n).toBe(0);
   });
 
-  it('badge counts unread in chats that notify; muted chats are left out', async () => {
-    await prefs.setNotifyPolicy(acc.accountId, await chatOf('group', 300), 'archived');
+  it('badge: all unread in chats that notify, only @me and replies elsewhere, never @all on its own', async () => {
+    const group = await chatOf('group', 300);
+    await prefs.setNotifyPolicy(acc.accountId, group, 'archived');
     const s = seq++;
     await receive(textMessage('friend', 400, s, 400));
-    const friendUnread = await one<{ n: number }>(t.db, sql`select unread_count as n from chats where scene = 'friend' and peer_id = 400`);
-    expect((sent[0]!.payload as { aps: { badge: number } }).aps.badge).toBe(friendUnread.n);
+    const counts = await one<{ friend: number; mentions: number; replies: number; all: number }>(
+      t.db,
+      sql`select (select unread_count from chats where scene = 'friend' and peer_id = 400) as friend,
+                 unread_mentions as mentions, unread_replies as replies, unread_mention_all as all
+            from chats where id = ${group}`,
+    );
+    expect(counts.mentions).toBeGreaterThan(0);
+    expect(counts.all).toBeGreaterThan(0);
+    expect((sent[0]!.payload as { aps: { badge: number } }).aps.badge).toBe(counts.friend + counts.mentions + counts.replies);
   });
 
   it('drops tokens APNs says are dead', async () => {

@@ -4,7 +4,7 @@
 // - 免打扰、收进群助手的会话不推。
 // - "只提醒 @我和回复我"：只推 @我、回复我，以及打开了"@全体成员 提醒"时的 @全体成员。
 // - 其余（默认 / 全部提醒）都推。
-// 角标 = 不在免打扰 / 群助手里的会话的未读数之和（与会话列表的高亮未读一致）。
+// 角标 = 会提醒的会话的未读数，加上其他会话（免打扰、群助手、只提醒 @我）里的 @我 和回复我；@全体成员 不单独算。
 import { MessageFlag, plainText, type Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -146,8 +146,10 @@ export class PushNotifier {
   private async badge(accountId: number): Promise<number> {
     const row = await one<{ n: number }>(
       this.db,
-      sql`select coalesce(sum(c.unread_count), 0)::int as n from chats c join qq_accounts q on q.id = c.qq_account_id
-           where q.account_id = ${accountId} and c.notify_policy not in ('muted', 'archived')`,
+      sql`select coalesce(sum(case when c.notify_policy in ('muted', 'archived', 'mentions')
+                                    then c.unread_mentions + c.unread_replies else c.unread_count end), 0)::int as n
+            from chats c join qq_accounts q on q.id = c.qq_account_id
+           where q.account_id = ${accountId}`,
     );
     return row.n;
   }

@@ -44,6 +44,14 @@ struct ChatScreen: View {
   @State private var uploading: (name: String, progress: Double)?
   @State private var atBottom = true
   @State private var lastMarked: Int64 = 0
+  /// 右下角"有人@我"：未读的 @我 / 回复我 / @全体成员，由近到远（最新的在最前），点一次跳一条。
+  @State private var mentions: [MentionTarget] = []
+  @State private var scrollRequest: ChatScrollRequest?
+  @State private var highlight = MessageHighlight()
+  /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
+  @State private var bottomMark: Int64 = 0
+  /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
+  @State private var newestSeen: Int64 = 0
   @FocusState private var inputFocused: Bool
 
   private var isGroup: Bool { dialog?.scene == .group }
@@ -71,11 +79,40 @@ struct ChatScreen: View {
         selection: selection,
         voice: voice,
         actions: actions,
-        session: session
+        session: session,
+        highlight: highlight
       ),
       onReachTop: loadOlder,
-      onBottomChange: { atBottom = $0; markReadIfNeeded() }
+      onBottomChange: { bottom in
+        atBottom = bottom
+        if bottom, let last = items.lastMessageSeq { bottomMark = max(bottomMark, last) }
+        markReadIfNeeded()
+      },
+      scrollRequest: scrollRequest
     )
+    // 两个按钮的位置是固定的：回到底部按钮不显示时也留着它的位置，"有人@我"不会因为它出现而被顶上去。
+    .overlay(alignment: .bottomTrailing) {
+      VStack(spacing: 12) {
+        if let top = mentions.first {
+          FloatingChatButton(systemImage: Self.icon(top.kind), count: mentions.count) { jumpToNextMention() }
+            .transition(.scale.combined(with: .opacity))
+        }
+        ZStack {
+          if !atBottom {
+            FloatingChatButton(systemImage: "chevron.down", count: newMessageCount) {
+              bottomMark = items.lastMessageSeq ?? bottomMark
+              scrollRequest = ChatScrollRequest(target: .bottom)
+            }
+            .transition(.scale.combined(with: .opacity))
+          }
+        }
+        .frame(width: 46, height: 46)
+      }
+      .padding(.trailing, 14)
+      .padding(.bottom, 10)
+      .animation(.snappy, value: atBottom)
+      .animation(.snappy, value: mentions.count)
+    }
     .safeAreaBar(edge: .bottom) {
       if selection.active { selectionBar } else { inputArea }
     }
@@ -166,6 +203,7 @@ struct ChatScreen: View {
       do {
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
           items = list
+          noteNewMessages()
           markReadIfNeeded()
         }
       } catch {}
@@ -328,11 +366,95 @@ struct ChatScreen: View {
     dialog = try? session.store.dialog(chatId: chatId)
     if let d = dialog { selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0 }
     wireActions()
+    // 已读位置要在标已读之前记下来：之后的 @我 / 回复我 / @全体成员 就是要提示的。
+    if let d = dialog {
+      let pending = d.unreadMentions + d.unreadReplies + (d.mentionAllNotify ? d.unreadMentionAll : 0)
+      if pending > 0 { Task { await loadMentions(after: d.readInboxMaxSeq, includeAll: d.mentionAllNotify) } }
+    }
     async let catchUp: Void = { try? await session.sync.openChat(chatId) }()
     async let active: Void = setActive(true)
     if let d = dialog, d.scene == .group { await members.load(session: session, groupId: d.peerID) }
     _ = await (catchUp, active)
     markReadIfNeeded()
+  }
+
+  // MARK: 有人@我、回到底部
+
+  private var newMessageCount: Int {
+    items.reduce(0) { n, item in
+      if case .message(let m) = item, m.seq > bottomMark, m.senderID != selfUin { return n + 1 }
+      return n
+    }
+  }
+
+  static func icon(_ kind: MentionTarget.Kind) -> String {
+    switch kind {
+    case .reply: "arrowshape.turn.up.left.fill"
+    case .me: "at"
+    case .all: "megaphone.fill"
+    }
+  }
+
+  private func loadMentions(after seq: Int64, includeAll: Bool) async {
+    var req = Qqbridge_V1_ListUnreadMentionsRequest()
+    req.chatID = chatId
+    req.afterSeq = seq
+    guard let res = try? await session.api.messages.listUnreadMentions(request: req, headers: session.api.headers).get() else { return }
+    let found = res.mentions.compactMap { MentionTarget(seq: $0.seq, flags: $0.flags, includeAll: includeAll) }
+    // 和打开后新来的合在一起，最新的在最前。
+    let known = Set(mentions.map(\.seq))
+    mentions = (mentions + found.filter { !known.contains($0.seq) }).sorted { $0.seq > $1.seq }
+  }
+
+  /// 新到的消息：不在底部时，里面的 @我 / 回复我 / @全体成员 加进"有人@我"（最新的在最前）。
+  private func noteNewMessages() {
+    guard let last = items.lastMessageSeq else { return }
+    if newestSeen == 0 {
+      newestSeen = last
+      if bottomMark == 0 { bottomMark = last }
+      return
+    }
+    guard last > newestSeen else { return }
+    let includeAll = dialog?.mentionAllNotify ?? true
+    if !atBottom {
+      let fresh = items.compactMap { item -> MentionTarget? in
+        guard case .message(let m) = item, m.seq > newestSeen, m.senderID != selfUin, m.state != .recalled else { return nil }
+        return MentionTarget(seq: m.seq, flags: m.flags, includeAll: includeAll)
+      }
+      mentions = (fresh + mentions).sorted { $0.seq > $1.seq }
+    } else {
+      bottomMark = last
+    }
+    newestSeen = last
+  }
+
+  private func jumpToNextMention() {
+    guard let target = mentions.first else { return }
+    mentions.removeFirst()
+    Task { await jump(to: target.seq) }
+  }
+
+  /// 跳到某条消息：本地还没加载到它就往前翻页，再把列表放大到包含它，最后滚过去并高亮。
+  private func jump(to seq: Int64) async {
+    var guardPages = 0
+    while let first = items.firstMessageSeq, first > seq, !reachedStart, guardPages < 20 {
+      let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
+      if need >= limit {
+        // 本地已经有了，只是列表没显示那么多。
+        limit = need + 20
+      } else {
+        let got = (try? await session.sync.loadOlder(chatId, limit: 100)) ?? 0
+        if got == 0 { reachedStart = true }
+        limit += got
+      }
+      guardPages += 1
+      // 等列表按新的 limit 刷新。
+      for _ in 0..<20 where (items.firstMessageSeq ?? 0) > seq { try? await Task.sleep(for: .milliseconds(50)) }
+    }
+    // 那条没加载出来（例如中间有缺口）就不滚，免得请求一直挂着、新消息也不跟着滚到底。
+    guard items.contains(where: { if case .message(let m) = $0 { m.seq == seq } else { false } }) else { return }
+    scrollRequest = ChatScrollRequest(target: .item("m\(seq)"))
+    highlight.flash(seq)
   }
 
   /// 看到最底部了：标已读到最后一条消息（同一位置只标一次）。
@@ -573,6 +695,11 @@ extension [ChatItem] {
     for item in reversed() { if case .message(let m) = item { return m.seq } }
     return nil
   }
+
+  var firstMessageSeq: Int64? {
+    for item in self { if case .message(let m) = item { return m.seq } }
+    return nil
+  }
 }
 
 struct PendingForward: Identifiable {
@@ -589,6 +716,36 @@ struct MovieFile: Transferable {
       let dest = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).\(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)")
       try FileManager.default.copyItem(at: received.file, to: dest)
       return MovieFile(url: dest)
+    }
+  }
+}
+
+/// 聊天页右下角的圆形玻璃按钮，右上角带个蓝色数字。
+struct FloatingChatButton: View {
+  let systemImage: String
+  let count: Int
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemImage)
+        .font(.system(size: 18, weight: .semibold))
+        .frame(width: 46, height: 46)
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(.tint)
+    .glassEffect(.regular.interactive(), in: Circle())
+    .overlay(alignment: .topTrailing) {
+      if count > 0 {
+        Text(count > 99 ? "99+" : "\(count)")
+          .font(.caption2.bold().monospacedDigit())
+          .foregroundStyle(.white)
+          .padding(.horizontal, 5)
+          .frame(minWidth: 18, minHeight: 18)
+          .background(Color.accentColor, in: Capsule())
+          .offset(x: 6, y: -6)
+      }
     }
   }
 }

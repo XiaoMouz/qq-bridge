@@ -200,6 +200,13 @@ extension LocalStore {
     }
   }
 
+  /// 本地有的、seq 不小于 fromSeq 的消息条数（跳到某条消息时，用来算聊天页至少要显示多少条）。
+  public func messageCount(chatId: Int64, fromSeq: Int64) throws -> Int {
+    try db.read { db in
+      try Int.fetchOne(db, sql: "select count(*) from message where chatId = ? and seq >= ?", arguments: [chatId, fromSeq]) ?? 0
+    }
+  }
+
   /// 不指定 QQ 号查联系人 / 群（只登录一个 QQ 号时用；资料页先用它显示，再等服务端刷新）。
   public func peer(kind: Qqbridge_V1_PeerKind, peerId: Int64) throws -> Qqbridge_V1_Peer? {
     try db.read { db in

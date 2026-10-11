@@ -32,6 +32,10 @@ final class AppModel {
   }
   /// 点了通知、要打开的会话（会话列表接手后清空）。
   var pendingChat: Int64?
+  /// 未读角标（图标角标和"消息"标签上的数字）：见 DialogItem.badgeCount。
+  var unreadBadge = 0
+  /// 再点一次"消息"标签：会话列表跳到下一个有未读的会话。
+  var nextUnreadTick = 0
   /// 正在看的会话：前台收到它的推送时不弹横幅。
   var openChatId: Int64?
   private var statusTask: Task<Void, Never>?

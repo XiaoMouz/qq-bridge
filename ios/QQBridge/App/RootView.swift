@@ -8,10 +8,15 @@ struct RootView: View {
   @State private var tab = 0
 
   var body: some View {
-    TabView(selection: $tab) {
+    TabView(selection: Binding(get: { tab }, set: { new in
+      // 已经在"消息"页时再点一次：跳到下一个有未读的会话。
+      if new == 0, tab == 0 { model.nextUnreadTick += 1 }
+      tab = new
+    })) {
       Tab("消息", systemImage: "bubble.left.and.bubble.right", value: 0) {
         DialogListView(session: session)
       }
+      .badge(model.unreadBadge)
       Tab("联系人", systemImage: "person.2", value: 1) {
         ContactsView(session: session)
       }

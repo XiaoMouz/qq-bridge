@@ -6,12 +6,24 @@ import QQBridgeKit
 import SwiftUI
 import UIKit
 
+/// 外面要列表滚到哪里（token 变了才执行一次）：某条消息居中，或回到最底部。
+struct ChatScrollRequest: Equatable {
+  enum Target: Equatable {
+    case item(String)
+    case bottom
+  }
+
+  let target: Target
+  let token = UUID()
+}
+
 struct ChatCollectionView: UIViewControllerRepresentable {
   let items: [ChatItem]
   let context: MessageContext
   let onReachTop: () -> Void
   /// 是否停在最底部（标已读用）。
   var onBottomChange: (Bool) -> Void = { _ in }
+  var scrollRequest: ChatScrollRequest?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
     ChatCollectionController()
@@ -21,6 +33,7 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.messageContext = context
     controller.onReachTop = onReachTop
     controller.onBottomChange = onBottomChange
+    controller.request(scrollRequest)
     controller.apply(items)
   }
 }
@@ -41,6 +54,30 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   /// 多选中：来了新消息也不自动滚到底（免得正在点的那条跑掉）。
   private var selecting: Bool { messageContext?.selection.active ?? false }
   private var contentSizeObservation: NSKeyValueObservation?
+  private var handledRequest: UUID?
+  /// 还没执行的滚动请求（目标消息还没进列表时先等着）。
+  private var pendingRequest: ChatScrollRequest?
+
+  func request(_ r: ChatScrollRequest?) {
+    guard let r, r.token != handledRequest else { return }
+    handledRequest = r.token
+    pendingRequest = r
+  }
+
+  private func performPendingRequest() {
+    guard let r = pendingRequest else { return }
+    switch r.target {
+    case .bottom:
+      pendingRequest = nil
+      stickToBottom = true
+      scrollToBottom(animated: true)
+    case .item(let id):
+      guard let indexPath = dataSource.indexPath(for: id) else { return }
+      pendingRequest = nil
+      stickToBottom = false
+      collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+    }
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -102,9 +139,10 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
       } else if prepended {
         // 在顶部插入了更早的消息：保持离底部的距离不变，看到的内容就不会跳。
         self.collectionView.contentOffset.y = self.collectionView.contentSize.height - offsetFromBottom
-      } else if !self.selecting, nearBottom || self.stickToBottom, ids.last != oldIds.last {
+      } else if !self.selecting, self.pendingRequest == nil, nearBottom || self.stickToBottom, ids.last != oldIds.last {
         self.scrollToBottom(animated: !self.stickToBottom)
       }
+      self.performPendingRequest()
     }
   }
 

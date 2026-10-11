@@ -400,3 +400,42 @@ final class VoicePlayer {
     observer = nil
   }
 }
+
+/// 跳到某条消息后短暂高亮它。
+@MainActor
+@Observable
+final class MessageHighlight {
+  var seq: Int64?
+
+  func flash(_ seq: Int64) {
+    self.seq = seq
+    Task { [weak self] in
+      try? await Task.sleep(for: .seconds(1.6))
+      if self?.seq == seq { self?.seq = nil }
+    }
+  }
+}
+
+/// 聊天页右下角"有人@我"按钮里的一项。
+struct MentionTarget: Equatable {
+  enum Kind {
+    case reply, me, all
+  }
+
+  let seq: Int64
+  let kind: Kind
+
+  /// 回复我的消息往往也带着 @我（QQ 回复会自动 @ 被回复的人），所以回复优先；@全体成员 只在别的都没有时算。
+  init?(seq: Int64, flags: UInt32, includeAll: Bool) {
+    self.seq = seq
+    if flags & (1 << 8) != 0 {
+      kind = .reply
+    } else if flags & (1 << 5) != 0 {
+      kind = .me
+    } else if includeAll, flags & (1 << 6) != 0 {
+      kind = .all
+    } else {
+      return nil
+    }
+  }
+}

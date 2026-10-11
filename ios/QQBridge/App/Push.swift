@@ -68,9 +68,18 @@ extension AppModel {
     Task { _ = await session.api.auth.registerPush(request: req, headers: session.api.headers) }
   }
 
-  /// 图标角标 = 会提醒的会话（不含免打扰、群助手）的未读数之和，与服务端推送里的角标一致。
+  /// 角标（图标和"消息"标签）：与服务端推送里的角标一致，见 DialogItem.badgeCount。
   func updateBadge(_ dialogs: [DialogItem]) {
-    let count = dialogs.filter { !$0.isMuted }.reduce(0) { $0 + Int($1.dialog.unreadCount) }
+    let count = dialogs.reduce(0) { $0 + $1.badgeCount }
+    if count != unreadBadge { unreadBadge = count }
     UNUserNotificationCenter.current().setBadgeCount(count)
+  }
+}
+
+extension DialogItem {
+  /// 算进角标的未读：会提醒的会话算全部未读；免打扰、群助手、只提醒 @我 的会话只算 @我 和回复我。@全体成员 不单独算。
+  var badgeCount: Int {
+    if isMuted || dialog.notifyPolicy == "mentions" { return Int(dialog.unreadMentions + dialog.unreadReplies) }
+    return Int(dialog.unreadCount)
   }
 }

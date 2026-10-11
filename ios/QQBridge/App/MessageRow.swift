@@ -16,6 +16,8 @@ struct MessageContext {
   let voice: VoicePlayer
   let actions: ChatActions
   let session: Session
+  /// 跳转到的那条消息短暂高亮。
+  let highlight: MessageHighlight
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
   @MainActor
@@ -71,6 +73,10 @@ struct MessageRow: View {
       switch item {
       case .event(let e):
         Notice(text: EventText.describe(e, context: context))
+      case .message(let m) where context.highlight.seq == m.seq:
+        MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
+          .padding(.vertical, 4)
+          .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
       case .message(let m):
         if context.selection.active {
           // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
