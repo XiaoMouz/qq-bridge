@@ -202,7 +202,7 @@ struct ChatScreen: View {
       }
       .presentationDetents([.medium, .large])
     }
-    .fullScreenCover(item: $mediaTarget) { MediaViewer(target: $0, session: session, chatId: chatId) }
+    .mediaViewer(item: $mediaTarget, session: session, chatId: chatId)
     .quickLookPreview($fileURL)
     .sheet(item: $forwardMessage) { m in
       NavigationStack { ForwardView(session: session, chatId: chatId, seq: m.seq, path: []) }

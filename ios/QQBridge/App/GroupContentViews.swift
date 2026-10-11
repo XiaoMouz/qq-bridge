@@ -97,7 +97,7 @@ struct GroupEssenceView: View {
     .overlay { state.overlay(empty: items.isEmpty, emptyText: "没有群精华", icon: "star") }
     .navigationTitle("群精华")
     .navigationBarTitleDisplayMode(.inline)
-    .fullScreenCover(item: $media) { MediaViewer(target: $0, session: session, chatId: chatId) }
+    .mediaViewer(item: $media, session: session, chatId: chatId)
     .refreshable { await load() }
     .task { await load() }
   }

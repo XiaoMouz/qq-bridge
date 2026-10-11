@@ -22,23 +22,26 @@ struct ImageViewer: View {
   @State private var toast: String?
 
   var body: some View {
-    ZStack {
-      Color.black.ignoresSafeArea()
-      if let image {
-        ZoomableImage(image: image, onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } })
-          .ignoresSafeArea()
-      }
-      if original == nil, !originalFailed {
-        ProgressView().tint(.white).controlSize(.large)
-      }
+    MediaPopover(aspect: aspect) {
       if chrome { overlay.transition(.opacity) }
+    } content: {
+      ZStack {
+        Color.black
+        if let image {
+          ZoomableImage(image: image, onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } })
+        }
+        if original == nil, !originalFailed {
+          ProgressView().tint(.white).controlSize(.large)
+        }
+      }
+    }
+    .overlay {
       if let toast {
         Text(toast).font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
           .glassEffect(.regular, in: Capsule())
           .transition(.opacity)
       }
     }
-    .statusBarHidden(!chrome)
     .task { await load() }
     .fullScreenCover(item: Binding(get: { editing.map(IdentifiedURL.init) }, set: { editing = $0?.url })) { item in
       MarkupEditor(url: item.url) { result in
@@ -61,16 +64,16 @@ struct ImageViewer: View {
     }
   }
 
+  /// 卡片比例：图片加载好了按图片，没加载前按消息里记的尺寸。
+  private var aspect: CGSize? {
+    if let image { return image.size }
+    let m = target.media
+    return m.width > 0 && m.height > 0 ? CGSize(width: Int(m.width), height: Int(m.height)) : nil
+  }
+
+  /// 卡片下面：原图拿不到的提示 + 工具栏（单击图片隐藏 / 显示）。
   private var overlay: some View {
-    VStack {
-      HStack {
-        Spacer()
-        Button { dismiss() } label: { Image(systemName: "xmark").font(.headline).frame(width: 36, height: 36) }
-          .buttonStyle(.glass)
-          .buttonBorderShape(.circle)
-      }
-      .padding(.horizontal)
-      Spacer()
+    VStack(spacing: 10) {
       if originalFailed {
         Text("原图已过期，QQ 上也拿不到了，显示的是缩略图").font(.footnote).foregroundStyle(.white)
           .padding(.horizontal, 14).padding(.vertical, 8)
@@ -94,7 +97,7 @@ struct ImageViewer: View {
         }
       }
       .padding(.vertical, 8)
-      .glassEffect(.regular, in: .rect(cornerRadius: 24))
+      .glassEffect(.regular.tint(.black.opacity(0.35)), in: .rect(cornerRadius: 24))
       .padding(.horizontal)
       .disabled(original == nil)
       .opacity(original == nil ? 0.5 : 1)

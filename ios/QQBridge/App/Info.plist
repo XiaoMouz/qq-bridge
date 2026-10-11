@@ -37,6 +37,10 @@
 	<string>把聊天里的图片保存到相册</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>选择要发送的照片</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

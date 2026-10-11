@@ -12,7 +12,9 @@ struct MediaViewer: View {
   let chatId: Int64
   @Environment(\.dismiss) private var dismiss
   @State private var player: AVPlayer?
-  @State private var videoFailed = false
+  /// 放不了时的说明（过期、下载失败）。
+  @State private var videoMessage: String?
+  @State private var fetching = false
 
   var body: some View {
     if target.kind == .image {
@@ -23,48 +25,72 @@ struct MediaViewer: View {
   }
 
   private var videoBody: some View {
-    ZStack(alignment: .topTrailing) {
-      Color.black.ignoresSafeArea()
-      switch target.kind {
-      case .image:
-        EmptyView()
-      case .video:
+    MediaPopover(aspect: videoAspect) {
+      EmptyView()
+    } content: {
+      ZStack {
+        Color.black
         if let player {
-          VideoPlayer(player: player).ignoresSafeArea()
-        } else if videoFailed {
-          Text("视频已过期，QQ 上也拿不到了").foregroundStyle(.white)
-        } else if target.media.state != .stored && target.media.state != .purged {
-          Text(target.media.state == .expired ? "视频已过期" : "视频还没下载好").foregroundStyle(.white)
+          InlineVideoPlayer(player: player)
+        } else if let videoMessage {
+          Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
         } else {
-          ProgressView().tint(.white)
+          VStack(spacing: 10) {
+            ProgressView().tint(.white)
+            if fetching { Text("正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8)) }
+          }
         }
       }
-      Button { dismiss() } label: {
-        Image(systemName: "xmark").font(.headline).frame(width: 36, height: 36)
-      }
-      .buttonStyle(.glass)
-      .buttonBorderShape(.circle)
-      .padding()
     }
-    .task {
-      guard target.kind == .video, target.media.state == .stored || target.media.state == .purged else { return }
-      let sha = target.media.playableSha256.isEmpty ? target.media.sha256 : target.media.playableSha256
-      if target.media.state == .purged {
-        // 原件已清理：先让服务端从 QQ 取回（取回前播放器拿不到内容），拿不到就提示。
-        guard (try? await session.media.file(for: sha, chatId: chatId)) != nil else {
-          videoFailed = true
-          return
-        }
-      }
-      if let url = try? await session.media.streamURL(for: sha) {
-        let p = AVPlayer(url: url)
-        player = p
-        p.play()
-      }
-    }
-    .onDisappear { player?.pause() }
+    .task { await loadVideo() }
+    .onDisappear { VideoPlayback.shared.previewClosed(player) }
   }
 
+  /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
+  private func loadVideo() async {
+    var media = target.media
+    if media.state != .stored && media.state != .purged {
+      guard target.seq > 0 else {
+        videoMessage = "视频还没下载好"
+        return
+      }
+      fetching = true
+      var ref = Qqbridge_V1_MediaRef()
+      ref.chatID = target.chatId
+      ref.seq = target.seq
+      ref.ord = media.ord
+      var req = Qqbridge_V1_RequestMediaRequest()
+      req.refs = [ref]
+      req.original = true
+      let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
+      fetching = false
+      guard let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty else {
+        videoMessage = "视频已过期，QQ 上也拿不到了"
+        return
+      }
+      media = got
+    }
+    let sha = media.playableSha256.isEmpty ? media.sha256 : media.playableSha256
+    if media.state == .purged {
+      // 原件已清理：先让服务端从 QQ 取回（取回前播放器拿不到内容），拿不到就提示。
+      guard (try? await session.media.file(for: sha, chatId: chatId)) != nil else {
+        videoMessage = "视频已过期，QQ 上也拿不到了"
+        return
+      }
+    }
+    if let url = try? await session.media.streamURL(for: sha) {
+      let p = AVPlayer(url: url)
+      player = p
+      p.play()
+    } else {
+      videoMessage = "视频打不开"
+    }
+  }
+
+  private var videoAspect: CGSize? {
+    let m = target.media
+    return m.width > 0 && m.height > 0 ? CGSize(width: Int(m.width), height: Int(m.height)) : CGSize(width: 16, height: 9)
+  }
 }
 
 // MARK: - 合并转发
@@ -159,12 +185,12 @@ struct ForwardSegmentView: View {
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId)
         .onTapGesture { media = MediaTarget(kind: .image, media: i.media) }
-        .fullScreenCover(item: $media) { MediaViewer(target: $0, session: session, chatId: chatId) }
+        .mediaViewer(item: $media, session: session, chatId: chatId)
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId)
         .overlay { Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white) }
         .onTapGesture { media = MediaTarget(kind: .video, media: v.media) }
-        .fullScreenCover(item: $media) { MediaViewer(target: $0, session: session, chatId: chatId) }
+        .mediaViewer(item: $media, session: session, chatId: chatId)
     case .forward(let f):
       NavigationLink { ForwardView(session: session, chatId: chatId, seq: seq, path: path) } label: {
         Label(f.title.isEmpty ? "聊天记录" : f.title, systemImage: "text.bubble")
@@ -343,7 +369,7 @@ struct SharedMediaView: View {
     }
     .navigationTitle("图片与视频")
     .navigationBarTitleDisplayMode(.inline)
-    .fullScreenCover(item: $target) { MediaViewer(target: $0, session: session, chatId: chatId) }
+    .mediaViewer(item: $target, session: session, chatId: chatId)
     .task { await load() }
   }
 

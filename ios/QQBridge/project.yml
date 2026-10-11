@@ -43,6 +43,8 @@ targets:
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}
+        # 视频后台播放、画中画。
+        UIBackgroundModes: [audio]
         # 只用系统自带的 HTTPS，属于豁免加密；上传 TestFlight 时不用再回答出口合规问题。
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
