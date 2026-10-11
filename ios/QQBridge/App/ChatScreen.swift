@@ -559,6 +559,16 @@ struct ChatScreen: View {
     canPaste = pb.hasImages || pb.contains(pasteboardTypes: [MediaPasteboard.type])
   }
 
+  private func galleryImages() -> [MediaTarget] {
+    items.flatMap { item -> [MediaTarget] in
+      guard case .message(let m) = item, m.state != .recalled else { return [] }
+      return m.segments.compactMap { seg in
+        guard case .image(let i) = seg.kind, !i.sticker else { return nil }
+        return MediaTarget(kind: .image, media: i.media, chatId: chatId, seq: m.seq)
+      }
+    }
+  }
+
   private func showScrollDay(_ time: Int64?) {
     scrollDayHide?.cancel()
     if let time {
@@ -696,7 +706,12 @@ struct ChatScreen: View {
       // 普通撤回直接撤；用群主 / 管理员权限撤回的（别人的，或自己超过 2 分钟的）先确认。
       if Date().timeIntervalSince1970 - Double(m.time) < 120, m.senderID == selfUin { recall(m) } else { confirmRecall = m }
     }
-    actions.openMedia = { mediaTarget = $0 }
+    actions.openMedia = { t in
+      var t = t
+      // 图片：把列表里已加载的照片（不含表情）按时间排好，查看器里可以左右翻。
+      if t.kind == .image { t.gallery = galleryImages() }
+      mediaTarget = t
+    }
     actions.jumpTo = { seq in Task { await jump(to: seq) } }
     actions.copyMedia = { media, sticker in Task { await copyMedia(media, sticker: sticker) } }
     actions.addSticker = { media, seq in Task { await addSticker(media, seq: seq) } }

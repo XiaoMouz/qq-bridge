@@ -18,7 +18,7 @@ struct MediaViewer: View {
 
   var body: some View {
     if target.kind == .image {
-      ImageViewer(target: target, session: session, chatId: chatId)
+      ImageViewer(target: target, session: session, chatId: chatId, gallery: target.gallery)
     } else {
       videoBody
     }

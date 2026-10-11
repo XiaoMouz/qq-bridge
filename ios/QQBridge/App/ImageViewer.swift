@@ -11,38 +11,64 @@ struct ImageViewer: View {
   let target: MediaTarget
   let session: Session
   let chatId: Int64
+  /// 同一会话里可以左右翻的图片（含 target）；空 = 只看这一张。
+  var gallery: [MediaTarget] = []
   @Environment(\.dismiss) private var dismiss
-  @State private var image: UIImage?
-  @State private var original: (sha256: String, file: URL)?
-  @State private var originalFailed = false
+  @State private var current: String = ""
+  @State private var pages: [String: ImagePage] = [:]
   @State private var chrome = true
+  /// 下拉关闭的进度（0…1），背景跟着变淡。
+  @State private var dragProgress: CGFloat = 0
+  @State private var visible = false
   @State private var editing: URL?
   @State private var edited: URL?
   @State private var forwarding: ForwardPayload?
   @State private var toast: String?
 
+  private var items: [MediaTarget] { gallery.contains(where: { $0.id == target.id }) ? gallery : [target] }
+  private var page: ImagePage? { pages[current] }
+  private var index: Int { items.firstIndex { $0.id == current } ?? 0 }
+
   var body: some View {
-    MediaPopover(aspect: aspect) {
-      if chrome { overlay.transition(.opacity) }
-    } content: {
-      ZStack {
-        Color.black
-        if let image {
-          ZoomableImage(image: image, onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } })
-        }
-        if original == nil, !originalFailed {
-          ProgressView().tint(.white).controlSize(.large)
+    ZStack {
+      // 背景：工具栏显示时是压暗的毛玻璃，单击隐藏后全黑（沉浸）；下拉时变淡。
+      Rectangle()
+        .fill(chrome ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.black))
+        .environment(\.colorScheme, .dark)
+        .overlay(Color.black.opacity(chrome ? 0.6 : 0))
+        .opacity(visible ? Double(1 - dragProgress * 0.9) : 0)
+        .ignoresSafeArea()
+
+      TabView(selection: $current) {
+        ForEach(items) { t in
+          ImagePageView(page: page(for: t), onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } },
+                        onDrag: { dragProgress = $0 }, onDismiss: close)
+            .tag(t.id)
+            .ignoresSafeArea()
         }
       }
-    }
-    .overlay {
+      .tabViewStyle(.page(indexDisplayMode: .never))
+      .ignoresSafeArea()
+      .scaleEffect(visible ? 1 : 0.92)
+      .opacity(visible ? 1 : 0)
+
+      if chrome, dragProgress == 0 { overlay.transition(.opacity) }
       if let toast {
         Text(toast).font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
           .glassEffect(.regular, in: Capsule())
           .transition(.opacity)
       }
     }
-    .task { await load() }
+    .statusBarHidden(!chrome)
+    .onAppear {
+      current = target.id
+      withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true }
+    }
+    .onChange(of: current) { _, id in
+      // 翻到哪张加载哪张，顺带预加载左右两张。
+      guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+      for j in max(0, i - 1)...min(items.count - 1, i + 1) { _ = page(for: items[j]).start() }
+    }
     .fullScreenCover(item: Binding(get: { editing.map(IdentifiedURL.init) }, set: { editing = $0?.url })) { item in
       MarkupEditor(url: item.url) { result in
         editing = nil
@@ -64,21 +90,52 @@ struct ImageViewer: View {
     }
   }
 
-  /// 卡片比例：图片加载好了按图片，没加载前按消息里记的尺寸。
-  private var aspect: CGSize? {
-    if let image { return image.size }
-    let m = target.media
-    return m.width > 0 && m.height > 0 ? CGSize(width: Int(m.width), height: Int(m.height)) : nil
+  private func page(for t: MediaTarget) -> ImagePage {
+    if let p = pages[t.id] { return p.start() }
+    let p = ImagePage(target: t, session: session, chatId: chatId)
+    DispatchQueue.main.async { pages[t.id] = p }
+    return p.start()
   }
 
-  /// 卡片下面：原图拿不到的提示 + 工具栏（单击图片隐藏 / 显示）。
+  private func close() {
+    withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
+      var t = Transaction()
+      t.disablesAnimations = true
+      withTransaction(t) { dismiss() }
+    }
+  }
+
+  /// 顶部：页码 + 关闭；底部：原图拿不到的提示 + 工具栏。单击图片隐藏 / 显示。
   private var overlay: some View {
     VStack(spacing: 10) {
-      if originalFailed {
+      HStack {
+        if items.count > 1 {
+          Text("\(index + 1) / \(items.count)")
+            .font(.subheadline.monospacedDigit().weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(Capsule().fill(.black.opacity(0.45)))
+        }
+        Spacer()
+        Button(action: close) {
+          Image(systemName: "xmark")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(.black.opacity(0.55)))
+            .shadow(color: .black.opacity(0.4), radius: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("关闭")
+      }
+      .padding(.horizontal, 16)
+      Spacer()
+      if page?.originalFailed == true {
         Text("原图已过期，QQ 上也拿不到了，显示的是缩略图").font(.footnote).foregroundStyle(.white)
           .padding(.horizontal, 14).padding(.vertical, 8)
-          .glassEffect(.regular, in: Capsule())
+          .background(Capsule().fill(.black.opacity(0.55)))
       }
+      let original = page?.original
       HStack(spacing: 0) {
         toolButton("转发", "arrowshape.turn.up.right") {
           if let original { forwarding = .sha(original.sha256) }
@@ -116,51 +173,6 @@ struct ImageViewer: View {
     }
     .foregroundStyle(.white)
     .frame(maxWidth: .infinity, minHeight: 44)
-  }
-
-  // MARK: 加载
-
-  private func load() async {
-    let media = target.media
-    let placeholder = media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256
-    if !placeholder.isEmpty, let file = try? await session.media.file(for: placeholder, chatId: chatId) {
-      image = await decode(file)
-    }
-    guard let sha = await originalSha() else {
-      originalFailed = true
-      return
-    }
-    guard let file = try? await session.media.file(for: sha, chatId: chatId) else {
-      originalFailed = true
-      return
-    }
-    if let full = await decode(file) { image = full }
-    original = (sha, file)
-  }
-
-  /// 原图的 sha256：服务端有（或能从 QQ 拉回）就直接用；从没下过的先让服务端当场从 QQ 拉。
-  private func originalSha() async -> String? {
-    let media = target.media
-    if !media.sha256.isEmpty { return media.sha256 }
-    guard target.seq > 0 else { return nil }
-    var ref = Qqbridge_V1_MediaRef()
-    ref.chatID = target.chatId
-    ref.seq = target.seq
-    ref.ord = media.ord
-    var req = Qqbridge_V1_RequestMediaRequest()
-    req.refs = [ref]
-    req.original = true
-    let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
-    guard let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty else { return nil }
-    return got.sha256
-  }
-
-  private func decode(_ file: URL) async -> UIImage? {
-    await Task.detached(priority: .userInitiated) {
-      if let moving = ImageDecoder.animated(file, maxPixel: 2048) { return moving }
-      // 超大图缩到 4096 以内再显示，避免占满内存。
-      return ImageDecoder.downsampled(file, maxPixel: 4096)
-    }.value
   }
 
   // MARK: 动作
@@ -271,6 +283,10 @@ enum ImageFile {
 struct ZoomableImage: UIViewRepresentable {
   let image: UIImage
   var onTap: () -> Void = {}
+  /// 没放大时往下拖：进度 0…1（背景跟着变淡）。
+  var onDrag: (CGFloat) -> Void = { _ in }
+  /// 拖够了松手：关闭。
+  var onDismiss: (() -> Void)? = nil
 
   func makeCoordinator() -> Coordinator { Coordinator(onTap: onTap) }
 
@@ -291,11 +307,16 @@ struct ZoomableImage: UIViewRepresentable {
     single.require(toFail: double)
     scroll.addGestureRecognizer(double)
     scroll.addGestureRecognizer(single)
+    let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pan(_:)))
+    pan.delegate = context.coordinator
+    scroll.addGestureRecognizer(pan)
     return scroll
   }
 
   func updateUIView(_ scroll: CenteringScrollView, context: Context) {
     context.coordinator.onTap = onTap
+    context.coordinator.onDrag = onDrag
+    context.coordinator.onDismiss = onDismiss
     if scroll.imageView.image !== image {
       let keepZoom = scroll.zoomScale > 1 && scroll.imageView.image.map { abs($0.size.width / $0.size.height - image.size.width / image.size.height) < 0.01 } == true
       scroll.imageView.image = image
@@ -305,9 +326,40 @@ struct ZoomableImage: UIViewRepresentable {
     }
   }
 
-  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate {
+  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate, @MainActor UIGestureRecognizerDelegate {
     var onTap: () -> Void
+    var onDrag: (CGFloat) -> Void = { _ in }
+    var onDismiss: (() -> Void)?
     init(onTap: @escaping () -> Void) { self.onTap = onTap }
+
+    /// 下拉关闭只在没放大、明显往下拖时接手（其余交给滚动和左右翻页）。
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+      guard let pan = g as? UIPanGestureRecognizer, let scroll = pan.view as? UIScrollView else { return true }
+      guard onDismiss != nil, let centering = scroll as? CenteringScrollView, centering.atTop,
+        scroll.zoomScale <= max(1, scroll.minimumZoomScale) + 0.01
+      else { return false }
+      let v = pan.velocity(in: scroll)
+      return v.y > 0 && abs(v.y) > abs(v.x) * 1.3
+    }
+
+    @objc func pan(_ g: UIPanGestureRecognizer) {
+      guard let scroll = g.view as? CenteringScrollView else { return }
+      let t = g.translation(in: scroll)
+      let progress = min(1, max(0, t.y / 300))
+      switch g.state {
+      case .changed:
+        let scale = 1 - progress * 0.25
+        scroll.imageView.transform = CGAffineTransform(translationX: t.x, y: t.y).scaledBy(x: scale, y: scale)
+        onDrag(progress)
+      case .ended where t.y > 120 || g.velocity(in: scroll).y > 900:
+        onDismiss?()
+      default:
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) {
+          scroll.imageView.transform = .identity
+        }
+        onDrag(0)
+      }
+    }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { (scrollView as? CenteringScrollView)?.imageView }
 
@@ -317,7 +369,7 @@ struct ZoomableImage: UIViewRepresentable {
 
     @objc func doubleTap(_ g: UITapGestureRecognizer) {
       guard let scroll = g.view as? CenteringScrollView else { return }
-      if scroll.zoomScale > 1 {
+      if abs(scroll.zoomScale - 1) > 0.01 {
         scroll.setZoomScale(1, animated: true)
       } else {
         let p = g.location(in: scroll.imageView)
@@ -339,19 +391,44 @@ final class CenteringScrollView: UIScrollView {
     let key = CGSize(width: bounds.width, height: bounds.height * 1000 + (imageView.image?.size.width ?? 0))
     if zoomScale == 1, key != laidOutSize, let img = imageView.image, img.size.width > 0, img.size.height > 0 {
       laidOutSize = key
-      let fit = min(bounds.width / img.size.width, bounds.height / img.size.height)
+      // 整块屏幕都能缩放、拖动；没放大时图片放在安全区内（不被刘海、底部横条挡住）。
+      let area = bounds.inset(by: safeAreaInsets)
+      let fitAll = min(area.width / img.size.width, area.height / img.size.height)
+      let fitWidth = area.width / img.size.width
+      // 长图（比屏幕细长得多）：按宽度铺满、上下滚动看；双指捏合可以缩小看全貌。
+      let isLong = img.size.height / img.size.width > (area.height / area.width) * 1.6
+      let fit = isLong ? fitWidth : fitAll
       let size = CGSize(width: img.size.width * fit, height: img.size.height * fit)
+      // 缩略图换成原图（同一张图、同样大小）时保持看到的位置；第一次打开长图从顶部开始。
+      let ratio = contentSize.height > 0 ? (contentOffset.y + contentInset.top) / contentSize.height : 0
       imageView.frame = CGRect(origin: .zero, size: size)
       contentSize = size
+      minimumZoomScale = isLong ? fitAll / fitWidth : 1
+      maximumZoomScale = isLong ? 4 : 5
+      center()
+      if isLong { contentOffset = CGPoint(x: -contentInset.left, y: -contentInset.top + ratio * size.height) }
     }
     center()
   }
 
-  /// 图片比可见区域小时放在正中间。
+  /// 图片比屏幕小时放在正中间；比屏幕高（长图、放大后）上下留出刘海和底部横条的位置。
   func center() {
+    let safe = safeAreaInsets
     let w = max((bounds.width - imageView.frame.width) / 2, 0)
+    let fitsVertically = imageView.frame.height <= bounds.height - safe.top - safe.bottom
     let h = max((bounds.height - imageView.frame.height) / 2, 0)
-    contentInset = UIEdgeInsets(top: h, left: w, bottom: h, right: w)
+    contentInset = fitsVertically
+      ? UIEdgeInsets(top: h, left: w, bottom: h, right: w)
+      : UIEdgeInsets(top: safe.top, left: w, bottom: safe.bottom, right: w)
+  }
+
+  /// 在最顶上（长图滚到头、或者没放大）：这时往下拖才是关闭。
+  var atTop: Bool { contentOffset.y <= -contentInset.top + 1 }
+
+  override func safeAreaInsetsDidChange() {
+    super.safeAreaInsetsDidChange()
+    laidOutSize = .zero
+    setNeedsLayout()
   }
 }
 
@@ -488,6 +565,91 @@ enum PhotoSaver {
   nonisolated static func add(_ file: URL) async throws {
     try await PHPhotoLibrary.shared().performChanges { @Sendable in
       PHAssetCreationRequest.forAsset().addResource(with: .photo, fileURL: file, options: nil)
+    }
+  }
+}
+
+/// 一张图的加载状态：先显示缩略图 / 预览图，原图到了换上。
+@MainActor
+@Observable
+final class ImagePage {
+  let target: MediaTarget
+  private let session: Session
+  private let chatId: Int64
+  var image: UIImage?
+  var original: (sha256: String, file: URL)?
+  var originalFailed = false
+  private var started = false
+
+  init(target: MediaTarget, session: Session, chatId: Int64) {
+    self.target = target
+    self.session = session
+    self.chatId = chatId
+  }
+
+  @discardableResult
+  func start() -> ImagePage {
+    guard !started else { return self }
+    started = true
+    Task { await load() }
+    return self
+  }
+
+  private func load() async {
+    let media = target.media
+    let placeholder = media.previewSha256.isEmpty ? media.thumbSha256 : media.previewSha256
+    if !placeholder.isEmpty, let file = try? await session.media.file(for: placeholder, chatId: chatId) {
+      image = await Self.decode(file)
+    }
+    guard let sha = await originalSha(), let file = try? await session.media.file(for: sha, chatId: chatId) else {
+      originalFailed = true
+      return
+    }
+    if let full = await Self.decode(file) { image = full }
+    original = (sha, file)
+  }
+
+  /// 原图的 sha256：服务端有（或能从 QQ 拉回）就直接用；从没下过的先让服务端当场从 QQ 拉。
+  private func originalSha() async -> String? {
+    let media = target.media
+    if !media.sha256.isEmpty { return media.sha256 }
+    guard target.seq > 0 else { return nil }
+    var ref = Qqbridge_V1_MediaRef()
+    ref.chatID = target.chatId
+    ref.seq = target.seq
+    ref.ord = media.ord
+    var req = Qqbridge_V1_RequestMediaRequest()
+    req.refs = [ref]
+    req.original = true
+    let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
+    guard let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty else { return nil }
+    return got.sha256
+  }
+
+  nonisolated static func decode(_ file: URL) async -> UIImage? {
+    await Task.detached(priority: .userInitiated) {
+      if let moving = ImageDecoder.animated(file, maxPixel: 2048) { return moving }
+      // 超大图缩到 4096 以内再显示，避免占满内存。
+      return ImageDecoder.downsampled(file, maxPixel: 4096)
+    }.value
+  }
+}
+
+/// 全屏的一页：整块屏幕都能缩放、拖动；没放大时往下拖关闭。
+struct ImagePageView: View {
+  let page: ImagePage
+  let onTap: () -> Void
+  let onDrag: (CGFloat) -> Void
+  let onDismiss: () -> Void
+
+  var body: some View {
+    ZStack {
+      if let image = page.image {
+        ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss)
+      }
+      if page.original == nil, !page.originalFailed {
+        ProgressView().tint(.white).controlSize(.large)
+      }
     }
   }
 }

@@ -137,6 +137,8 @@ struct MediaTarget: Identifiable, Hashable {
   /// 所在消息（看大图时向服务端要原图用；合并转发里的没有）。
   var chatId: Int64 = 0
   var seq: Int64 = 0
+  /// 看大图时能左右翻的同会话图片（含自己）。
+  var gallery: [MediaTarget] = []
   var id: String { media.sha256.isEmpty ? "\(chatId):\(seq):\(media.ord):\(media.thumbSha256)" : media.sha256 }
 }
 
