@@ -20,6 +20,16 @@ final class AppModel {
   private(set) var activeCall: Qqbridge_V1_Call?
   /// QQ 是否在线（插件连着服务端）：nil = 还不知道（比如服务器本身连不上）。
   private(set) var qqOnline: Bool?
+  /// 登录着的 QQ（昵称、号码、在线状态）：每次查状态时更新，并存在本机，设置页打开时直接显示。
+  private(set) var qqAccount: Qqbridge_V1_QqStatus? = AppModel.cachedQqAccount()
+  /// 自己的头像（图片本身在本地媒体缓存里，这里只记 sha256）。
+  private(set) var qqAvatarSha256: String? = UserDefaults.standard.string(forKey: AppModel.qqAvatarKey)
+
+  func setQqAvatar(_ sha256: String) {
+    guard sha256 != qqAvatarSha256 else { return }
+    qqAvatarSha256 = sha256
+    UserDefaults.standard.set(sha256, forKey: Self.qqAvatarKey)
+  }
   /// 点了通知、要打开的会话（会话列表接手后清空）。
   var pendingChat: Int64?
   /// 正在看的会话：前台收到它的推送时不弹横幅。
@@ -67,6 +77,10 @@ final class AppModel {
 
   func logout() async {
     guard let session else { return }
+    qqAccount = nil
+    qqAvatarSha256 = nil
+    UserDefaults.standard.removeObject(forKey: Self.qqAccountKey)
+    UserDefaults.standard.removeObject(forKey: Self.qqAvatarKey)
     eventsTask?.cancel()
     statusTask?.cancel()
     await session.logout(tokens: tokens)
@@ -97,9 +111,19 @@ final class AppModel {
     do {
       let status = try await session.api.admin.getStatus(request: .init(), headers: session.api.headers).get()
       qqOnline = !status.qq.isEmpty && status.qq.allSatisfy(\.connected)
+      qqAccount = status.qq.first
+      UserDefaults.standard.set(try? status.qq.first?.serializedData(), forKey: Self.qqAccountKey)
     } catch {
       qqOnline = nil
     }
+  }
+
+  private static let qqAccountKey = "qqAccountCache"
+  private static let qqAvatarKey = "qqAvatarCache"
+
+  private static func cachedQqAccount() -> Qqbridge_V1_QqStatus? {
+    guard let data = UserDefaults.standard.data(forKey: qqAccountKey) else { return nil }
+    return try? Qqbridge_V1_QqStatus(serializedBytes: data)
   }
 
   private func enter(_ session: Session) {

@@ -36,11 +36,13 @@ struct SettingsView: View {
     }
   }
 
+  /// 本地优先：先用上次记下的 QQ 信息，静默刷新后再换成新的。
   @ViewBuilder private var qqCard: some View {
-    if let qq = status?.qq.first {
+    if let qq = status?.qq.first ?? model.qqAccount {
       HStack(spacing: 14) {
-        AvatarView(sha256: avatars.sha256[qq.uin], title: qq.nickname, seed: qq.uin, size: 60)
+        AvatarView(sha256: avatars.sha256[qq.uin] ?? model.qqAvatarSha256 ?? localAvatar(qq.uin), title: qq.nickname, seed: qq.uin, size: 60)
           .onAppear { avatars.want(qq.uin, session: session) }
+          .onChange(of: avatars.sha256[qq.uin]) { _, sha in if let sha { model.setQqAvatar(sha) } }
         VStack(alignment: .leading, spacing: 4) {
           Text(qq.nickname.isEmpty ? String(qq.uin) : qq.nickname).font(.title3.bold())
           Text("QQ \(String(qq.uin))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).textSelection(.enabled)
@@ -62,6 +64,11 @@ struct SettingsView: View {
     } else {
       HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 20)
     }
+  }
+
+  private func localAvatar(_ uin: Int64) -> String? {
+    guard let sha = (try? session.store.peer(kind: .user, peerId: uin))?.avatarSha256, !sha.isEmpty else { return nil }
+    return sha
   }
 
   private func loadStatus() async {
