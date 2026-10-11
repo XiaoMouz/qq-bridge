@@ -3,14 +3,14 @@ name: QQBridge
 options:
   bundleIdPrefix: com.xiaomouz
   deploymentTarget:
-    iOS: "27.0"
+    iOS: "26.0"
   createIntermediateGroups: true
 settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "2"
 packages:
   QQBridgeKit:
     path: ../QQBridgeKit
@@ -34,6 +34,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: BetterChat
+        # 版本号跟着构建设置（MARKETING_VERSION / CURRENT_PROJECT_VERSION）；每次上传 TestFlight 构建号要 +1。
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: 按住麦克风录语音消息
         NSPhotoLibraryUsageDescription: 选择要发送的照片
         NSPhotoLibraryAddUsageDescription: 把聊天里的图片保存到相册

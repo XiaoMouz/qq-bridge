@@ -23,7 +23,7 @@ struct RootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
-    .tabViewBottomAccessory(isEnabled: model.connection != .online || model.qqOnline == false) {
+    .statusAccessory(isEnabled: model.connection != .online || model.qqOnline == false) {
       if model.connection != .online {
         ConnectionBanner(state: model.connection)
       } else {
@@ -38,6 +38,27 @@ struct RootView: View {
     .onChange(of: model.pendingChat) { _, chatId in if chatId != nil { tab = 0 } }
     .sheet(isPresented: $showQqLogin) { QqLoginSheet(session: session) }
     .environment(\.session, session)
+  }
+}
+
+extension View {
+  /// 标签栏上方的状态条。iOS 26.1 起用系统的 tabViewBottomAccessory（能按需显示 / 隐藏）；
+  /// 26.0 没有 isEnabled 参数，改成浮在标签栏上方的玻璃胶囊。
+  @ViewBuilder func statusAccessory(isEnabled: Bool, @ViewBuilder content: () -> some View) -> some View {
+    if #available(iOS 26.1, *) {
+      tabViewBottomAccessory(isEnabled: isEnabled, content: content)
+    } else {
+      let banner = content()
+      overlay(alignment: .bottom) {
+        if isEnabled {
+          banner
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .glassEffect(.regular, in: Capsule())
+            .padding(.bottom, 72)
+        }
+      }
+    }
   }
 }
 
