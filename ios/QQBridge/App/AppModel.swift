@@ -38,6 +38,10 @@ final class AppModel {
   var nextUnreadTick = 0
   /// 正在看的会话：前台收到它的推送时不弹横幅。
   var openChatId: Int64?
+  /// 顶部的 App 内横幅（前台收到别的会话的消息）。
+  var banner: InAppBanner?
+  /// 点了横幅：快速回复的浮层。
+  var quickReplyChat: Int64?
   private var statusTask: Task<Void, Never>?
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。

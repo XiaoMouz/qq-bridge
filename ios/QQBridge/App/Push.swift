@@ -29,9 +29,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
     let chatId = Self.chatId(notification.request.content.userInfo)
-    return await MainActor.run {
-      chatId != nil && chatId == model?.openChatId ? [] : [.banner, .list, .sound]
+    let content = notification.request.content
+    let title = content.title, body = content.body
+    // App 在前台：不弹系统通知；不是正在看的会话就显示 App 内横幅（点开可以快速回复）。
+    await MainActor.run {
+      guard let model, let chatId, chatId != model.openChatId else { return }
+      model.showBanner(InAppBanner(chatId: chatId, title: title, body: body))
     }
+    return []
   }
 
   nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -81,5 +86,23 @@ extension DialogItem {
   var badgeCount: Int {
     if isMuted || dialog.notifyPolicy == "mentions" { return Int(dialog.unreadMentions + dialog.unreadReplies) }
     return Int(dialog.unreadCount)
+  }
+}
+
+/// App 内横幅：前台收到别的会话的消息时显示在顶部。
+struct InAppBanner: Identifiable, Equatable {
+  let id = UUID()
+  let chatId: Int64
+  let title: String
+  let body: String
+}
+
+extension AppModel {
+  func showBanner(_ banner: InAppBanner) {
+    self.banner = banner
+    Task {
+      try? await Task.sleep(for: .seconds(4))
+      if self.banner?.id == banner.id { self.banner = nil }
+    }
   }
 }

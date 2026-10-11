@@ -63,7 +63,16 @@ struct DialogListView: View {
     .onChange(of: model.pendingChat, initial: true) { _, chatId in
       guard let chatId else { return }
       model.pendingChat = nil
-      path = NavigationPath([Route.chat(chatId)])
+      guard !path.isEmpty else {
+        path.append(Route.chat(chatId))
+        return
+      }
+      // 已经在别的会话里：先退回列表，下一帧再进目标会话（同一帧里替换整个路径有时不生效）。
+      path = NavigationPath()
+      Task {
+        try? await Task.sleep(for: .milliseconds(350))
+        path.append(Route.chat(chatId))
+      }
     }
   }
 

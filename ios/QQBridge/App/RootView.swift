@@ -42,6 +42,30 @@ struct RootView: View {
     // 点了通知：切到消息页，由会话列表打开对应会话。
     .onChange(of: model.pendingChat) { _, chatId in if chatId != nil { tab = 0 } }
     .sheet(isPresented: $showQqLogin) { QqLoginSheet(session: session) }
+    // App 内横幅：别的会话来消息（前台不发系统通知）。
+    .overlay(alignment: .top) {
+      if let banner = model.banner {
+        InAppBannerView(banner: banner) {
+          model.banner = nil
+          model.quickReplyChat = banner.chatId
+        } onDismiss: {
+          model.banner = nil
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .animation(.spring(duration: 0.35), value: model.banner)
+    .sheet(item: Binding(get: { model.quickReplyChat.map(ChatRef.init) }, set: { model.quickReplyChat = $0?.id })) { ref in
+      QuickReplyView(session: session, chatId: ref.id) {
+        model.quickReplyChat = nil
+        // 等浮层收起再跳（收起动画中改导航会被忽略）。
+        Task {
+          try? await Task.sleep(for: .milliseconds(400))
+          model.pendingChat = ref.id
+        }
+      }
+      .presentationDetents([.medium, .large])
+    }
     .environment(\.session, session)
   }
 }
@@ -94,4 +118,8 @@ struct ConnectionBanner: View {
 
 extension EnvironmentValues {
   @Entry var session: Session? = nil
+}
+
+struct ChatRef: Identifiable {
+  let id: Int64
 }
