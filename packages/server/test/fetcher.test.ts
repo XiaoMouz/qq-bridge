@@ -221,6 +221,37 @@ describe('MediaFetcher', () => {
     expect(await refOf(stale.chatId)).toMatchObject({ fetch_state: 'expired', last_error: 'no download url' });
   });
 
+  it('treats HTTP 400 (QQ\'s answer for an expired rkey) as a dead link and asks for a fresh one', async () => {
+    const body = await png(90, 90, { r: 4, g: 5, b: 6 });
+    files.set('rkey.png', { body, type: 'image/png' });
+    let refreshes = 0;
+    const source = new StoredUrlSource(async () => {
+      refreshes++;
+      return `${base}/file/rkey.png`;
+    });
+    const m = await ingestImage(nextPeer(), 1, { url: `${base}/status/400`, size: body.length });
+    await fetcher(source).runOnce();
+    expect(refreshes).toBe(1);
+    expect(await refOf(m.chatId)).toMatchObject({ fetch_state: 'stored', sha256: sha256(body), attempts: 1 });
+  });
+
+  it('downloads media the client asked for even when it is over the auto-fetch limit', async () => {
+    const body = await png(500, 500, { r: 7, g: 7, b: 7 });
+    files.set('big.png', { body, type: 'image/png' });
+    await t.db.execute(sql`insert into storage_policies (account_id, scope, auto_fetch_max_bytes) values (${acc.accountId}, 'global', ${body.length - 1})`);
+    try {
+      const m = await ingestImage(nextPeer(), 1, { url: `${base}/file/big.png`, size: body.length });
+      await fetcher().runOnce();
+      expect(await refOf(m.chatId)).toMatchObject({ fetch_state: 'skipped' });
+      // 点开看：照样下载。
+      expect(await ingest.requestMedia(acc.accountId, [{ chatId: m.chatId, seq: 1, ord: 0 }], 'original')).toHaveLength(1);
+      await fetcher().runOnce();
+      expect(await refOf(m.chatId)).toMatchObject({ fetch_state: 'stored', sha256: sha256(body) });
+    } finally {
+      await t.db.execute(sql`delete from storage_policies where account_id = ${acc.accountId}`);
+    }
+  });
+
   it('skips media over the auto-fetch limit: by declared size, by Content-Length, or while streaming', async () => {
     const body = await png(600, 600, { r: 255, g: 0, b: 0 });
     files.set('d.png', { body, type: 'image/png' });

@@ -18,6 +18,8 @@ export interface PendingRef {
   /** 上游定位信息（见 IncomingMedia.locator）。 */
   locator: Record<string, unknown> | null;
   attempts: number;
+  /** 客户端主动要的（点开看）：不受自动下载的大小上限限制。 */
+  requested?: boolean;
 }
 
 /** 来源暂时不可用（例如上游插件不在线）：下载任务推迟重试，不消耗重试次数。 */
@@ -30,7 +32,7 @@ export interface FetchTarget {
 
 export interface MediaSource {
   /**
-   * 给出下载地址。forceRefresh = true 表示上一次的地址已经失效（403/404/410），需要向上游重新获取。
+   * 给出下载地址。forceRefresh = true 表示上一次的地址已经失效（400/401/403/404/410），需要向上游重新获取。
    * 返回 null 表示这份媒体在上游已经拿不到了。
    */
   resolve(ref: PendingRef, forceRefresh: boolean): Promise<FetchTarget | null>;

@@ -23,6 +23,8 @@ export interface FetcherOptions {
   backoffMaxMs?: number;
   /** 没有配置策略时的自动下载大小上限。 */
   defaultMaxBytes?: number;
+  /** 客户端点开要的媒体的大小上限（不受自动下载上限限制，但总得有个顶）。 */
+  requestedMaxBytes?: number;
   /** 上游不在线时多久后再试。 */
   offlineRetryMs?: number;
   /** 正在被查看的会话：它们的媒体优先下载（DialogService.SetActiveChat）。 */
@@ -36,7 +38,11 @@ type DownloadResult =
   | { kind: 'too_large' }
   | { kind: 'error'; error: string };
 
-const GONE_STATUSES = new Set([403, 404, 410]);
+/**
+ * 这些状态说明链接本身不能用了，要向上游换新链接。QQ 的 rkey 过期时返回的是 400（不是 403），
+ * 入库时又往往不知道过期时间，所以 400 也得算进来，否则会拿着失效的链接一直重试到放弃。
+ */
+const GONE_STATUSES = new Set([400, 401, 403, 404, 410]);
 
 /** 重新取回的结果：restored = 已从 QQ 拿回并放进热存储；unavailable = QQ 暂时不在线；expired = QQ 那边也拿不到了。 */
 export type RehydrateResult = 'restored' | 'unavailable' | 'expired';
@@ -65,6 +71,7 @@ export class MediaFetcher {
       backoffBaseMs: opts.backoffBaseMs ?? 30_000,
       backoffMaxMs: opts.backoffMaxMs ?? 6 * 3600_000,
       defaultMaxBytes: opts.defaultMaxBytes ?? 200 * 1024 * 1024,
+      requestedMaxBytes: opts.requestedMaxBytes ?? 4 * 1024 * 1024 * 1024,
       offlineRetryMs: opts.offlineRetryMs ?? 60_000,
       ...(opts.priorityChatIds ? { priorityChatIds: opts.priorityChatIds } : {}),
       ...(opts.logger ? { logger: opts.logger } : {}),
@@ -175,7 +182,8 @@ export class MediaFetcher {
 
   private async process(ref: PendingRef): Promise<void> {
     try {
-      const maxBytes = await this.maxBytesFor(ref.chatId);
+      // 客户端点开要的不受自动下载上限限制（只受总的硬上限）。
+      const maxBytes = ref.requested ? Math.max(await this.maxBytesFor(ref.chatId), this.opts.requestedMaxBytes) : await this.maxBytesFor(ref.chatId);
       if (ref.size !== null && ref.size > maxBytes) {
         await this.ingest.mediaUnavailable(ref.id, 'skipped', `size ${ref.size} exceeds limit ${maxBytes}`);
         return;
@@ -373,7 +381,7 @@ export class MediaFetcher {
 }
 
 const REF_COLUMNS =
-  'id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts';
+  'id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts, requested_at';
 
 function toPendingRef(r: Record<string, unknown>): PendingRef {
   return {
@@ -392,5 +400,6 @@ function toPendingRef(r: Record<string, unknown>): PendingRef {
     qqFileId: (r.qq_file_id as string | null) ?? null,
     locator: (r.locator as Record<string, unknown> | null) ?? null,
     attempts: r.attempts as number,
+    requested: r.requested_at != null,
   };
 }

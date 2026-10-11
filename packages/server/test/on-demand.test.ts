@@ -111,6 +111,17 @@ describe('image downloads', () => {
     expect((await mediaOf(chatId, s)).state).toBe('on_demand');
   });
 
+  it('asks again for a thumbnail that failed or expired before, when it is shown', async () => {
+    await setPolicy('group', 710006, 'muted');
+    const chatId = await chatIdOf('group', 710006);
+    const s = seq++;
+    await deps.ingest.ingestMessage(qqAccountId, photo('group', 710006, s));
+    const { thumb } = await refs(chatId, s);
+    await t.db.execute(sql`update media_refs set fetch_state = 'failed', last_error = 'gave up after 8 attempts: HTTP 400' where id = ${thumb!.id}`);
+    expect(await deps.ingest.requestMedia(accountId, [{ chatId, seq: s, ord: 0 }])).toEqual([thumb!.id]);
+    expect((await refs(chatId, s)).thumb).toMatchObject({ fetch_state: 'pending' });
+  });
+
   it('adds a thumbnail reference for images archived before thumbnails existed', async () => {
     const s = seq++;
     const msg = photo('group', 710002, s);

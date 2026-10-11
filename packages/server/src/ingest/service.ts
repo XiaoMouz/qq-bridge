@@ -593,9 +593,10 @@ export class IngestService {
         if (what === 'thumb' && original.kind === 'image' && original.role !== 'sticker') {
           const thumb = await maybeOne<{ id: number }>(
             w.tx,
-            sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null
+            // 按需的、以前失败或过期的都重新要（链接换新后多半能拿到）。
+            sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()
                  where chat_id = ${r.chatId} and message_seq = ${r.seq} and ordinal = ${r.ord} and role = ${QQ_THUMB_ROLE}
-                   and fetch_state = 'on_demand'
+                   and fetch_state in ('on_demand', 'failed', 'expired')
              returning id`,
           );
           if (thumb) {
@@ -622,7 +623,8 @@ export class IngestService {
         }
         if (!['on_demand', 'failed', 'expired', 'skipped'].includes(original.fetch_state)) continue;
         await w.tx.execute(
-          sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null where id = ${original.id}`,
+          sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()
+               where id = ${original.id}`,
         );
         await updateMessageMedia(w, original, { state: 'pending' });
         queued.push(original.id);
