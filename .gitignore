@@ -23,3 +23,6 @@ xcuserdata/
 # XcodeGen 生成的工程
 ios/QQBridge/*.xcodeproj/
 ios/.build-app/
+
+# APNs 密钥
+*.p8

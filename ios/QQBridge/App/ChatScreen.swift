@@ -145,6 +145,7 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .task { await open() }
+    .onAppear { model.openChatId = chatId }
     #if DEBUG
     .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
     #endif
@@ -178,6 +179,7 @@ struct ChatScreen: View {
       Task { await sendPhoto(item) }
     }
     .onDisappear {
+      if model.openChatId == chatId { model.openChatId = nil }
       voice.stop()
       Task { await setActive(false) }
     }

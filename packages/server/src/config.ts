@@ -42,6 +42,14 @@ const ConfigSchema = z.object({
   /** NapCat WebUI（扫码登录中转、登录状态）：地址与口令，与 deploy/.env 里给 QQ 容器的 NAPCAT_WEBUI_TOKEN 相同。 */
   NAPCAT_WEBUI_URL: z.string().url().default('http://127.0.0.1:6099'),
   NAPCAT_WEBUI_TOKEN: optionalString(z.string().min(8)),
+  /** APNs 推送（令牌认证）：.p8 密钥文件路径、Key ID、Team ID；三项都配了才推送。 */
+  APNS_KEY_PATH: optionalString(z.string().min(1)),
+  APNS_KEY_ID: optionalString(z.string().length(10)),
+  APNS_TEAM_ID: optionalString(z.string().length(10)),
+  /** App 的 bundle id（APNs 的 topic）。 */
+  APNS_TOPIC: z.string().default('com.xiaomouz.qqbridge'),
+  /** 0：通知里不写消息内容，只写"新消息"（内容不经过 Apple 的服务器）。 */
+  APNS_PREVIEW: z.preprocess((v) => !(v === '0' || v === 'false'), z.boolean()).default(true),
   /** 开放 /lab/call 通话测试页（iOS 客户端完成前代替 iPhone 接听）。 */
   CALL_LAB: z.preprocess((v) => v === '1' || v === 'true', z.boolean()).default(false),
 });

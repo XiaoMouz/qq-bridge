@@ -87,6 +87,8 @@ export interface ForwardBundleRow {
 
 export class IngestService {
   private readonly qqAccounts = new Map<number, QqAccountInfo>();
+  /** 新消息入库（提交）之后调用，用于推送；只在消息是别人发的时候调用。 */
+  onNewMessage: ((event: { accountId: number; chatId: number; seq: number }) => void) | null = null;
 
   constructor(
     private readonly db: Db,
@@ -122,7 +124,7 @@ export class IngestService {
   async ingestMessage(qqAccountId: number, incoming: IncomingMessage): Promise<{ chatId: number; inserted: boolean }> {
     const msg = stripNul(incoming);
     const qq = await this.qqAccount(qqAccountId);
-    return this.writers.forAccount(qq.accountId).run(async (w) => {
+    const result = await this.writers.forAccount(qq.accountId).run(async (w) => {
       const chat = await lockOrCreateChat(w.tx, qqAccountId, msg.scene, msg.peerId, initialReadMarker(msg, qq.uin));
       const existing = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${chat.id} and seq = ${msg.seq}`);
       if (existing) return { chatId: chat.id, inserted: false };
@@ -209,6 +211,8 @@ export class IngestService {
       w.touchDialog(chat.id);
       return { chatId: chat.id, inserted: true };
     });
+    if (result.inserted && msg.senderId !== qq.uin) this.onNewMessage?.({ accountId: qq.accountId, chatId: result.chatId, seq: msg.seq });
+    return result;
   }
 
   /** 消息撤回：保留原内容，只标记状态（防撤回）。 */

@@ -5,19 +5,20 @@ struct RootView: View {
   let session: Session
   @Environment(AppModel.self) private var model
   @State private var showQqLogin = false
+  @State private var tab = 0
 
   var body: some View {
-    TabView {
-      Tab("消息", systemImage: "bubble.left.and.bubble.right") {
+    TabView(selection: $tab) {
+      Tab("消息", systemImage: "bubble.left.and.bubble.right", value: 0) {
         DialogListView(session: session)
       }
-      Tab("联系人", systemImage: "person.2") {
+      Tab("联系人", systemImage: "person.2", value: 1) {
         ContactsView(session: session)
       }
-      Tab("设置", systemImage: "gearshape") {
+      Tab("设置", systemImage: "gearshape", value: 2) {
         SettingsView(session: session)
       }
-      Tab(role: .search) {
+      Tab(value: 3, role: .search) {
         SearchView(session: session)
       }
     }
@@ -33,6 +34,8 @@ struct RootView: View {
         }
       }
     }
+    // 点了通知：切到消息页，由会话列表打开对应会话。
+    .onChange(of: model.pendingChat) { _, chatId in if chatId != nil { tab = 0 } }
     .sheet(isPresented: $showQqLogin) { QqLoginSheet(session: session) }
     .environment(\.session, session)
   }

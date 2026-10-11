@@ -35,6 +35,8 @@ import { MessageInteractions } from './messages/interactions.ts';
 import { HttpCallGateway } from './calls/gateway.ts';
 import { createUpstream } from './upstream/index.ts';
 import { QqSettingsSync } from './upstream/settings-sync.ts';
+import { ApnsClient } from './push/apns.ts';
+import { PushNotifier } from './push/notifier.ts';
 
 /** 组装服务端的全部依赖；测试与 CLI 共用。 */
 export function createDeps(
@@ -149,6 +151,17 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     config.CALL_GATEWAY_TOKEN ? new HttpCallGateway(config.CALL_GATEWAY_URL, config.CALL_GATEWAY_TOKEN) : null,
     livekit ? { ...livekit, logger: deps.logger.child({ component: 'calls' }) } : null,
   );
+  if (config.APNS_KEY_PATH && config.APNS_KEY_ID && config.APNS_TEAM_ID) {
+    const apns = new ApnsClient({
+      key: await fs.readFile(config.APNS_KEY_PATH, 'utf8'),
+      keyId: config.APNS_KEY_ID,
+      teamId: config.APNS_TEAM_ID,
+      topic: config.APNS_TOPIC,
+      logger: deps.logger.child({ component: 'apns' }),
+    });
+    const notifier = new PushNotifier(db, apns, { showPreview: config.APNS_PREVIEW, logger: deps.logger.child({ component: 'push' }) });
+    deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
+  }
   const app = await buildServer(deps);
   if (upstream) await upstream.hub.register(app);
   if (config.CALL_LAB) {
@@ -158,7 +171,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
   }
   await app.listen({ host: config.HOST, port: config.PORT });
   deps.logger.info(
-    { host: config.HOST, port: config.PORT, upstream: Boolean(upstream), calls: Boolean(livekit && config.CALL_GATEWAY_TOKEN), callLab: config.CALL_LAB },
+    { host: config.HOST, port: config.PORT, upstream: Boolean(upstream), calls: Boolean(livekit && config.CALL_GATEWAY_TOKEN), push: Boolean(deps.ingest.onNewMessage), callLab: config.CALL_LAB },
     'qqbridge server listening',
   );
   await upstream?.start();

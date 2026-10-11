@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct QQBridgeApp: App {
+  @UIApplicationDelegateAdaptor private var delegate: AppDelegate
   @State private var model = AppModel()
   @Environment(\.scenePhase) private var scenePhase
 
@@ -18,7 +19,10 @@ struct QQBridgeApp: App {
         }
       }
       .environment(model)
-      .task { model.launch() }
+      .task {
+        delegate.model = model
+        model.launch()
+      }
     }
     .onChange(of: scenePhase) { _, phase in
       model.setActive(phase == .active)

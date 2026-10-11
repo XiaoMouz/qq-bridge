@@ -49,8 +49,16 @@ struct DialogListView: View {
     }
     .task {
       do {
-        for try await list in session.store.observeDialogs() { items = list }
+        for try await list in session.store.observeDialogs() {
+          items = list
+          model.updateBadge(list)
+        }
       } catch {}
+    }
+    .onChange(of: model.pendingChat, initial: true) { _, chatId in
+      guard let chatId else { return }
+      model.pendingChat = nil
+      path = NavigationPath([Route.chat(chatId)])
     }
   }
 

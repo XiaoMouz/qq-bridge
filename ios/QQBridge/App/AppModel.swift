@@ -20,6 +20,10 @@ final class AppModel {
   private(set) var activeCall: Qqbridge_V1_Call?
   /// QQ 是否在线（插件连着服务端）：nil = 还不知道（比如服务器本身连不上）。
   private(set) var qqOnline: Bool?
+  /// 点了通知、要打开的会话（会话列表接手后清空）。
+  var pendingChat: Int64?
+  /// 正在看的会话：前台收到它的推送时不弹横幅。
+  var openChatId: Int64?
   private var statusTask: Task<Void, Never>?
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。
@@ -100,6 +104,7 @@ final class AppModel {
 
   private func enter(_ session: Session) {
     phase = .ready(session)
+    registerForPush()
     statusTask?.cancel()
     statusTask = Task { [weak self] in
       while !Task.isCancelled {
