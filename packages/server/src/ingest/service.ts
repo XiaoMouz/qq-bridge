@@ -264,6 +264,31 @@ export class IngestService {
     });
   }
 
+  /** 看过了这些 @我 / 回复我 / @全体成员（聊天页里出现在屏幕上，或从"有人@我"跳过去）：不再算未读 @，已读位置不动。 */
+  async markMentionsSeen(accountId: number, chatId: number, seqs: readonly number[]): Promise<boolean> {
+    if (seqs.length === 0) return false;
+    return this.writers.forAccount(accountId).run(async (w) => {
+      const chat = await maybeOne<{ id: number; uin: number }>(
+        w.tx,
+        sql`select c.id, q.uin from chats c join qq_accounts q on q.id = c.qq_account_id
+             where c.id = ${chatId} and q.account_id = ${accountId} for update of c`,
+      );
+      if (!chat) throw new NotFoundError(`chat ${chatId} not found`);
+      const list = sql.join(seqs.slice(0, 500).map((s) => sql`${s}`), sql`, `);
+      const changed = await rows(
+        w.tx,
+        sql`update messages set mention_seen = true
+             where chat_id = ${chatId} and seq in (${list}) and not mention_seen
+               and (flags & ${MENTION_ME | MENTION_ALL | REPLY_TO_ME}) <> 0
+         returning seq`,
+      );
+      if (changed.length === 0) return false;
+      await recomputeUnread(w.tx, chat.id, chat.uin);
+      w.touchDialog(chat.id);
+      return true;
+    });
+  }
+
   /** 客户端标记已读到 maxSeq。 */
   async markRead(accountId: number, chatId: number, maxSeq: number): Promise<boolean> {
     return this.writers.forAccount(accountId).run(async (w) => {
@@ -835,14 +860,14 @@ export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: numb
           unread_mentions = (select count(*)::int from messages m
                               where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
                                 and m.sender_uin <> ${selfUin} and m.state = 'normal'
-                                and (m.flags & ${MENTION_ME}) <> 0 and (m.flags & ${REPLY_TO_ME}) = 0),
+                                and (m.flags & ${MENTION_ME}) <> 0 and (m.flags & ${REPLY_TO_ME}) = 0 and not m.mention_seen),
           unread_mention_all = (select count(*)::int from messages m
                               where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
                                 and m.sender_uin <> ${selfUin} and m.state = 'normal'
-                                and (m.flags & ${MENTION_ALL}) <> 0 and (m.flags & ${MENTION_ME | REPLY_TO_ME}) = 0),
+                                and (m.flags & ${MENTION_ALL}) <> 0 and (m.flags & ${MENTION_ME | REPLY_TO_ME}) = 0 and not m.mention_seen),
           unread_replies = (select count(*)::int from messages m
                               where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${REPLY_TO_ME}) <> 0)
+                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${REPLY_TO_ME}) <> 0 and not m.mention_seen)
         where c.id = ${chatId}`,
   );
 }

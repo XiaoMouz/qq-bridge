@@ -148,6 +148,13 @@
       "when": 1791616151884,
       "tag": "0020_media_requested_at",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791616152884,
+      "tag": "0021_mention_seen",
+      "breakpoints": true
     }
   ]
 }

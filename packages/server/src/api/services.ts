@@ -358,10 +358,19 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         sql`select m.seq, m.flags from messages m
               join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
              where q.account_id = ${auth.accountId} and m.chat_id = ${chatId} and m.seq > ${afterSeq}
-               and m.sender_uin <> q.uin and m.state = 'normal' and (m.flags & ${mask}) <> 0
+               and m.sender_uin <> q.uin and m.state = 'normal' and (m.flags & ${mask}) <> 0 and not m.mention_seen
              order by m.seq desc limit 200`,
       );
       return { mentions: list.map((m) => ({ seq: BigInt(m.seq), flags: m.flags & mask })) };
+    },
+    async markMentionsSeen(req, ctx) {
+      const seqs = req.seqs.map((s) => toSafeNumber(s, 'seqs'));
+      try {
+        return { changed: await deps.ingest.markMentionsSeen(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), seqs) };
+      } catch (error) {
+        if (error instanceof NotFoundError) throw new ConnectError(error.message, Code.NotFound);
+        throw error;
+      }
     },
     async forwardMessages(req, ctx) {
       const auth = requireAuth(ctx);

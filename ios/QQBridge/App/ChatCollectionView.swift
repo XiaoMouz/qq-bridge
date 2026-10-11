@@ -1,7 +1,11 @@
 // 消息列表（docs/design.md 6.1）：UICollectionView + 可比较数据源，单元格用 UIHostingConfiguration 渲染 SwiftUI 气泡。
-// - 打开时停在最底部；新消息到达时，如果本来就在底部附近就跟着滚到底；
-// - 往上翻页插入更早的消息时保持当前看到的位置不跳；
-// - 滑到离顶部不远时通知外面加载更早的消息。
+//
+// 列表是倒过来的（和 Telegram 一样）：整个集合视图上下翻转，每个单元格再翻回来，最新的消息排在第 0 个、显示在最下面。
+// 这样位置是以"最新的消息 / 最底部"为基准算的：
+// - 往上翻时，更早的单元格算出真实高度（长文字、图片撑开）只影响更早的部分，正在看的内容不会被推着跳；
+// - 往上翻页加载更早的消息是在列表末尾追加，不用再手动修正滚动位置；
+// - 停在最底部 = 偏移量在起点，新消息来了自然就在眼前。
+// 坐标里的"上 / 下"因此是反的：contentOffset 越小越靠近最新的消息。
 import QQBridgeKit
 import SwiftUI
 import UIKit
@@ -18,11 +22,16 @@ struct ChatScrollRequest: Equatable {
 }
 
 struct ChatCollectionView: UIViewControllerRepresentable {
+  /// 按时间升序（最旧的在前）。
   let items: [ChatItem]
+  /// items 每变一次加一：外面别的状态变化（打字、按钮出现）不会让列表重新比对、提交。
+  let version: Int
   let context: MessageContext
   let onReachTop: () -> Void
-  /// 是否停在最底部（标已读用）。
+  /// 是否停在最底部（标已读、回到底部按钮用）。
   var onBottomChange: (Bool) -> Void = { _ in }
+  /// 现在屏幕上看得到的消息 seq（"有人@我"据此把看过的移掉）。
+  var onVisibleSeqs: (Set<Int64>) -> Void = { _ in }
   var scrollRequest: ChatScrollRequest?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
@@ -33,8 +42,9 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.messageContext = context
     controller.onReachTop = onReachTop
     controller.onBottomChange = onBottomChange
+    controller.onVisibleSeqs = onVisibleSeqs
     controller.request(scrollRequest)
-    controller.apply(items)
+    controller.apply(items, version: version)
   }
 }
 
@@ -43,41 +53,23 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   var messageContext: MessageContext?
   var onReachTop: (() -> Void)?
   var onBottomChange: ((Bool) -> Void)?
+  var onVisibleSeqs: ((Set<Int64>) -> Void)?
   private var reportedBottom: Bool?
+  private var reportedVisible: Set<Int64> = []
 
   private var collectionView: UICollectionView!
   private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
   private var byId: [String: ChatItem] = [:]
-  private var firstLoad = true
-  /// 贴底：打开会话后、用户自己往上滑之前，内容高度变了（图片加载完撑开单元格）也保持在最底部。
-  private var stickToBottom = true
-  /// 多选中：来了新消息也不自动滚到底（免得正在点的那条跑掉）。
-  private var selecting: Bool { messageContext?.selection.active ?? false }
-  private var contentSizeObservation: NSKeyValueObservation?
+  /// 每一项的前一项（时间上更早的那条）：显示时间、发送者头像时要用，提交数据时一次算好。
+  private var previousById: [String: ChatItem] = [:]
+  private var appliedVersion = -1
   private var handledRequest: UUID?
   /// 还没执行的滚动请求（目标消息还没进列表时先等着）。
   private var pendingRequest: ChatScrollRequest?
+  /// 正在执行的跳转：滚动结束后再按真实高度校正一次。
+  private var jumpTarget: String?
 
-  func request(_ r: ChatScrollRequest?) {
-    guard let r, r.token != handledRequest else { return }
-    handledRequest = r.token
-    pendingRequest = r
-  }
-
-  private func performPendingRequest() {
-    guard let r = pendingRequest else { return }
-    switch r.target {
-    case .bottom:
-      pendingRequest = nil
-      stickToBottom = true
-      scrollToBottom(animated: true)
-    case .item(let id):
-      guard let indexPath = dataSource.indexPath(for: id) else { return }
-      pendingRequest = nil
-      stickToBottom = false
-      collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
-    }
-  }
+  private static let flip = CGAffineTransform(scaleX: 1, y: -1)
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -91,97 +83,168 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     collectionView.keyboardDismissMode = .interactive
     collectionView.delegate = self
     collectionView.selfSizingInvalidation = .enabledIncludingConstraints
+    collectionView.transform = Self.flip
+    // 翻转后系统自动加的安全区内边距方向是反的：自己按翻转后的方向设。
+    collectionView.contentInsetAdjustmentBehavior = .never
+    collectionView.automaticallyAdjustsScrollIndicatorInsets = false
+    // 点状态栏回顶：翻转后会滚到最新的消息，不对，关掉。
+    collectionView.scrollsToTop = false
     view.addSubview(collectionView)
-    contentSizeObservation = collectionView.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
-      guard change.oldValue != change.newValue else { return }
-      MainActor.assumeIsolated {
-        guard let self, self.stickToBottom, !self.collectionView.isTracking, !self.selecting else { return }
-        self.scrollToBottom(animated: false)
-      }
-    }
 
     let cell = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
       guard let self, let item = self.byId[id], let context = self.messageContext else { return }
       cell.contentConfiguration = UIHostingConfiguration {
-        MessageRow(item: item, context: context, previous: self.previous(of: id))
+        MessageRow(item: item, context: context, previous: self.previousById[id])
       }
       .margins(.horizontal, 12)
       .margins(.vertical, 2)
       cell.backgroundConfiguration = .clear()
+      cell.contentView.transform = Self.flip
     }
     dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { cv, indexPath, id in
       cv.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)
     }
   }
 
-  func apply(_ items: [ChatItem]) {
+  override func viewSafeAreaInsetsDidChange() {
+    super.viewSafeAreaInsetsDidChange()
+    updateInsets()
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    updateInsets()
+  }
+
+  /// 翻转后：内容的"顶"在屏幕底部（输入栏、键盘那边），"底"在屏幕顶部（导航栏那边）。
+  private func updateInsets() {
+    let safe = view.safeAreaInsets
+    let insets = UIEdgeInsets(top: safe.bottom + 4, left: 0, bottom: safe.top + 4, right: 0)
+    guard collectionView.contentInset != insets else { return }
+    let wasAtBottom = isAtBottom
+    collectionView.contentInset = insets
+    collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: safe.bottom, left: 0, bottom: safe.top, right: 0)
+    // 键盘弹出、输入栏变高时：本来在最底部就继续贴着。
+    if wasAtBottom { scrollToBottom(animated: false) }
+  }
+
+  // MARK: 数据
+
+  func apply(_ items: [ChatItem], version: Int) {
+    guard version != appliedVersion else { return }
+    appliedVersion = version
     let oldIds = dataSource.snapshot().itemIdentifiers
     let changed = items.filter { byId[$0.id] != $0 }.map(\.id)
     byId = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-    let ids = items.map(\.id)
+    var previous: [String: ChatItem] = [:]
+    for i in items.indices.dropFirst() { previous[items[i].id] = items[i - 1] }
+    // 某一项的前一项变了（例如中间插进了一条），它的时间、头像显示可能要变：一起刷新。
+    let previousChanged = items.indices.dropFirst().compactMap { i -> String? in
+      previousById[items[i].id]?.id == items[i - 1].id ? nil : items[i].id
+    }
+    previousById = previous
 
+    let ids = Array(items.map(\.id).reversed())
     var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
     snapshot.appendSections([0])
     snapshot.appendItems(ids)
-    let stillThere = Set(ids)
-    snapshot.reconfigureItems(changed.filter { stillThere.contains($0) && oldIds.contains($0) })
+    let old = Set(oldIds)
+    snapshot.reconfigureItems(Array(Set(changed + previousChanged).filter { old.contains($0) && byId[$0] != nil }))
 
-    let prepended = !oldIds.isEmpty && ids.first != oldIds.first && ids.contains(oldIds.first!)
-    let nearBottom = isNearBottom
-    let offsetFromBottom = collectionView.contentSize.height - collectionView.contentOffset.y
+    // 不在底部时，底下来了新消息：保持正在看的内容不动（倒过来的列表里新消息插在最前面，会把内容往上推）。
+    let atBottom = isAtBottom
+    let newAtBottom = !oldIds.isEmpty && ids.first != oldIds.first
+    let heightBefore = collectionView.contentSize.height
+    let offsetBefore = collectionView.contentOffset.y
 
     dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
       guard let self else { return }
-      self.collectionView.layoutIfNeeded()
-      if self.firstLoad, !ids.isEmpty {
-        self.firstLoad = false
-        self.scrollToBottom(animated: false)
-      } else if prepended {
-        // 在顶部插入了更早的消息：保持离底部的距离不变，看到的内容就不会跳。
-        self.collectionView.contentOffset.y = self.collectionView.contentSize.height - offsetFromBottom
-      } else if !self.selecting, self.pendingRequest == nil, nearBottom || self.stickToBottom, ids.last != oldIds.last {
-        self.scrollToBottom(animated: !self.stickToBottom)
+      if newAtBottom, !atBottom || self.selecting {
+        self.collectionView.layoutIfNeeded()
+        let grew = self.collectionView.contentSize.height - heightBefore
+        if grew > 0 { self.collectionView.contentOffset.y = offsetBefore + grew }
       }
       self.performPendingRequest()
+      self.reportPosition()
     }
   }
 
-  private var isNearBottom: Bool {
-    let cv = collectionView!
-    return cv.contentOffset.y + cv.bounds.height - cv.adjustedContentInset.bottom > cv.contentSize.height - 120
+  private var selecting: Bool { messageContext?.selection.active ?? false }
+
+  // MARK: 滚动
+
+  func request(_ r: ChatScrollRequest?) {
+    guard let r, r.token != handledRequest else { return }
+    handledRequest = r.token
+    pendingRequest = r
+    performPendingRequest()
+  }
+
+  private func performPendingRequest() {
+    guard let r = pendingRequest, collectionView != nil else { return }
+    switch r.target {
+    case .bottom:
+      pendingRequest = nil
+      scrollToBottom(animated: true)
+    case .item(let id):
+      guard let indexPath = dataSource.indexPath(for: id) else { return }
+      pendingRequest = nil
+      jumpTarget = id
+      collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
+    }
+  }
+
+  /// 跳转时目标附近的单元格是按估算高度排的：滚完后它们算出了真实高度，目标可能偏了，再无动画校正一次。
+  private func finishJump() {
+    guard let id = jumpTarget else { return }
+    jumpTarget = nil
+    guard let indexPath = dataSource.indexPath(for: id) else { return }
+    collectionView.layoutIfNeeded()
+    collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+  }
+
+  private var isAtBottom: Bool {
+    guard let cv = collectionView else { return true }
+    return cv.contentOffset.y <= -cv.contentInset.top + 120
   }
 
   private func scrollToBottom(animated: Bool) {
-    let cv = collectionView!
-    let bottom = max(-cv.adjustedContentInset.top, cv.contentSize.height - cv.bounds.height + cv.adjustedContentInset.bottom)
-    cv.setContentOffset(CGPoint(x: 0, y: bottom), animated: animated)
+    collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.contentInset.top), animated: animated)
   }
 
-  private func previous(of id: String) -> ChatItem? {
-    let ids = dataSource.snapshot().itemIdentifiers
-    guard let i = ids.firstIndex(of: id), i > 0 else { return nil }
-    return byId[ids[i - 1]]
-  }
-
-  func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    if !firstLoad, scrollView.isTracking || scrollView.isDecelerating, scrollView.contentOffset.y < 400 { onReachTop?() }
-    let bottom = isNearBottom
+  private func reportPosition() {
+    let bottom = isAtBottom
     if bottom != reportedBottom {
       reportedBottom = bottom
       onBottomChange?(bottom)
     }
+    // 完整露出一半以上才算"看到了"。
+    let visibleRect = collectionView.bounds.inset(by: collectionView.contentInset)
+    var seqs: Set<Int64> = []
+    for indexPath in collectionView.indexPathsForVisibleItems {
+      guard let attrs = collectionView.layoutAttributesForItem(at: indexPath),
+        attrs.frame.intersection(visibleRect).height >= min(attrs.frame.height, visibleRect.height) * 0.5,
+        let id = dataSource.itemIdentifier(for: indexPath),
+        case .message(let m)? = byId[id]
+      else { continue }
+      seqs.insert(m.seq)
+    }
+    if seqs != reportedVisible {
+      reportedVisible = seqs
+      onVisibleSeqs?(seqs)
+    }
   }
 
-  func scrollViewWillBeginDragging(_: UIScrollView) {
-    stickToBottom = false
+  func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    // 翻转后更早的消息在内容的末尾：离末尾不远就往前翻页。
+    let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
+    if scrollView.isTracking || scrollView.isDecelerating, remaining < 600 { onReachTop?() }
+    reportPosition()
   }
 
-  func scrollViewDidEndDecelerating(_: UIScrollView) {
-    stickToBottom = isNearBottom
-  }
-
-  func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
-    if !decelerate { stickToBottom = isNearBottom }
+  func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
+    finishJump()
+    reportPosition()
   }
 
   func collectionView(_: UICollectionView, shouldSelectItemAt _: IndexPath) -> Bool { false }

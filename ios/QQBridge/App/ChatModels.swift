@@ -439,3 +439,44 @@ struct MentionTarget: Equatable {
     }
   }
 }
+
+/// 聊天页的内存缓存：人名、头像、列表里的消息。单元格渲染时用它，不在主线程上查数据库。
+@MainActor
+final class ChatLookup {
+  private var store: LocalStore?
+  private var qqAccountId: Int64 = 0
+  private var names: [Int64: String?] = [:]
+  private var avatars: [Int64: String?] = [:]
+  private var messages: [Int64: Qqbridge_V1_Message] = [:]
+
+  func attach(_ store: LocalStore, qqAccountId id: Int64) {
+    guard self.store == nil || id != qqAccountId else { return }
+    self.store = store
+    qqAccountId = id
+    names = [:]
+    avatars = [:]
+  }
+
+  func update(_ items: [ChatItem]) {
+    var map: [Int64: Qqbridge_V1_Message] = [:]
+    for item in items { if case .message(let m) = item { map[m.seq] = m } }
+    messages = map
+  }
+
+  func message(_ seq: Int64) -> Qqbridge_V1_Message? { messages[seq] }
+
+  func userName(_ userId: Int64) -> String? {
+    if let cached = names[userId] { return cached }
+    let n = try? store?.userName(qqAccountId: qqAccountId, userId: userId)
+    names[userId] = .some(n)
+    return n
+  }
+
+  func avatar(_ userId: Int64) -> String? {
+    if let cached = avatars[userId] { return cached }
+    let sha = (try? store?.peer(qqAccountId: qqAccountId, kind: .user, peerId: userId))?.avatarSha256
+    let value = sha?.isEmpty == false ? sha : nil
+    avatars[userId] = .some(value)
+    return value
+  }
+}

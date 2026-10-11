@@ -52,6 +52,10 @@ public protocol Qqbridge_V1_MessageServiceClientInterface: Sendable {
     /// 会话里 after_seq 之后别人发的 @我、回复我、@全体成员 的消息（聊天页右下角"有人@我"按钮用），按 seq 从新到旧，最多 200 条。
     @available(iOS 13, *)
     func `listUnreadMentions`(request: Qqbridge_V1_ListUnreadMentionsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListUnreadMentionsResponse>
+
+    /// 看过了这些 @我 / 回复我 / @全体成员：不再算进会话的未读 @ 数，也不再由 ListUnreadMentions 返回；已读位置不动。
+    @available(iOS 13, *)
+    func `markMentionsSeen`(request: Qqbridge_V1_MarkMentionsSeenRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_MarkMentionsSeenResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MessageServiceClientInterface`.
@@ -107,6 +111,11 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
         return await self.client.unary(path: "/qqbridge.v1.MessageService/ListUnreadMentions", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `markMentionsSeen`(request: Qqbridge_V1_MarkMentionsSeenRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_MarkMentionsSeenResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/MarkMentionsSeen", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let getHistory = Connect.MethodSpec(name: "GetHistory", service: "qqbridge.v1.MessageService", type: .unary)
@@ -118,6 +127,7 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
             public static let listSharedMedia = Connect.MethodSpec(name: "ListSharedMedia", service: "qqbridge.v1.MessageService", type: .unary)
             public static let forwardMessages = Connect.MethodSpec(name: "ForwardMessages", service: "qqbridge.v1.MessageService", type: .unary)
             public static let listUnreadMentions = Connect.MethodSpec(name: "ListUnreadMentions", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let markMentionsSeen = Connect.MethodSpec(name: "MarkMentionsSeen", service: "qqbridge.v1.MessageService", type: .unary)
         }
     }
 }

@@ -48,6 +48,13 @@ struct ChatScreen: View {
   @State private var mentions: [MentionTarget] = []
   @State private var scrollRequest: ChatScrollRequest?
   @State private var highlight = MessageHighlight()
+  @State private var lookup = ChatLookup()
+  /// items 每变一次加一（列表只在它变了时才重新提交）。
+  @State private var itemsVersion = 0
+  /// 已经告诉服务端看过的 @（免得重复发）。
+  @State private var seenMentions: Set<Int64> = []
+  /// 屏幕中间偏上的一行提示（例如跳转的消息加载不到），过两秒消失。
+  @State private var notice: String?
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
@@ -67,6 +74,7 @@ struct ChatScreen: View {
   var body: some View {
     ChatCollectionView(
       items: items,
+      version: itemsVersion,
       context: MessageContext(
         selfUin: selfUin,
         isGroup: isGroup,
@@ -80,21 +88,43 @@ struct ChatScreen: View {
         voice: voice,
         actions: actions,
         session: session,
-        highlight: highlight
+        highlight: highlight,
+        lookup: lookup
       ),
       onReachTop: loadOlder,
       onBottomChange: { bottom in
         atBottom = bottom
         if bottom, let last = items.lastMessageSeq { bottomMark = max(bottomMark, last) }
         markReadIfNeeded()
+        if bottom { trimIfStillAtBottom() }
       },
+      onVisibleSeqs: { visible in mentionsSeen(visible) },
       scrollRequest: scrollRequest
     )
+    .overlay(alignment: .top) {
+      if let notice {
+        Text(notice)
+          .font(.footnote)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 8)
+          .glassEffect(.regular, in: Capsule())
+          .padding(.top, 8)
+          .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .animation(.snappy, value: notice)
     // 两个按钮的位置是固定的：回到底部按钮不显示时也留着它的位置，"有人@我"不会因为它出现而被顶上去。
     .overlay(alignment: .bottomTrailing) {
       VStack(spacing: 12) {
         if let top = mentions.first {
           FloatingChatButton(systemImage: Self.icon(top.kind), count: mentions.count) { jumpToNextMention() }
+            .contextMenu {
+              Button("全部标为已看（\(mentions.count) 条）", systemImage: "checkmark.circle") {
+                let all = Set(mentions.map(\.seq))
+                mentions = []
+                mentionsSeen(all, force: true)
+              }
+            }
             .transition(.scale.combined(with: .opacity))
         }
         ZStack {
@@ -203,6 +233,8 @@ struct ChatScreen: View {
       do {
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
           items = list
+          lookup.update(list)
+          itemsVersion += 1
           noteNewMessages()
           markReadIfNeeded()
         }
@@ -364,7 +396,10 @@ struct ChatScreen: View {
 
   private func open() async {
     dialog = try? session.store.dialog(chatId: chatId)
-    if let d = dialog { selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0 }
+    if let d = dialog {
+      selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
+      lookup.attach(session.store, qqAccountId: d.qqAccountID)
+    }
     wireActions()
     // 已读位置要在标已读之前记下来：之后的 @我 / 回复我 / @全体成员 就是要提示的。
     if let d = dialog {
@@ -431,7 +466,41 @@ struct ChatScreen: View {
   private func jumpToNextMention() {
     guard let target = mentions.first else { return }
     mentions.removeFirst()
+    mentionsSeen([target.seq], force: true)
     Task { await jump(to: target.seq) }
+  }
+
+  /// 看到了的 @：从"有人@我"里移掉，并告诉服务端（不再算未读 @，已读位置不动）。
+  /// force：不管在不在屏幕上（点按钮跳过去、全部标为已看）。
+  private func mentionsSeen(_ seqs: Set<Int64>, force: Bool = false) {
+    let hits = force ? seqs : Set(mentions.map(\.seq)).intersection(seqs)
+    if !force { mentions.removeAll { hits.contains($0.seq) } }
+    let fresh = hits.subtracting(seenMentions)
+    guard !fresh.isEmpty else { return }
+    seenMentions.formUnion(fresh)
+    var req = Qqbridge_V1_MarkMentionsSeenRequest()
+    req.chatID = chatId
+    req.seqs = Array(fresh)
+    Task { _ = await session.api.messages.markMentionsSeen(request: req, headers: session.api.headers) }
+  }
+
+  private func show(_ text: String) {
+    notice = text
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      if notice == text { notice = nil }
+    }
+  }
+
+  /// 回到底部、停了一会儿：把翻页时加载的大量旧消息收回到最近一屏，免得列表越翻越重。
+  private func trimIfStillAtBottom() {
+    guard limit > 120 else { return }
+    Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard atBottom else { return }
+      limit = 60
+      reachedStart = false
+    }
   }
 
   /// 跳到某条消息：本地还没加载到它就往前翻页，再把列表放大到包含它，最后滚过去并高亮。
@@ -452,7 +521,10 @@ struct ChatScreen: View {
       for _ in 0..<20 where (items.firstMessageSeq ?? 0) > seq { try? await Task.sleep(for: .milliseconds(50)) }
     }
     // 那条没加载出来（例如中间有缺口）就不滚，免得请求一直挂着、新消息也不跟着滚到底。
-    guard items.contains(where: { if case .message(let m) = $0 { m.seq == seq } else { false } }) else { return }
+    guard items.contains(where: { if case .message(let m) = $0 { m.seq == seq } else { false } }) else {
+      show("这条消息加载不到（可能已过期或还没同步）")
+      return
+    }
     scrollRequest = ChatScrollRequest(target: .item("m\(seq)"))
     highlight.flash(seq)
   }

@@ -18,13 +18,15 @@ struct MessageContext {
   let session: Session
   /// 跳转到的那条消息短暂高亮。
   let highlight: MessageHighlight
+  /// 名字、头像、被回复消息的内存缓存：滚动时不在主线程查数据库。
+  let lookup: ChatLookup
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
   @MainActor
   func name(of userId: Int64) -> String {
     if userId == selfUin { return "我" }
     if isGroup, let n = members.displayName(userId) { return n }
-    return (try? store.userName(qqAccountId: qqAccountId, userId: userId)) ?? String(userId)
+    return lookup.userName(userId) ?? String(userId)
   }
 
   /// 能不能撤回（QQ 的规则，最终以 QQ 的结果为准）：
@@ -73,10 +75,6 @@ struct MessageRow: View {
       switch item {
       case .event(let e):
         Notice(text: EventText.describe(e, context: context))
-      case .message(let m) where context.highlight.seq == m.seq:
-        MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
-          .padding(.vertical, 4)
-          .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
       case .message(let m):
         if context.selection.active {
           // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
@@ -98,6 +96,13 @@ struct MessageRow: View {
       }
     }
     .frame(maxWidth: .infinity)
+    // 跳转到的消息短暂高亮：只换背景，不改大小（改大小会让列表跳）。
+    .background {
+      if case .message(let m) = item, context.highlight.seq == m.seq {
+        Color.accentColor.opacity(0.15).padding(.horizontal, -12)
+      }
+    }
+    .animation(.easeOut(duration: 0.4), value: context.highlight.seq)
   }
 
   /// 和上一条隔了 5 分钟以上才显示时间。
@@ -220,8 +225,7 @@ struct SenderAvatar: View {
 
   var body: some View {
     let name = context.name(of: userId)
-    let sha = context.avatars.sha256[userId]
-      ?? (try? context.store.peer(qqAccountId: context.qqAccountId, kind: .user, peerId: userId))?.avatarSha256
+    let sha = context.avatars.sha256[userId] ?? context.lookup.avatar(userId)
     AvatarView(sha256: sha, title: name, seed: userId, size: 34)
       .onAppear { context.avatars.want(userId, session: context.session) }
       .onTapGesture { context.actions.showProfile(userId) }
@@ -562,6 +566,14 @@ struct ReplyQuote: View {
   @State private var original: Qqbridge_V1_Message?
   @State private var missing = false
 
+  init(seq: Int64, context: MessageContext, outgoing: Bool) {
+    self.seq = seq
+    self.context = context
+    self.outgoing = outgoing
+    // 被回复的消息已经在列表里就直接用：不先显示"…"再撑开（会让列表跳一下）。
+    _original = State(initialValue: context.lookup.message(seq))
+  }
+
   var body: some View {
     HStack(spacing: 6) {
       Rectangle().frame(width: 3).opacity(0.6)
@@ -577,6 +589,7 @@ struct ReplyQuote: View {
     }
     .fixedSize(horizontal: false, vertical: true)
     .task(id: seq) {
+      guard original == nil else { return }
       // 本地有就直接用；没有就向服务端要这一条（服务端没有的会现场向 QQ 拉）。
       if let local = try? context.store.message(chatId: context.chatId, seq: seq) {
         original = local
