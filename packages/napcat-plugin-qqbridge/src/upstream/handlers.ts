@@ -1,5 +1,9 @@
 // 服务端可以调用的插件动作（经上游连接的 req/res）。只做"取数"，不在插件里做业务判断：
 // 返回 NT 原始结构，由服务端统一映射（docs/design.md 4.3：映射放在服务端）。
+import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { ChatType, msgApi, requireFn, uidByUin, type Peer } from '../core.js';
 import type { NapCatPluginContext } from '../napcat.js';
 import { callAction } from './actions.js';
@@ -172,6 +176,38 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
           desc: String(e.desc ?? ''),
         })),
       };
+    },
+
+    /**
+     * 加到"我的表情"（QQ 收藏表情）：QQ 只认本地文件，先从服务端的签名链接下载到临时目录，加完删掉。
+     */
+    'x.add_fav_emoji': async (params: { url?: string; name?: string }) => {
+      if (!params?.url) throw new Error('x.add_fav_emoji: url is required');
+      const res = await fetch(params.url, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(`x.add_fav_emoji: download failed: HTTP ${res.status}`);
+      const data = Buffer.from(await res.arrayBuffer());
+      const ext = path.extname(params.name ?? '') || '.png';
+      const file = path.join(os.tmpdir(), `qqbridge-fav-${randomUUID()}${ext}`);
+      await fs.writeFile(file, data);
+      try {
+        const add = requireFn<(p: Record<string, unknown>) => Promise<any>>(msgApi(ctx.core), 'addFavEmoji', 'MsgApi');
+        const result = await add({
+          emojiId: '',
+          packageId: 0,
+          emojiPath: file,
+          fileSize: String(data.length),
+          fileName: path.basename(file),
+          md5: createHash('md5').update(data).digest('hex'),
+          isMarkFace: false,
+          isOrigin: true,
+        });
+        if (result && typeof result.result === 'number' && result.result !== 0) {
+          throw new Error(`x.add_fav_emoji: ${result.errMsg || `QQ error ${result.result}`}`);
+        }
+        return { ok: true };
+      } finally {
+        await fs.rm(file, { force: true });
+      }
     },
 
     /** 表情回应：加或取消自己对某条消息（按 seq）的回应。 */

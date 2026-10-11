@@ -63,6 +63,10 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `prepareStickers`(request: Qqbridge_V1_PrepareStickersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_PrepareStickersResponse>
 
+    /// 把服务端已有的一张图片 / 表情加到"我的表情"（QQ 收藏表情）。
+    @available(iOS 13, *)
+    func `addSticker`(request: Qqbridge_V1_AddStickerRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_AddStickerResponse>
+
     /// 要媒体：
     /// - original = false：图片显示到时要 QQ 缩略图（不常用会话不会自动下），视频、文件点开时要整个文件；排进队列后立即返回，
     ///   下好后消息经同步更新。
@@ -145,6 +149,11 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
     }
 
     @available(iOS 13, *)
+    public func `addSticker`(request: Qqbridge_V1_AddStickerRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_AddStickerResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/AddSticker", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `requestMedia`(request: Qqbridge_V1_RequestMediaRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RequestMediaResponse> {
         return await self.client.unary(path: "/qqbridge.v1.MediaService/RequestMedia", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -164,6 +173,7 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
             public static let runTiering = Connect.MethodSpec(name: "RunTiering", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStickers = Connect.MethodSpec(name: "ListStickers", service: "qqbridge.v1.MediaService", type: .unary)
             public static let prepareStickers = Connect.MethodSpec(name: "PrepareStickers", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let addSticker = Connect.MethodSpec(name: "AddSticker", service: "qqbridge.v1.MediaService", type: .unary)
             public static let requestMedia = Connect.MethodSpec(name: "RequestMedia", service: "qqbridge.v1.MediaService", type: .unary)
         }
     }

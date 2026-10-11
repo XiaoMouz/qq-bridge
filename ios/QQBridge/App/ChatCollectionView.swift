@@ -7,6 +7,7 @@
 // - 停在最底部 = 偏移量在起点，新消息来了自然就在眼前。
 // 坐标里的"上 / 下"因此是反的：contentOffset 越小越靠近最新的消息。
 import QQBridgeKit
+import QQBridgeProto
 import SwiftUI
 import UIKit
 
@@ -32,6 +33,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   var onBottomChange: (Bool) -> Void = { _ in }
   /// 现在屏幕上看得到的消息 seq（"有人@我"据此把看过的移掉）。
   var onVisibleSeqs: (Set<Int64>) -> Void = { _ in }
+  /// 用户在滚动时，屏幕最上面那条的时间（顶部日期徽章用）；停下后 nil。
+  var onScrollDate: (Int64?) -> Void = { _ in }
   var scrollRequest: ChatScrollRequest?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
@@ -43,14 +46,16 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.onReachTop = onReachTop
     controller.onBottomChange = onBottomChange
     controller.onVisibleSeqs = onVisibleSeqs
+    controller.onScrollDate = onScrollDate
     controller.request(scrollRequest)
     controller.apply(items, version: version)
   }
 }
 
 @MainActor
-final class ChatCollectionController: UIViewController, UICollectionViewDelegate {
+final class ChatCollectionController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
   var messageContext: MessageContext?
+  var onScrollDate: ((Int64?) -> Void)?
   var onReachTop: (() -> Void)?
   var onBottomChange: ((Bool) -> Void)?
   var onVisibleSeqs: ((Set<Int64>) -> Void)?
@@ -103,6 +108,81 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     }
     dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { cv, indexPath, id in
       cv.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)
+    }
+
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+    pan.delegate = self
+    collectionView.addGestureRecognizer(pan)
+    replyArrow.tintColor = .secondaryLabel
+    replyArrow.transform = Self.flip
+    replyArrow.alpha = 0
+    collectionView.addSubview(replyArrow)
+  }
+
+  // MARK: 横向拖动：从右边缘拖 = 露出时间；在某条消息上拖 = 回复它
+
+  private enum PanMode {
+    case times
+    case reply(cell: UICollectionViewCell, message: Qqbridge_V1_Message)
+  }
+
+  private var panMode: PanMode?
+  private let replyArrow = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill",
+                                                      withConfiguration: UIImage.SymbolConfiguration(pointSize: 26)))
+  private static let replyThreshold: CGFloat = 64
+  private static let edgeZone: CGFloat = 56
+  private var replyArmed = false
+
+  func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+    guard let pan = g as? UIPanGestureRecognizer, pan.view === collectionView else { return true }
+    guard !selecting else { return false }
+    let v = pan.velocity(in: collectionView)
+    // 只认往左、明显横向的拖动（往右是系统的返回手势）。
+    guard v.x < 0, abs(v.x) > abs(v.y) * 1.5 else { return false }
+    let point = pan.location(in: view)
+    if point.x > view.bounds.width - Self.edgeZone {
+      panMode = .times
+      return true
+    }
+    let p = pan.location(in: collectionView)
+    guard let indexPath = collectionView.indexPathForItem(at: p), let cell = collectionView.cellForItem(at: indexPath),
+      let id = dataSource.itemIdentifier(for: indexPath), case .message(let m)? = byId[id], m.state != .recalled
+    else { return false }
+    panMode = .reply(cell: cell, message: m)
+    return true
+  }
+
+  @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+    guard let mode = panMode else { return }
+    let dx = min(0, pan.translation(in: collectionView).x)
+    switch mode {
+    case .times:
+      let reveal = min(TimeReveal.width, -dx * 0.6)
+      switch pan.state {
+      case .changed: messageContext?.timeReveal.offset = reveal
+      default:
+        UIView.animate(withDuration: 0.25) { self.messageContext?.timeReveal.offset = 0 }
+        if pan.state != .changed { panMode = nil }
+      }
+    case .reply(let cell, let message):
+      let shift = max(dx, -Self.replyThreshold * 1.4)
+      switch pan.state {
+      case .began, .changed:
+        cell.contentView.transform = Self.flip.translatedBy(x: shift * 0.85, y: 0)
+        replyArrow.center = CGPoint(x: cell.frame.maxX - 28, y: cell.frame.midY)
+        replyArrow.alpha = min(1, -shift / Self.replyThreshold)
+        let armed = -shift >= Self.replyThreshold
+        if armed, !replyArmed { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
+        replyArmed = armed
+      default:
+        if replyArmed, pan.state == .ended { messageContext?.actions.reply(message) }
+        replyArmed = false
+        panMode = nil
+        UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+          cell.contentView.transform = Self.flip
+          self.replyArrow.alpha = 0
+        }
+      }
     }
   }
 
@@ -240,6 +320,23 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
     if scrollView.isTracking || scrollView.isDecelerating, remaining < 600 { onReachTop?() }
     reportPosition()
+    if scrollView.isTracking || scrollView.isDecelerating, !isAtBottom { reportTopDate() }
+  }
+
+  /// 屏幕最上面那条（倒过来的列表里 index 最大的可见项）的时间。
+  private func reportTopDate() {
+    guard let top = collectionView.indexPathsForVisibleItems.max(by: { $0.item < $1.item }),
+      let id = dataSource.itemIdentifier(for: top), let item = byId[id]
+    else { return }
+    onScrollDate?(item.time)
+  }
+
+  func scrollViewDidEndDecelerating(_: UIScrollView) {
+    onScrollDate?(nil)
+  }
+
+  func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+    if !decelerate { onScrollDate?(nil) }
   }
 
   func scrollViewDidEndScrollingAnimation(_: UIScrollView) {

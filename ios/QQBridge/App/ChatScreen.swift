@@ -49,6 +49,10 @@ struct ChatScreen: View {
   @State private var scrollRequest: ChatScrollRequest?
   @State private var highlight = MessageHighlight()
   @State private var lookup = ChatLookup()
+  @State private var timeReveal = TimeReveal()
+  /// 往上翻时顶部显示的日期（停下一会儿后消失）。
+  @State private var scrollDay: String?
+  @State private var scrollDayHide: Task<Void, Never>?
   /// items 每变一次加一（列表只在它变了时才重新提交）。
   @State private var itemsVersion = 0
   /// 已经告诉服务端看过的 @（免得重复发）。
@@ -89,7 +93,8 @@ struct ChatScreen: View {
         actions: actions,
         session: session,
         highlight: highlight,
-        lookup: lookup
+        lookup: lookup,
+        timeReveal: timeReveal
       ),
       onReachTop: loadOlder,
       onBottomChange: { bottom in
@@ -99,8 +104,23 @@ struct ChatScreen: View {
         if bottom { trimIfStillAtBottom() }
       },
       onVisibleSeqs: { visible in mentionsSeen(visible) },
+      onScrollDate: { time in showScrollDay(time) },
       scrollRequest: scrollRequest
     )
+    // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章。
+    .overlay(alignment: .top) {
+      if let scrollDay, notice == nil {
+        Text(scrollDay)
+          .font(.footnote.weight(.medium))
+          .padding(.horizontal, 12)
+          .padding(.vertical, 5)
+          .glassEffect(.clear, in: Capsule())
+          .padding(.top, 6)
+          .transition(.opacity)
+          .allowsHitTesting(false)
+      }
+    }
+    .animation(.easeOut(duration: 0.2), value: scrollDay)
     .overlay(alignment: .top) {
       if let notice {
         Text(notice)
@@ -247,6 +267,7 @@ struct ChatScreen: View {
       } catch {}
     }
     .onChange(of: composer.text) { old, new in
+      composer.textChanged(from: old, to: new)
       // 群里输入 "@"：弹出选人。
       if isGroup, new.hasSuffix("@"), new.count == old.count + 1 { composer.pickingMention = true }
       // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
@@ -484,6 +505,47 @@ struct ChatScreen: View {
     Task { _ = await session.api.messages.markMentionsSeen(request: req, headers: session.api.headers) }
   }
 
+  private func showScrollDay(_ time: Int64?) {
+    scrollDayHide?.cancel()
+    if let time {
+      let day = Format.dayBadge(time)
+      if day != scrollDay { scrollDay = day }
+    } else {
+      scrollDayHide = Task {
+        try? await Task.sleep(for: .seconds(1.2))
+        if !Task.isCancelled { scrollDay = nil }
+      }
+    }
+  }
+
+  /// 加到"我的表情"：原图还没下载就先让服务端从 QQ 拉。
+  private func addSticker(_ media: Qqbridge_V1_MediaInfo, seq: Int64) async {
+    var sha = media.state == .stored ? media.sha256 : ""
+    if sha.isEmpty {
+      var ref = Qqbridge_V1_MediaRef()
+      ref.chatID = chatId
+      ref.seq = seq
+      ref.ord = media.ord
+      var req = Qqbridge_V1_RequestMediaRequest()
+      req.refs = [ref]
+      req.original = true
+      let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
+      sha = res?.media.first.flatMap { $0.state == .stored ? $0.sha256 : nil } ?? ""
+    }
+    guard !sha.isEmpty else {
+      show("这张图已经拿不到了")
+      return
+    }
+    var req = Qqbridge_V1_AddStickerRequest()
+    req.sha256 = sha
+    do {
+      _ = try await session.api.media.addSticker(request: req, headers: session.api.headers).get()
+      show("已添加到我的表情")
+    } catch {
+      show("添加失败：\(LoadState.describe(error))")
+    }
+  }
+
   private func show(_ text: String) {
     notice = text
     Task {
@@ -564,6 +626,8 @@ struct ChatScreen: View {
       if Date().timeIntervalSince1970 - Double(m.time) < 120, m.senderID == selfUin { recall(m) } else { confirmRecall = m }
     }
     actions.openMedia = { mediaTarget = $0 }
+    actions.jumpTo = { seq in Task { await jump(to: seq) } }
+    actions.addSticker = { media, seq in Task { await addSticker(media, seq: seq) } }
     actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }
     actions.openFile = { file in
       Task {

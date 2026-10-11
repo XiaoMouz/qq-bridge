@@ -210,11 +210,15 @@ struct StickerPanel: View {
   let onPick: (Qqbridge_V1_Sticker) -> Void
   /// 点了 QQ 小黄脸（插进输入框）；nil 时不显示小黄脸页。
   var onFace: ((Int, String) -> Void)? = nil
-  @State private var tab = 0
+  /// 上次停在哪一页（QQ 表情 / 我的表情）。
+  @AppStorage("stickerPanelTab") private var tab = 0
   @State private var stickers: [Qqbridge_V1_Sticker] = []
   @State private var prepared: [String: Qqbridge_V1_Sticker] = [:]
   @State private var requested: Set<String> = []
   @State private var error: String?
+  /// "我的表情"上次看到的位置（最上面那个表情的 md5），下次打开接着看。
+  @AppStorage("stickerPanelTop") private var savedTop = ""
+  @State private var top: String?
 
   var body: some View {
     NavigationStack {
@@ -237,18 +241,31 @@ struct StickerPanel: View {
             Button {
               if let ready { onPick(ready) }
             } label: {
-              CachedImage(sha256: ready.map { $0.thumbSha256.isEmpty ? $0.sha256 : $0.thumbSha256 }, maxPixel: 240) {
-                RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-              }
-              .aspectRatio(1, contentMode: .fit)
-              .clipShape(RoundedRectangle(cornerRadius: 8))
+              // 方格里按原比例缩放放下，不拉伸。
+              Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                  CachedImage(sha256: ready.map { $0.thumbSha256.isEmpty ? $0.sha256 : $0.thumbSha256 }, maxPixel: 240) {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                  }
+                  .aspectRatio(contentMode: .fit)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .onAppear { prepare(s) }
           }
         }
+        .scrollTargetLayout()
         .padding()
         }
+      }
+      .scrollPosition(id: $top, anchor: .top)
+      .onChange(of: top) { _, id in if let id, tab == 1 || onFace == nil { savedTop = id } }
+      .onChange(of: tab) { _, t in
+        // 切回"我的表情"：接着上次的位置。
+        if t == 1, !savedTop.isEmpty { Task { try? await Task.sleep(for: .milliseconds(50)); top = savedTop } }
       }
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -280,6 +297,11 @@ struct StickerPanel: View {
     do {
       stickers = try await session.api.media.listStickers(request: req, headers: session.api.headers).get().stickers
       error = nil
+      // 回到上次看到的位置（表情还在的话）。
+      if top == nil, !savedTop.isEmpty, stickers.contains(where: { $0.md5 == savedTop }) {
+        try? await Task.sleep(for: .milliseconds(50))
+        top = savedTop
+      }
     } catch {
       self.error = "\(error)"
     }

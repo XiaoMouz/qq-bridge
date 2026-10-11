@@ -200,6 +200,10 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
         logger: deps.logger.child({ component: 'outbox' }),
       })
     : null;
+  if (upstream) {
+    const base = (config.UPSTREAM_MEDIA_BASE_URL ?? `http://host.internal:${config.PORT}`).replace(/\/+$/, '');
+    deps.stickers.pluginUrl = (sha256, name) => base + deps.signer.signNamed(sha256, name).url;
+  }
   if (upstream && outboxWorker) {
     deps.outbox.onEnqueued = () => outboxWorker.poke();
     const onConnected = upstream.hub.onConnected;

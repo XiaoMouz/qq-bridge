@@ -640,6 +640,15 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
         })),
       };
     },
+    async addSticker(req, ctx) {
+      if (!/^[0-9a-f]{64}$/.test(req.sha256)) throw new ConnectError('sha256 is required', Code.InvalidArgument);
+      try {
+        await deps.stickers.add(requireAuth(ctx).accountId, req.sha256);
+        return {};
+      } catch (error) {
+        throw new ConnectError(error instanceof Error ? error.message : String(error), Code.Unavailable);
+      }
+    },
     async listStickers(req, ctx) {
       try {
         const items = await deps.stickers.list(requireAuth(ctx).accountId, req.refresh);

@@ -20,6 +20,8 @@ struct MessageContext {
   let highlight: MessageHighlight
   /// 名字、头像、被回复消息的内存缓存：滚动时不在主线程查数据库。
   let lookup: ChatLookup
+  /// 从右边缘往左拖：所有消息一起左移，露出发送时间。
+  let timeReveal: TimeReveal
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
   @MainActor
@@ -27,6 +29,13 @@ struct MessageContext {
     if userId == selfUin { return "我" }
     if isGroup, let n = members.displayName(userId) { return n }
     return lookup.userName(userId) ?? String(userId)
+  }
+
+  /// @ 徽章里的小头像：内存里已经有这个人的头像才用（滚动时不去加载），没有就只显示名字。
+  @MainActor
+  func avatarImage(_ userId: Int64) -> UIImage? {
+    guard let sha = avatars.sha256[userId] ?? lookup.avatar(userId), let full = ImageMemoryCache.shared.get(sha) else { return nil }
+    return MentionAvatar.circle(full, key: sha)
   }
 
   /// 能不能撤回（QQ 的规则，最终以 QQ 的结果为准）：
@@ -96,13 +105,30 @@ struct MessageRow: View {
       }
     }
     .frame(maxWidth: .infinity)
-    // 跳转到的消息短暂高亮：只换背景，不改大小（改大小会让列表跳）。
+    // 从右边缘往左拖：内容整体左移，右边露出发送时间（今天只显示时刻，昨天、更早的带日期）。
+    .offset(x: revealsTime ? -context.timeReveal.offset : 0)
+    .overlay(alignment: .bottomTrailing) {
+      if revealsTime, context.timeReveal.offset > 0 {
+        Text(Format.messageTime(item.time))
+          .font(.caption2.monospacedDigit())
+          .foregroundStyle(.secondary)
+          .fixedSize()
+          .padding(.bottom, 4)
+          .offset(x: TimeReveal.width - context.timeReveal.offset)
+          .opacity(Double(context.timeReveal.offset / TimeReveal.width))
+      }
+    }
     .background {
       if case .message(let m) = item, context.highlight.seq == m.seq {
         Color.accentColor.opacity(0.15).padding(.horizontal, -12)
       }
     }
     .animation(.easeOut(duration: 0.4), value: context.highlight.seq)
+  }
+
+  private var revealsTime: Bool {
+    if case .event = item { return false }
+    return true
   }
 
   /// 和上一条隔了 5 分钟以上才显示时间。
@@ -177,6 +203,9 @@ struct MessageBubbleRow: View {
         HStack(alignment: .bottom, spacing: 6) {
           if recalled, outgoing { RecalledTag(text: recalledText) }
           MessageContent(message: message, context: context, outgoing: outgoing)
+            // 动图表情是 UIKit 视图、透明的地方不算点中：整块都算，长按才弹得出菜单。
+            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
+            .contentShape(Rectangle())
             .contextMenu { menu }
           if recalled, !outgoing { RecalledTag(text: recalledText) }
         }
@@ -184,6 +213,18 @@ struct MessageBubbleRow: View {
       }
       if !outgoing { Spacer(minLength: 48) }
     }
+  }
+
+  /// 能加到"我的表情"的图片 / 表情（一条消息里的第一个）。
+  static func stickerable(_ m: Qqbridge_V1_Message) -> Qqbridge_V1_MediaInfo? {
+    for seg in m.segments {
+      switch seg.kind {
+      case .image(let i): return i.media
+      case .marketFace(let f) where f.hasMedia: return f.media
+      default: continue
+      }
+    }
+    return nil
   }
 
   @ViewBuilder private var menu: some View {
@@ -194,6 +235,9 @@ struct MessageBubbleRow: View {
     Button("多选", systemImage: "checkmark.circle") { context.selection.start(with: message.seq) }
     if !message.text.isEmpty {
       Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+    }
+    if let image = Self.stickerable(message) {
+      Button("添加到我的表情", systemImage: "face.smiling.inverse") { context.actions.addSticker(image, message.seq) }
     }
     if context.isGroup, !outgoing {
       Button("@\(context.name(of: message.senderID))", systemImage: "at") { context.actions.mention(message.senderID) }
@@ -337,9 +381,9 @@ enum Block {
       switch seg.kind {
       case .text(let t): text += AttributedString(t.text)
       case .mention(let m):
-        var a = AttributedString("@\(m.name.isEmpty ? context.name(of: m.userID) : m.name) ")
-        a.font = .body.bold()
-        text += a
+        // 真正的 @（带了 QQ 号的）显示成徽章 + 头像；手打的 "@某某" 只是普通文字。
+        cut()
+        runs.append(.mention(m.userID, name: m.name.isEmpty ? context.name(of: m.userID) : m.name, avatar: context.avatarImage(m.userID)))
       case .mentionAll:
         var a = AttributedString("@全体成员 ")
         a.font = .body.bold()
@@ -394,7 +438,7 @@ struct BlockView: View {
           ForEach(faces.indices, id: \.self) { i in QQFace.inline(faces[i].id, name: faces[i].name, size: size) }
         }
       } else {
-        Inline.compose(runs).textSelection(.enabled)
+        Inline.compose(runs, outgoing: outgoing).textSelection(.enabled)
       }
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
@@ -577,6 +621,21 @@ struct ReplyQuote: View {
   var body: some View {
     HStack(spacing: 6) {
       Rectangle().frame(width: 3).opacity(0.6)
+      // 被回复的是图片、表情、视频：带个小缩略图（还没下载的先显示图标，并向服务端要缩略图）。
+      if let original, let media = Self.media(original) {
+        CachedImage(sha256: Self.thumbnail(media), chatId: context.chatId, maxPixel: 120) {
+          ZStack {
+            RoundedRectangle(cornerRadius: 4).fill(.quaternary)
+            Image(systemName: media.kind == .video ? "video" : "photo").font(.caption).foregroundStyle(.secondary)
+          }
+        }
+        .aspectRatio(contentMode: .fill)
+        .frame(width: 34, height: 34)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .onAppear {
+          if Self.thumbnail(media) == nil { context.requester.want(chatId: context.chatId, seq: original.seq, ord: media.info.ord, session: context.session) }
+        }
+      }
       VStack(alignment: .leading, spacing: 1) {
         if let original {
           Text(context.name(of: original.senderID)).font(.caption.bold())
@@ -588,16 +647,49 @@ struct ReplyQuote: View {
       .opacity(0.85)
     }
     .fixedSize(horizontal: false, vertical: true)
+    .contentShape(Rectangle())
+    // 点引用跳到原消息。
+    .onTapGesture { if !missing { context.actions.jumpTo(seq) } }
     .task(id: seq) {
       guard original == nil else { return }
-      // 本地有就直接用；没有就向服务端要这一条（服务端没有的会现场向 QQ 拉）。
-      if let local = try? context.store.message(chatId: context.chatId, seq: seq) {
-        original = local
-      } else if let fetched = await session?.sync.fetchMessage(chatId: context.chatId, seq: seq) {
-        original = fetched
-      } else {
-        missing = true
+      await load()
+    }
+  }
+
+  struct QuotedMedia {
+    enum Kind { case image, video }
+    let kind: Kind
+    let info: Qqbridge_V1_MediaInfo
+  }
+
+  /// 被回复消息里的第一张图片 / 表情 / 视频。
+  static func media(_ m: Qqbridge_V1_Message) -> QuotedMedia? {
+    for seg in m.segments {
+      switch seg.kind {
+      case .image(let i): return QuotedMedia(kind: .image, info: i.media)
+      case .video(let v): return QuotedMedia(kind: .video, info: v.media)
+      case .marketFace(let f) where f.hasMedia: return QuotedMedia(kind: .image, info: f.media)
+      default: continue
       }
+    }
+    return nil
+  }
+
+  /// 缩略图：QQ 缩略图 / 预览图 / 已下载的原图。
+  static func thumbnail(_ m: QuotedMedia) -> String? {
+    let media = m.info
+    for sha in [media.thumbSha256, media.previewSha256, media.state == .stored ? media.sha256 : ""] where !sha.isEmpty { return sha }
+    return nil
+  }
+
+  private func load() async {
+    // 本地有就直接用；没有就向服务端要这一条（服务端没有的会现场向 QQ 拉）。
+    if let local = try? context.store.message(chatId: context.chatId, seq: seq) {
+      original = local
+    } else if let fetched = await session?.sync.fetchMessage(chatId: context.chatId, seq: seq) {
+      original = fetched
+    } else {
+      missing = true
     }
   }
 }
@@ -676,6 +768,7 @@ struct OutgoingRow: View {
 enum Inline {
   case text(AttributedString)
   case face(String, name: String, large: Bool)
+  case mention(Int64, name: String, avatar: UIImage?)
 
   /// 整段只有 1–3 个 QQ 表情（可夹空白）时返回它们，用来放大显示。
   static func jumboFaces(_ runs: [Inline]) -> [(id: String, name: String)]? {
@@ -683,19 +776,31 @@ enum Inline {
     for run in runs {
       switch run {
       case .face(let id, let name, _): faces.append((id, name))
+      case .mention: return nil
       case .text(let a): if !String(a.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
       }
     }
     return (1...3).contains(faces.count) ? faces : nil
   }
 
-  @MainActor static func compose(_ runs: [Inline]) -> Text {
+  @MainActor static func compose(_ runs: [Inline], outgoing: Bool = false) -> Text {
     runs.reduce(Text(verbatim: "")) { acc, run in
       switch run {
       case .text(let a): Text("\(acc)\(Text(a))")
       case .face(let id, let name, let large): Text("\(acc)\(QQFace.inline(id, name: name, size: large ? 64 : 20))")
+      case .mention(_, let name, let avatar): Text("\(acc)\(mentionBadge(name, avatar: avatar, outgoing: outgoing))")
       }
     }
+  }
+
+  /// @ 徽章：淡色底 + 小头像 + 名字（自己发的蓝色气泡里用白色）。
+  @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool) -> Text {
+    var label = AttributedString("\u{2009}@\(name)\u{2009}")
+    label.font = .body.weight(.semibold)
+    label.foregroundColor = outgoing ? .white : .accentColor
+    label.backgroundColor = outgoing ? Color.white.opacity(0.22) : Color.accentColor.opacity(0.13)
+    guard let avatar else { return Text(label) + Text(" ") }
+    return Text(Image(uiImage: avatar)).baselineOffset(-3) + Text(label) + Text(" ")
   }
 }
 
@@ -796,6 +901,27 @@ enum EventText {
 }
 
 extension Format {
+  /// 左滑露出的时间：今天只有时刻，昨天"昨天 18:30"，今年"10-05 18:30"，更早带年份。
+  @MainActor static func messageTime(_ unix: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(unix))
+    let time = date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
+    let cal = Calendar.current
+    if cal.isDateInToday(date) { return time }
+    if cal.isDateInYesterday(date) { return "昨天 \(time)" }
+    let day = DateFormatter.cached(cal.isDate(date, equalTo: Date(), toGranularity: .year) ? "MM-dd" : "yyyy-MM-dd").string(from: date)
+    return "\(day) \(time)"
+  }
+
+  /// 往上翻时顶部的日期：今天 / 昨天 / 10-05（一年内）/ 2024-10-05（一年以前）。
+  @MainActor static func dayBadge(_ unix: Int64) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(unix))
+    let cal = Calendar.current
+    if cal.isDateInToday(date) { return "今天" }
+    if cal.isDateInYesterday(date) { return "昨天" }
+    let withinYear = date > cal.date(byAdding: .year, value: -1, to: Date())!
+    return DateFormatter.cached(withinYear ? "MM-dd" : "yyyy-MM-dd").string(from: date)
+  }
+
   static func chatTime(_ unix: Int64) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(unix))
     if Calendar.current.isDateInToday(date) { return date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale)) }
@@ -804,5 +930,18 @@ extension Format {
 
   static func duration(_ seconds: Int) -> String {
     String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+}
+
+extension DateFormatter {
+  @MainActor private static var formatters: [String: DateFormatter] = [:]
+
+  @MainActor static func cached(_ format: String) -> DateFormatter {
+    if let f = formatters[format] { return f }
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = format
+    formatters[format] = f
+    return f
   }
 }

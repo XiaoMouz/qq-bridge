@@ -31,6 +31,25 @@ export class StickerService {
     private readonly download: (url: string) => Promise<Buffer | null> = defaultDownload,
   ) {}
 
+  /** 插件（QQ 容器）下载服务端媒体用的签名链接；服务端启动时按配置设置，没有上游时为 null。 */
+  pluginUrl: ((sha256: string, name: string) => string) | null = null;
+
+  /** 加到"我的表情"：插件从签名链接下载后交给 QQ。成功后列表缓存作废，下次打开面板就有了。 */
+  async add(accountId: number, sha256: string): Promise<void> {
+    const qq = await this.qqAccount(accountId);
+    const blob = await maybeOne<{ mime: string | null; kind: string }>(
+      this.db,
+      sql`select mime, kind from blobs where sha256 = ${sha256} and state = 'present'`,
+    );
+    if (!blob || !['image', 'sticker'].includes(blob.kind)) throw new Error('not an image on this server');
+    const hub = this.upstream();
+    if (!hub?.isConnected(qq) || !this.pluginUrl) throw new Error('QQ is offline');
+    const ext = blob.mime === 'image/gif' ? 'gif' : blob.mime === 'image/jpeg' ? 'jpg' : blob.mime === 'image/webp' ? 'webp' : 'png';
+    const name = `sticker.${ext}`;
+    await hub.call(qq, 'x.add_fav_emoji', { url: this.pluginUrl(sha256, name), name }, 90_000);
+    this.cache.delete(qq);
+  }
+
   async list(accountId: number, refresh: boolean): Promise<StickerItem[]> {
     const qq = await this.qqAccount(accountId);
     const cached = this.cache.get(qq);

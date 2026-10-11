@@ -43,6 +43,36 @@ final class Composer {
     tokens.append((token, seg))
   }
 
+  /// 输入框内容变了：退格删到某个 @ 里时，把整个 @（连同后面的空格）一起删掉。只对选出来的 @ 这样做，手打的不管。
+  func textChanged(from old: String, to new: String) {
+    guard new.count < old.count, !tokens.isEmpty else { return }
+    // 删掉的那一段 = 新旧共同前缀之后、共同后缀之前。
+    let o = Array(old), n = Array(new)
+    var prefix = 0
+    while prefix < n.count, o[prefix] == n[prefix] { prefix += 1 }
+    var suffix = 0
+    while suffix < n.count - prefix, o[o.count - 1 - suffix] == n[n.count - 1 - suffix] { suffix += 1 }
+    let deleted = prefix..<(o.count - suffix)
+    for (i, token) in tokens.enumerated() where token.text.hasPrefix("@") {
+      var searchFrom = old.startIndex
+      while let r = old.range(of: token.text, range: searchFrom..<old.endIndex) {
+        let start = old.distance(from: old.startIndex, to: r.lowerBound)
+        let end = start + token.text.count
+        searchFrom = r.upperBound
+        // 只删了 @ 的一部分：整个去掉。
+        guard deleted.overlaps(start..<end), !(deleted.lowerBound <= start && deleted.upperBound >= end) else { continue }
+        var chars = o
+        let tail = end < chars.count && chars[end] == " " ? end + 1 : end
+        chars.removeSubrange(start..<max(tail, deleted.upperBound))
+        // 删除范围里在 @ 前面的部分也照删。
+        if deleted.lowerBound < start { chars.removeSubrange(deleted.lowerBound..<start) }
+        tokens.remove(at: i)
+        text = String(chars)
+        return
+      }
+    }
+  }
+
   /// 拆成发送用的消息段：普通文字、@某人、@全体成员、表情（按出现顺序；被删掉的 @ / 表情就当普通文字）。
   func segments() -> [Qqbridge_V1_OutgoingSegment] {
     var out: [Qqbridge_V1_OutgoingSegment] = []
@@ -85,6 +115,10 @@ final class ChatActions {
   var forward: (Qqbridge_V1_Message) -> Void = { _ in }
   var playVoice: (Qqbridge_V1_RecordSegment) -> Void = { _ in }
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
+  /// 跳到这条消息（点回复引用）。
+  var jumpTo: (Int64) -> Void = { _ in }
+  /// 把这张图片 / 表情加到"我的表情"（seq：所在消息，原图没下载时要用）。
+  var addSticker: (Qqbridge_V1_MediaInfo, Int64) -> Void = { _, _ in }
 }
 
 /// 点开的大图或视频。
@@ -478,5 +512,33 @@ final class ChatLookup {
     let value = sha?.isEmpty == false ? sha : nil
     avatars[userId] = .some(value)
     return value
+  }
+}
+
+/// 从右边缘往左拖露出发送时间：拖动的距离（0…width），所有可见的消息行一起读它。
+@MainActor
+@Observable
+final class TimeReveal {
+  static let width: CGFloat = 64
+  var offset: CGFloat = 0
+}
+
+/// @ 徽章里的小圆头像（按头像缓存，不反复画）。
+@MainActor
+enum MentionAvatar {
+  private static var cache: [String: UIImage] = [:]
+
+  static func circle(_ image: UIImage, key: String) -> UIImage {
+    if let hit = cache[key] { return hit }
+    let size = CGSize(width: 18, height: 18)
+    let out = UIGraphicsImageRenderer(size: size).image { _ in
+      UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).addClip()
+      let scale = max(size.width / image.size.width, size.height / image.size.height)
+      let w = image.size.width * scale, h = image.size.height * scale
+      image.draw(in: CGRect(x: (size.width - w) / 2, y: (size.height - h) / 2, width: w, height: h))
+    }
+    if cache.count > 300 { cache.removeAll() }
+    cache[key] = out
+    return out
   }
 }
