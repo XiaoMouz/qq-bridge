@@ -99,15 +99,17 @@ struct ChatScreen: View {
         if selection.active {
           Button("取消") { selection.end() }
         } else {
-          if isGroup {
-            Button("详情", systemImage: "person.3") { showInfo = true }
-          } else if let d = dialog {
-            // 私聊：右上角显示对方头像，点开是资料页。
+          if let d = dialog {
+            // 右上角显示对方 / 群的头像，点开是资料页 / 群资料。
+            let known = peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }
             Button { showInfo = true } label: {
-              AvatarView(sha256: peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 } ?? avatars.sha256[d.peerID], title: title, seed: d.peerID, size: 32)
-                .onAppear { if peer?.avatarSha256.isEmpty ?? true { avatars.want(d.peerID, session: session) } }
+              AvatarView(sha256: known ?? (isGroup ? avatars.groupSha256[d.peerID] : avatars.sha256[d.peerID]), title: title, seed: d.peerID, size: 32)
+                .onAppear {
+                  guard known == nil else { return }
+                  if isGroup { avatars.wantGroup(d.peerID, session: session) } else { avatars.want(d.peerID, session: session) }
+                }
             }
-            .accessibilityLabel("资料")
+            .accessibilityLabel(isGroup ? "群资料" : "资料")
           }
         }
       }
