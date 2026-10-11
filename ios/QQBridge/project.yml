@@ -48,7 +48,7 @@ targets:
           NSAllowsLocalNetworking: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.qqbridge
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: App/QQBridge.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"

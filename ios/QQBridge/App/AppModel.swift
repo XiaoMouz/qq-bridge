@@ -28,7 +28,7 @@ final class AppModel {
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。
   private let container: URL = {
-    if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.xiaomouz.qqbridge") {
+    if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.xiaomouz.betterchat") {
       return group
     }
     return FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].deletingLastPathComponent()
