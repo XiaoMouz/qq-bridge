@@ -17,7 +17,11 @@ export class NapcatMediaSource implements MediaSource {
   async resolve(ref: PendingRef, forceRefresh: boolean): Promise<FetchTarget | null> {
     const fresh = ref.url && (!ref.urlExpiresAt || ref.urlExpiresAt.getTime() > Date.now());
     if (!forceRefresh && fresh) return { url: ref.url! };
-    if (!ref.locator) return null; // 例如商城表情：固定链接，失效就是真没了
+    if (!ref.locator) {
+      // 商城表情：固定链接。动图包是 raw300.gif，静态包只有 300x300.png（gif 链接 404）：失效时换成 png 再试一次。
+      const png = forceRefresh && ref.url ? marketFacePng(ref.url) : null;
+      return png ? { url: png } : null;
+    }
     const qqAccountId = await this.qqAccountOf(ref.chatId);
     if (!this.hub.isConnected(qqAccountId)) throw new UpstreamOfflineError(qqAccountId);
     const res = await this.hub.call<{ url?: string | null }>(qqAccountId, 'x.media_url', ref.locator);
@@ -32,4 +36,10 @@ export class NapcatMediaSource implements MediaSource {
     this.accountOfChat.set(chatId, row.qq_account_id);
     return row.qq_account_id;
   }
+}
+
+/** 商城表情的 gif 链接换成同一张表情的 300x300 静态图；不是商城表情链接返回 null。 */
+export function marketFacePng(url: string): string | null {
+  const m = /^(https:\/\/gxh\.vip\.qq\.com\/club\/item\/parcel\/item\/[0-9a-f]{2}\/[0-9a-f]{32}\/)raw\d+\.gif$/i.exec(url);
+  return m ? `${m[1]}300x300.png` : null;
 }

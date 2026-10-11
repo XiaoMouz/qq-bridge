@@ -314,3 +314,13 @@ describe('NapCat mapping', () => {
     expect(eventKind({ post_type: 'qqbridge_call' } as never)).toBe('qqbridge_call');
   });
 });
+
+describe('marketFacePng', () => {
+  it('turns a market face gif link into the static png of the same face', async () => {
+    const { marketFacePng } = await import('../src/upstream/napcat/media-source.ts');
+    expect(marketFacePng('https://gxh.vip.qq.com/club/item/parcel/item/34/344d33bc6b1d9f31db0ce55f75dc3c48/raw300.gif')).toBe(
+      'https://gxh.vip.qq.com/club/item/parcel/item/34/344d33bc6b1d9f31db0ce55f75dc3c48/300x300.png',
+    );
+    expect(marketFacePng('https://multimedia.nt.qq.com.cn/download?fileid=x')).toBeNull();
+  });
+});

@@ -81,12 +81,15 @@ export class StickerService {
       }
       try {
         const data = await this.download(item.url);
-        if (!data) continue;
-        const blob = await this.media.storeBlob(Readable.from([data]), { kind: 'sticker', maxBytes: 10 * 1024 * 1024 });
+        if (!data) {
+          this.logger?.warn({ md5, url: item.url }, 'sticker download returned nothing');
+          continue;
+        }
+        const blob = await this.media.storeBlob(Readable.from([data]), { kind: 'sticker', maxBytes: 64 * 1024 * 1024 });
         const derived = await this.processor?.process(blob.sha256, 'sticker');
         out.push({ ...item, sha256: blob.sha256, ...(derived?.thumbSha256 ? { thumbSha256: derived.thumbSha256 } : {}) });
       } catch (error) {
-        this.logger?.debug({ err: error, md5 }, 'sticker download failed');
+        this.logger?.warn({ err: error, md5, url: item.url }, 'sticker download failed');
       }
     }
     return out;

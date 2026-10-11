@@ -692,7 +692,15 @@ struct ChatScreen: View {
     let segments = composer.segments()
     guard !segments.isEmpty else { return }
     let reply = composer.replyTo?.seq
+    let sentText = composer.text
     composer.reset()
+    // 中文输入法还有没上屏的候选字时，清空后输入法会把字再提交回来：内容还是刚发出去的那段就再清一次。
+    Task {
+      for delay in [50, 200] {
+        try? await Task.sleep(for: .milliseconds(delay))
+        if !sentText.isEmpty, composer.text == sentText || sentText.hasPrefix(composer.text) && !composer.text.isEmpty { composer.text = "" }
+      }
+    }
     Task {
       do {
         try await session.sender.send(chatId: chatId, segments: segments, replyToSeq: reply)

@@ -320,6 +320,8 @@ struct StickerPanel: View {
       if let res = try? await session.api.media.prepareStickers(request: req, headers: session.api.headers).get() {
         for p in res.stickers { prepared[p.md5] = p }
       }
+      // 没准备好的（下载失败、超时）：允许下次显示到时再要。
+      for m in batch where prepared[m] == nil { requested.remove(m) }
     }
   }
 }
