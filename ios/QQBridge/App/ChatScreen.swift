@@ -19,6 +19,8 @@ struct ChatScreen: View {
   @State private var loadingOlder = false
   /// 正在向服务端要更早的消息（顶部显示加载中）。
   @State private var fetchingOlder = false
+  /// 正在往上找某条消息（跳到 @、回复引用）。
+  @State private var searchingFor: Int64?
   @State private var reachedStart = false
   @State private var composer = Composer()
   @State private var members = GroupMembers()
@@ -117,10 +119,10 @@ struct ChatScreen: View {
     )
     // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
-      if fetchingOlder, notice == nil {
+      if fetchingOlder || searchingFor != nil, notice == nil {
         HStack(spacing: 6) {
           ProgressView().controlSize(.small)
-          Text("正在加载更早的消息").font(.footnote)
+          Text(searchingFor != nil ? "正在往上查找消息…" : "正在加载更早的消息").font(.footnote)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -533,10 +535,14 @@ struct ChatScreen: View {
   }
 
   private func jumpToNextMention() {
-    guard let target = mentions.first else { return }
-    mentions.removeFirst()
-    mentionsSeen([target.seq], force: true)
-    Task { await jump(to: target.seq) }
+    guard let target = mentions.first, searchingFor == nil else { return }
+    Task {
+      // 跳到了才从按钮里移掉、标为已看；找不到（出错）就留着，下次再点接着找。
+      if await jump(to: target.seq) {
+        mentions.removeAll { $0.seq == target.seq }
+        mentionsSeen([target.seq], force: true)
+      }
+    }
   }
 
   /// 看到了的 @：从"有人@我"里移掉，并告诉服务端（不再算未读 @，已读位置不动）。
@@ -646,30 +652,43 @@ struct ChatScreen: View {
   }
 
   /// 跳到某条消息：本地还没加载到它就往前翻页，再把列表放大到包含它，最后滚过去并高亮。
-  private func jump(to seq: Int64) async {
-    var guardPages = 0
-    while let first = items.firstMessageSeq, first > seq, !reachedStart, guardPages < 20 {
-      let window = try? session.store.loadedWindow(chatId: chatId)
-      let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
-      if let window, seq >= window.floor, need >= limit {
-        // 已经在连续区间里了，只是列表没显示那么多。
-        limit = need + 20
-      } else {
-        let got = (try? await session.sync.loadOlder(chatId, limit: 100)) ?? 0
-        if got == 0 { reachedStart = true }
-        limit += got
+  /// 跳到某条消息：不在列表里就一直往上翻页（每页 500 条，服务端没有的会现场向 QQ 拉），翻到了滚过去并高亮。
+  /// 返回是否跳到了。
+  @discardableResult
+  private func jump(to seq: Int64) async -> Bool {
+    func loaded() -> Bool { items.contains { if case .message(let m) = $0 { m.seq == seq } else { false } } }
+    if !loaded() {
+      searchingFor = seq
+      defer { searchingFor = nil }
+      while !loaded(), !reachedStart {
+        if Task.isCancelled { return false }
+        let window = try? session.store.loadedWindow(chatId: chatId)
+        let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
+        if let window, seq >= window.floor {
+          // 已经在连续区间里了，只是列表没显示那么多。
+          limit = max(limit, need + 20)
+        } else {
+          do {
+            let got = try await session.sync.loadOlder(chatId, limit: 500)
+            if got == 0 { reachedStart = true }
+            limit += got
+          } catch {
+            show("加载更早的消息失败，稍后再点一次")
+            return false
+          }
+        }
+        // 等列表按新的 limit 刷新。
+        for _ in 0..<40 where !loaded() && (items.firstMessageSeq ?? 0) > seq { try? await Task.sleep(for: .milliseconds(50)) }
+        if let first = items.firstMessageSeq, first <= seq, !loaded() { break }  // 翻过头了还没有：这条不存在
       }
-      guardPages += 1
-      // 等列表按新的 limit 刷新。
-      for _ in 0..<20 where (items.firstMessageSeq ?? 0) > seq { try? await Task.sleep(for: .milliseconds(50)) }
     }
-    // 那条没加载出来（例如中间有缺口）就不滚，免得请求一直挂着、新消息也不跟着滚到底。
-    guard items.contains(where: { if case .message(let m) = $0 { m.seq == seq } else { false } }) else {
-      show("这条消息加载不到（可能已过期或还没同步）")
-      return
+    guard loaded() else {
+      show("这条消息已经不在了（可能被删除或已过期）")
+      return false
     }
     scrollRequest = ChatScrollRequest(target: .item("m\(seq)"))
     highlight.flash(seq)
+    return true
   }
 
   /// 看到最底部了：标已读到最后一条消息（同一位置只标一次）。
@@ -963,7 +982,8 @@ struct ChatScreen: View {
       }
       fetchingOlder = true
       defer { fetchingOlder = false }
-      let got = (try? await session.sync.loadOlder(chatId, limit: 60)) ?? 0
+      // 出错（网络、QQ 掉线）不算到头：下次滑到顶再试。
+      guard let got = try? await session.sync.loadOlder(chatId, limit: 60) else { return }
       if got == 0 { reachedStart = true } else { limit += got }
     }
   }
