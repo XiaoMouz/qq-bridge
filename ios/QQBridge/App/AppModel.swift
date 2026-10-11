@@ -137,6 +137,7 @@ final class AppModel {
   private func enter(_ session: Session) {
     phase = .ready(session)
     registerForPush()
+    Task.detached(priority: .utility) { await session.store.backfillMediaIndex() }
     statusTask?.cancel()
     statusTask = Task { [weak self] in
       while !Task.isCancelled {

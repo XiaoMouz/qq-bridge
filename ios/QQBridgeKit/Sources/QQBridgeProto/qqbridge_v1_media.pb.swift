@@ -283,6 +283,130 @@ public nonisolated struct Qqbridge_V1_GetStorageOverviewResponse: Sendable {
   /// 热存储 / 冷存储所在磁盘的容量。
   public var volumes: [Qqbridge_V1_StorageVolume] = []
 
+  /// 消息本身（文字、消息段、原始数据）在数据库里占的空间。
+  public var messageBytes: UInt64 = 0
+
+  /// 消息条数（估算值，来自表统计信息）。
+  public var messageCount: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListStorageChatsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var categories: [String] = []
+
+  public var limit: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_StorageChat: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chatID: Int64 = 0
+
+  public var scene: Qqbridge_V1_Scene = .unspecified
+
+  public var peerID: Int64 = 0
+
+  public var bytes: UInt64 = 0
+
+  /// 内容份数（message 类：消息条数）。
+  public var count: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListStorageChatsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chats: [Qqbridge_V1_StorageChat] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListStorageItemsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chatID: Int64 = 0
+
+  public var categories: [String] = []
+
+  public var offset: UInt32 = 0
+
+  public var limit: UInt32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_StorageItem: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var sha256: String = String()
+
+  public var size: UInt64 = 0
+
+  public var category: String = String()
+
+  /// present / purged（原件已清理）。
+  public var state: String = String()
+
+  /// hot / cold。
+  public var tier: String = String()
+
+  /// 有几个会话引用了它（> 1 = 和别的会话共用）。
+  public var refChats: UInt32 = 0
+
+  /// 第一次出现的会话和消息（群文件没有消息：seq = 0）。
+  public var chatID: Int64 = 0
+
+  public var seq: Int64 = 0
+
+  public var time: Int64 = 0
+
+  public var mime: String = String()
+
+  public var name: String = String()
+
+  /// 预览用的缩略图（没有时为空）。
+  public var thumbSha256: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListStorageItemsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var items: [Qqbridge_V1_StorageItem] = []
+
+  public var more: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1328,7 +1452,7 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewRequest: SwiftProtobuf.Messa
 
 nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GetStorageOverviewResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}physical_bytes\0\u{3}logical_bytes\0\u{3}dedup_saved_bytes\0\u{3}blob_count\0\u{1}chats\0\u{3}hot_bytes\0\u{3}cold_bytes\0\u{3}cold_tier_enabled\0\u{1}categories\0\u{1}volumes\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}physical_bytes\0\u{3}logical_bytes\0\u{3}dedup_saved_bytes\0\u{3}blob_count\0\u{1}chats\0\u{3}hot_bytes\0\u{3}cold_bytes\0\u{3}cold_tier_enabled\0\u{1}categories\0\u{1}volumes\0\u{3}message_bytes\0\u{3}message_count\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1346,6 +1470,8 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
       case 8: try { try decoder.decodeSingularBoolField(value: &self.coldTierEnabled) }()
       case 9: try { try decoder.decodeRepeatedMessageField(value: &self.categories) }()
       case 10: try { try decoder.decodeRepeatedMessageField(value: &self.volumes) }()
+      case 11: try { try decoder.decodeSingularUInt64Field(value: &self.messageBytes) }()
+      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.messageCount) }()
       default: break
       }
     }
@@ -1382,6 +1508,12 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
     if !self.volumes.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.volumes, fieldNumber: 10)
     }
+    if self.messageBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.messageBytes, fieldNumber: 11)
+    }
+    if self.messageCount != 0 {
+      try visitor.visitSingularUInt64Field(value: self.messageCount, fieldNumber: 12)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1396,6 +1528,288 @@ nonisolated extension Qqbridge_V1_GetStorageOverviewResponse: SwiftProtobuf.Mess
     if lhs.coldTierEnabled != rhs.coldTierEnabled {return false}
     if lhs.categories != rhs.categories {return false}
     if lhs.volumes != rhs.volumes {return false}
+    if lhs.messageBytes != rhs.messageBytes {return false}
+    if lhs.messageCount != rhs.messageCount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListStorageChatsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListStorageChatsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}categories\0\u{1}limit\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.categories) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.limit) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.categories.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.categories, fieldNumber: 1)
+    }
+    if self.limit != 0 {
+      try visitor.visitSingularUInt32Field(value: self.limit, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListStorageChatsRequest, rhs: Qqbridge_V1_ListStorageChatsRequest) -> Bool {
+    if lhs.categories != rhs.categories {return false}
+    if lhs.limit != rhs.limit {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StorageChat: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StorageChat"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}scene\0\u{3}peer_id\0\u{1}bytes\0\u{1}count\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.scene) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.peerID) }()
+      case 4: try { try decoder.decodeSingularUInt64Field(value: &self.bytes) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.count) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    }
+    if self.scene != .unspecified {
+      try visitor.visitSingularEnumField(value: self.scene, fieldNumber: 2)
+    }
+    if self.peerID != 0 {
+      try visitor.visitSingularInt64Field(value: self.peerID, fieldNumber: 3)
+    }
+    if self.bytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.bytes, fieldNumber: 4)
+    }
+    if self.count != 0 {
+      try visitor.visitSingularUInt32Field(value: self.count, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StorageChat, rhs: Qqbridge_V1_StorageChat) -> Bool {
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.scene != rhs.scene {return false}
+    if lhs.peerID != rhs.peerID {return false}
+    if lhs.bytes != rhs.bytes {return false}
+    if lhs.count != rhs.count {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListStorageChatsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListStorageChatsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}chats\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.chats) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.chats.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.chats, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListStorageChatsResponse, rhs: Qqbridge_V1_ListStorageChatsResponse) -> Bool {
+    if lhs.chats != rhs.chats {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListStorageItemsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListStorageItemsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}categories\0\u{1}offset\0\u{1}limit\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.categories) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.offset) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.limit) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    }
+    if !self.categories.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.categories, fieldNumber: 2)
+    }
+    if self.offset != 0 {
+      try visitor.visitSingularUInt32Field(value: self.offset, fieldNumber: 3)
+    }
+    if self.limit != 0 {
+      try visitor.visitSingularUInt32Field(value: self.limit, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListStorageItemsRequest, rhs: Qqbridge_V1_ListStorageItemsRequest) -> Bool {
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.categories != rhs.categories {return false}
+    if lhs.offset != rhs.offset {return false}
+    if lhs.limit != rhs.limit {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StorageItem: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StorageItem"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sha256\0\u{1}size\0\u{1}category\0\u{1}state\0\u{1}tier\0\u{3}ref_chats\0\u{3}chat_id\0\u{1}seq\0\u{1}time\0\u{1}mime\0\u{1}name\0\u{3}thumb_sha256\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.size) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.category) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.state) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.tier) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.refChats) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
+      case 9: try { try decoder.decodeSingularInt64Field(value: &self.time) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.mime) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 12: try { try decoder.decodeSingularStringField(value: &self.thumbSha256) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 1)
+    }
+    if self.size != 0 {
+      try visitor.visitSingularUInt64Field(value: self.size, fieldNumber: 2)
+    }
+    if !self.category.isEmpty {
+      try visitor.visitSingularStringField(value: self.category, fieldNumber: 3)
+    }
+    if !self.state.isEmpty {
+      try visitor.visitSingularStringField(value: self.state, fieldNumber: 4)
+    }
+    if !self.tier.isEmpty {
+      try visitor.visitSingularStringField(value: self.tier, fieldNumber: 5)
+    }
+    if self.refChats != 0 {
+      try visitor.visitSingularUInt32Field(value: self.refChats, fieldNumber: 6)
+    }
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 7)
+    }
+    if self.seq != 0 {
+      try visitor.visitSingularInt64Field(value: self.seq, fieldNumber: 8)
+    }
+    if self.time != 0 {
+      try visitor.visitSingularInt64Field(value: self.time, fieldNumber: 9)
+    }
+    if !self.mime.isEmpty {
+      try visitor.visitSingularStringField(value: self.mime, fieldNumber: 10)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 11)
+    }
+    if !self.thumbSha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.thumbSha256, fieldNumber: 12)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StorageItem, rhs: Qqbridge_V1_StorageItem) -> Bool {
+    if lhs.sha256 != rhs.sha256 {return false}
+    if lhs.size != rhs.size {return false}
+    if lhs.category != rhs.category {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs.tier != rhs.tier {return false}
+    if lhs.refChats != rhs.refChats {return false}
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.seq != rhs.seq {return false}
+    if lhs.time != rhs.time {return false}
+    if lhs.mime != rhs.mime {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.thumbSha256 != rhs.thumbSha256 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListStorageItemsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListStorageItemsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}items\0\u{1}more\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.items) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.more) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.items.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.items, fieldNumber: 1)
+    }
+    if self.more != false {
+      try visitor.visitSingularBoolField(value: self.more, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListStorageItemsResponse, rhs: Qqbridge_V1_ListStorageItemsResponse) -> Bool {
+    if lhs.items != rhs.items {return false}
+    if lhs.more != rhs.more {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

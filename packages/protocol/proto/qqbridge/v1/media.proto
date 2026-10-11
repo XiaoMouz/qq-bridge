@@ -25,6 +25,10 @@ service MediaService {
   rpc DeleteStoragePolicy(DeleteStoragePolicyRequest) returns (DeleteStoragePolicyResponse);
   // 单个会话的占用明细：按类型拆分、冷热分布、最大的内容、最终生效的策略。
   rpc GetChatStorage(GetChatStorageRequest) returns (GetChatStorageResponse);
+  // 存储页：某几类内容（StorageCategory.category，另有 message = 消息本身）在各会话的占用，从大到小。
+  rpc ListStorageChats(ListStorageChatsRequest) returns (ListStorageChatsResponse);
+  // 存储页：某个会话（chat_id = 0 表示全部）里某几类的具体内容，从大到小，带被几个会话引用。
+  rpc ListStorageItems(ListStorageItemsRequest) returns (ListStorageItemsResponse);
   // 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
   rpc RunTiering(RunTieringRequest) returns (RunTieringResponse);
   // 我在 QQ 里收藏的表情（顺序与 QQ 一致，最新收藏的在前）。服务端缓存 10 分钟，refresh = true 时重新向 QQ 拉。
@@ -131,6 +135,60 @@ message GetStorageOverviewResponse {
   repeated StorageCategory categories = 9;
   // 热存储 / 冷存储所在磁盘的容量。
   repeated StorageVolume volumes = 10;
+  // 消息本身（文字、消息段、原始数据）在数据库里占的空间。
+  uint64 message_bytes = 11;
+  // 消息条数（估算值，来自表统计信息）。
+  uint64 message_count = 12;
+}
+
+message ListStorageChatsRequest {
+  repeated string categories = 1;
+  uint32 limit = 2;
+}
+
+message StorageChat {
+  int64 chat_id = 1;
+  Scene scene = 2;
+  int64 peer_id = 3;
+  uint64 bytes = 4;
+  // 内容份数（message 类：消息条数）。
+  uint32 count = 5;
+}
+
+message ListStorageChatsResponse {
+  repeated StorageChat chats = 1;
+}
+
+message ListStorageItemsRequest {
+  int64 chat_id = 1;
+  repeated string categories = 2;
+  uint32 offset = 3;
+  uint32 limit = 4;
+}
+
+message StorageItem {
+  string sha256 = 1;
+  uint64 size = 2;
+  string category = 3;
+  // present / purged（原件已清理）。
+  string state = 4;
+  // hot / cold。
+  string tier = 5;
+  // 有几个会话引用了它（> 1 = 和别的会话共用）。
+  uint32 ref_chats = 6;
+  // 第一次出现的会话和消息（群文件没有消息：seq = 0）。
+  int64 chat_id = 7;
+  int64 seq = 8;
+  int64 time = 9;
+  string mime = 10;
+  string name = 11;
+  // 预览用的缩略图（没有时为空）。
+  string thumb_sha256 = 12;
+}
+
+message ListStorageItemsResponse {
+  repeated StorageItem items = 1;
+  bool more = 2;
 }
 
 message StorageCategory {

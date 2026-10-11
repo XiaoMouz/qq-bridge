@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { one } from '../src/db/client.ts';
 import { MediaService } from '../src/media/service.ts';
 import { LocalFsBackend } from '../src/media/store.ts';
+import { StorageBrowser } from '../src/media/storage-browse.ts';
 import type { Update } from '../src/sync/rows.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { createTestAccount, services } from './helpers/fixtures.ts';
@@ -65,5 +66,16 @@ describe('storage categories', () => {
     expect(hot).toMatchObject({ tier: 'hot', available: true });
     expect(hot!.totalBytes).toBeGreaterThan(hot!.freeBytes);
     expect((await one<{ n: number }>(t.db, sql`select count(*)::int as n from blobs`)).n).toBe(4);
+
+    // 浏览：按类别列会话、列会话里的内容（同一份内容只列一次，带缩略图）。
+    const browser = new StorageBrowser(t.db);
+    expect(await browser.chats(acc.accountId, ['image', 'qq_thumb'])).toEqual([
+      { chatId, scene: 'group', peerId: 60001, bytes: 10, count: 2 },
+    ]);
+    const items = await browser.items(acc.accountId, chatId, ['image'], 0, 10);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ sha256: photo, size: 5, category: 'image', seq: 1, thumbSha256: thumb });
+    expect(await browser.items(acc.accountId, null, ['video'], 0, 10)).toEqual([]);
+    expect((await browser.chats(acc.accountId, ['message'])).length).toBeGreaterThanOrEqual(0);
   });
 });

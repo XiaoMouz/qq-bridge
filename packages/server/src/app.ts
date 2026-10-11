@@ -30,6 +30,7 @@ import { TierManager } from './media/tiering.ts';
 import { MessageForwarder } from './messages/forwarding.ts';
 import { GroupContentService } from './contacts/group-content.ts';
 import { StickerService } from './media/stickers.ts';
+import { StorageBrowser } from './media/storage-browse.ts';
 import { ForwardService } from './messages/forwards.ts';
 import { MessageInteractions } from './messages/interactions.ts';
 import { HttpCallGateway } from './calls/gateway.ts';
@@ -81,6 +82,7 @@ export function createDeps(
     rehydrate: null,
     pokeMediaFetcher: () => undefined,
     fetchMediaNow: null,
+    storageBrowser: new StorageBrowser(db),
     stickers: new StickerService(db, media, processor, () => deps.upstream, logger.child({ component: 'stickers' })),
     defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
     admin: new AdminService(db, {

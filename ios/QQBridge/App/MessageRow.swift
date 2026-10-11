@@ -657,7 +657,10 @@ struct ReplyQuote: View {
       }
       VStack(alignment: .leading, spacing: 1) {
         if let original {
-          Text(context.name(of: original.senderID)).font(.caption.bold())
+          HStack(spacing: 6) {
+            Text(context.name(of: original.senderID)).font(.caption.bold()).lineLimit(1)
+            Text(Format.messageTime(original.time)).font(.caption2).opacity(0.7)
+          }
           Text(Format.preview(original)).font(.caption).lineLimit(2)
         } else {
           Text(missing ? "原消息已无法找到" : "…").font(.caption)
@@ -824,13 +827,10 @@ enum Inline {
   }
 
   /// @ 徽章：淡色底 + 小头像 + 名字（自己发的蓝色气泡里用白色）。
+  /// @ 徽章：画成一张圆角胶囊图（小头像 + @名字）插进文字里，和正文基线对齐。
   @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool) -> Text {
-    var label = AttributedString("\u{2009}@\(name)\u{2009}")
-    label.font = .body.weight(.semibold)
-    label.foregroundColor = outgoing ? .white : .accentColor
-    label.backgroundColor = outgoing ? Color.white.opacity(0.22) : Color.accentColor.opacity(0.13)
-    guard let avatar else { return Text(label) + Text(" ") }
-    return Text(Image(uiImage: avatar)).baselineOffset(-3) + Text(label) + Text(" ")
+    let badge = MentionBadgeRenderer.render(name: name, avatar: avatar, outgoing: outgoing)
+    return Text(Image(uiImage: badge.image)).baselineOffset(badge.baselineOffset) + Text(" ")
   }
 }
 
@@ -973,5 +973,60 @@ extension DateFormatter {
     f.dateFormat = format
     formatters[format] = f
     return f
+  }
+}
+
+/// 画 @ 徽章：淡色胶囊底、左边圆头像（没有头像时是名字首字的彩色圆）、@名字。按名字、头像、配色、字号缓存。
+@MainActor
+enum MentionBadgeRenderer {
+  private static var cache: [String: (image: UIImage, baselineOffset: CGFloat)] = [:]
+
+  static func render(name: String, avatar: UIImage?, outgoing: Bool) -> (image: UIImage, baselineOffset: CGFloat) {
+    let font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize - 1, weight: .semibold)
+    let key = "\(name)|\(avatar.map { ObjectIdentifier($0).hashValue } ?? 0)|\(outgoing)|\(font.pointSize)|\(UITraitCollection.current.userInterfaceStyle.rawValue)"
+    if let hit = cache[key] { return hit }
+
+    let text = "@\(name)" as NSString
+    let tint = outgoing ? UIColor.white : UIColor.tintColor.resolvedColor(with: .current)
+    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tint]
+    let height = ceil(font.lineHeight + 4)
+    let avatarSide = height - 6
+    let padH: CGFloat = 7
+    // 名字太长（有的群名片很长）：最多 200pt，超出的用省略号，徽章不会被气泡边缘切掉。
+    let full = text.size(withAttributes: attrs)
+    let textSize = CGSize(width: min(full.width, 200), height: full.height)
+    let width = ceil(3 + avatarSide + 4 + textSize.width + padH)
+    let size = CGSize(width: width, height: height)
+
+    let image = UIGraphicsImageRenderer(size: size).image { _ in
+      let bg = outgoing ? UIColor.white.withAlphaComponent(0.22) : UIColor.tintColor.withAlphaComponent(0.13)
+      bg.setFill()
+      UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: height / 2).fill()
+      let avatarRect = CGRect(x: 3, y: 3, width: avatarSide, height: avatarSide)
+      if let avatar {
+        let ctx = UIGraphicsGetCurrentContext()
+        ctx?.saveGState()
+        UIBezierPath(ovalIn: avatarRect).addClip()
+        avatar.draw(in: avatarRect)
+        ctx?.restoreGState()
+      } else {
+        tint.withAlphaComponent(outgoing ? 0.35 : 0.25).setFill()
+        UIBezierPath(ovalIn: avatarRect).fill()
+        let initial = String(name.prefix(1)) as NSString
+        let small: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: avatarSide * 0.55, weight: .bold), .foregroundColor: tint]
+        let s = initial.size(withAttributes: small)
+        initial.draw(at: CGPoint(x: avatarRect.midX - s.width / 2, y: avatarRect.midY - s.height / 2), withAttributes: small)
+      }
+      let style = NSMutableParagraphStyle()
+      style.lineBreakMode = .byTruncatingTail
+      var clipped = attrs
+      clipped[.paragraphStyle] = style
+      text.draw(in: CGRect(x: avatarRect.maxX + 4, y: (height - textSize.height) / 2, width: textSize.width, height: textSize.height), withAttributes: clipped)
+    }
+    // 图片底边落在基线上：往下挪到文字下沿，胶囊和正文居中对齐。
+    let result = (image: image, baselineOffset: font.descender - (height - font.lineHeight) / 2)
+    if cache.count > 500 { cache.removeAll() }
+    cache[key] = result
+    return result
   }
 }

@@ -633,11 +633,41 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
         coldTierEnabled: deps.tiering.enabled,
         chats: o.chats.map(chatStorageToProto),
         categories: (await deps.media.storageCategories()).map((c) => ({ category: c.category, bytes: BigInt(c.bytes), count: c.count })),
+        messageBytes: BigInt(await deps.storageBrowser.messageBytes()),
+        messageCount: BigInt(await deps.storageBrowser.messageCount()),
         volumes: (await deps.media.volumes()).map((v) => ({
           tier: v.tier,
           available: v.available,
           totalBytes: BigInt(v.totalBytes),
           freeBytes: BigInt(v.freeBytes),
+        })),
+      };
+    },
+    async listStorageChats(req, ctx) {
+      const list = await deps.storageBrowser.chats(requireAuth(ctx).accountId, req.categories, clampLimit(req.limit, 100, 300));
+      return {
+        chats: list.map((c) => ({ chatId: BigInt(c.chatId), scene: sceneToProto(c.scene), peerId: BigInt(c.peerId), bytes: BigInt(c.bytes), count: c.count })),
+      };
+    },
+    async listStorageItems(req, ctx) {
+      const limit = clampLimit(req.limit, 60, 200);
+      const chatId = req.chatId ? toSafeNumber(req.chatId, 'chat_id') : null;
+      const list = await deps.storageBrowser.items(requireAuth(ctx).accountId, chatId, req.categories, req.offset, limit + 1);
+      return {
+        more: list.length > limit,
+        items: list.slice(0, limit).map((i) => ({
+          sha256: i.sha256,
+          size: BigInt(i.size),
+          category: i.category,
+          state: i.state,
+          tier: i.tier,
+          refChats: i.refChats,
+          chatId: BigInt(i.chatId),
+          seq: BigInt(i.seq),
+          time: BigInt(i.time ? Math.floor(i.time.getTime() / 1000) : 0),
+          mime: i.mime ?? '',
+          name: i.name ?? '',
+          thumbSha256: i.thumbSha256 ?? '',
         })),
       };
     },

@@ -17,6 +17,7 @@ import type { MediaProcessor } from '../media/processing.ts';
 import type { RehydrateResult } from '../media/fetcher.ts';
 import type { MediaService } from '../media/service.ts';
 import type { TierManager } from '../media/tiering.ts';
+import type { StorageBrowser } from '../media/storage-browse.ts';
 import type { StickerService } from '../media/stickers.ts';
 import type { StorageBackend } from '../media/store.ts';
 import type { UploadService } from '../media/upload.ts';
@@ -52,6 +53,7 @@ export interface ApiDeps {
   contacts: ContactService;
   tiering: TierManager;
   stickers: StickerService;
+  storageBrowser: StorageBrowser;
   /** 冷存储的盘不在时从 QQ 取回内容（媒体下载任务提供；没有上游时为 null）。 */
   rehydrate: ((sha256: string) => Promise<RehydrateResult>) | null;
   /** 有媒体新排进下载队列（例如客户端要按需媒体）：叫醒下载器。 */

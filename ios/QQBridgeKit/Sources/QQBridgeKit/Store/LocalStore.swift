@@ -95,6 +95,19 @@ public final class LocalStore: Sendable {
       }
       try db.create(index: "mediaCache_lru", on: "mediaCache", columns: ["lastAccessAt"])
     }
+    m.registerMigration("v2-mediaIndex") { db in
+      // 哪个内容（sha256：原件、缩略图、预览图、可播放版本）出现在哪个会话的哪条消息、是什么类型。
+      // 存储页按类型 / 会话统计本机缓存、标出和别的会话共用的内容。消息被清理后这里仍保留（文件可能还在缓存里）。
+      try db.create(table: "mediaIndex") { t in
+        t.column("sha256", .text).notNull()
+        t.column("chatId", .integer).notNull()
+        t.column("seq", .integer).notNull()
+        t.column("kind", .text).notNull()
+        t.primaryKey(["sha256", "chatId", "seq"])
+      }
+      try db.create(index: "mediaIndex_chat", on: "mediaIndex", columns: ["chatId", "kind"])
+      // 已有的消息在启动后由 backfillMediaIndex() 在后台分批补（消息多时在启动时做会卡住）。
+    }
     return m
   }
 }
@@ -349,6 +362,7 @@ extension LocalStore {
             """,
           arguments: [chatId, m.seq, m.version, m.time, m.senderID, try m.serializedData()]
         )
+        try Self.indexMedia(m, chatId: chatId, db)
       }
       for e in events {
         try db.execute(

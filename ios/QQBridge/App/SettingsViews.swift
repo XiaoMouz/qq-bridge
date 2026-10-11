@@ -115,6 +115,8 @@ struct PreferencesView: View {
 struct StorageView: View {
   let session: Session
   @State private var usage: MediaCacheUsage?
+  /// 本机按类型的占用（消息 = 本地数据库）。
+  @State private var localStats: [StorageGroupStat] = []
   @State private var overview: Qqbridge_V1_GetStorageOverviewResponse?
   @State private var overviewError: String?
   @State private var dialogs: [Int64: DialogItem] = [:]
@@ -127,7 +129,6 @@ struct StorageView: View {
       localSection
       serverSection
       if let o = overview, !o.volumes.isEmpty { volumesSection(o) }
-      if let o = overview, !o.chats.isEmpty { chatsSection(o) }
     }
     .navigationTitle("存储")
     .navigationBarTitleDisplayMode(.inline)
@@ -156,67 +157,78 @@ struct StorageView: View {
     }
   }
 
-  // 本机缓存：已用 / 上限的条，占用最多的几个会话。
+  // 本机：按类型的分段条（媒体缓存 + 消息），每类一行，点进去看各会话的占比。
   @ViewBuilder private var localSection: some View {
-    Section("本机") {
-      let used = usage?.totalBytes ?? 0
-      let cap = cacheCapGB == 0 ? nil : Int64(cacheCapGB) * 1024 * 1024 * 1024
+    Section {
+      let total = localStats.reduce(Int64(0)) { $0 + $1.bytes }
       VStack(alignment: .leading, spacing: 8) {
         HStack(alignment: .firstTextBaseline) {
-          Text(Bytes.text(used)).font(.title2.bold().monospacedDigit())
-          Text(cacheCapGB == 0 ? "/ 不限" : "/ \(cacheCapGB) GB").foregroundStyle(.secondary)
+          Text(Bytes.text(total)).font(.title2.bold().monospacedDigit())
+          Text("缓存上限 \(cacheCapGB == 0 ? "不限" : "\(cacheCapGB) GB")").font(.subheadline).foregroundStyle(.secondary)
           Spacer()
-          Text("\(usage?.fileCount ?? 0) 个文件").font(.caption).foregroundStyle(.secondary)
         }
-        CapacityBar(segments: [.init(name: "已用", bytes: used, color: .accentColor)], total: cap ?? max(used, 1))
+        CapacityBar(
+          segments: localStats.map { .init(name: $0.group.name, bytes: $0.bytes, color: $0.group.color) },
+          total: max(total, 1)
+        )
       }
       .padding(.vertical, 4)
-      let top = (usage?.byChat ?? [:]).sorted { $0.value > $1.value }.prefix(5)
-      ForEach(Array(top), id: \.key) { chatId, bytes in
-        // 0 = 不属于任何会话（头像等）。
-        LabeledContent(chatId == 0 ? "其他" : dialogs[chatId]?.title ?? "会话 \(chatId)", value: Bytes.text(bytes))
+      ForEach(localStats.filter { $0.bytes > 0 }) { stat in
+        NavigationLink {
+          StorageChatsView(session: session, source: .local, group: stat.group)
+        } label: {
+          StorageGroupRow(stat: stat, total: total)
+        }
       }
-      Picker("上限", selection: $cacheCapGB) {
+      Picker("缓存上限", selection: $cacheCapGB) {
         ForEach([1, 2, 5, 10, 0], id: \.self) { Text($0 == 0 ? "不限" : "\($0) GB").tag($0) }
       }
       Picker("保留", selection: $cacheDays) {
         ForEach([3, 7, 30, 0], id: \.self) { Text($0 == 0 ? "永久" : "\($0) 天").tag($0) }
       }
-      Button("清空缓存", role: .destructive) { confirmClear = true }
+      Button("清空媒体缓存", role: .destructive) { confirmClear = true }
+    } header: {
+      Text("本机")
+    } footer: {
+      Text("媒体缓存超出上限或保留期会自动清理；消息是本机保存的聊天记录。")
     }
   }
 
-  // 服务器：按用途分类的环形图 + 图例，总占用和去重节省。
+  // 服务器：按类型的环形图 + 每类一行（点进去看各会话的占比），以及占用最多的会话、去重和冷热存储。
   @ViewBuilder private var serverSection: some View {
     Section("服务器") {
       if let o = overview {
-        let cats = o.categories.filter { $0.bytes > 0 }
-        let total = cats.reduce(UInt64(0)) { $0 + $1.bytes }
-        Chart(cats, id: \.category) { c in
-          SectorMark(angle: .value("大小", Double(c.bytes)), innerRadius: .ratio(0.62), angularInset: 1)
-            .foregroundStyle(StorageCategoryStyle.color(c.category))
+        let stats = serverStats(o)
+        let total = stats.reduce(Int64(0)) { $0 + $1.bytes }
+        Chart(stats) { s in
+          SectorMark(angle: .value("大小", Double(s.bytes)), innerRadius: .ratio(0.62), angularInset: 1)
+            .foregroundStyle(s.group.color.gradient)
             .cornerRadius(3)
         }
         .chartBackground { _ in
           VStack(spacing: 2) {
-            Text(Bytes.text(Int64(total))).font(.title3.bold().monospacedDigit())
-            Text("共 \(cats.reduce(0) { $0 + Int($1.count) }) 份").font(.caption).foregroundStyle(.secondary)
+            Text(Bytes.text(total)).font(.title3.bold().monospacedDigit())
+            Text("服务器上的全部").font(.caption).foregroundStyle(.secondary)
           }
         }
         .frame(height: 200)
         .padding(.vertical, 8)
-        ForEach(cats, id: \.category) { c in
-          HStack(spacing: 10) {
-            Circle().fill(StorageCategoryStyle.color(c.category)).frame(width: 10, height: 10)
-            Text(StorageCategoryStyle.name(c.category))
-            Spacer()
-            VStack(alignment: .trailing, spacing: 0) {
-              Text(Bytes.text(Int64(c.bytes))).monospacedDigit()
-              Text("\(c.count) 份 · \(Self.percent(c.bytes, of: total))").font(.caption).foregroundStyle(.secondary)
+        ForEach(stats) { stat in
+          NavigationLink {
+            if stat.group == .other {
+              ServerOtherView(overview: o)
+            } else {
+              StorageChatsView(session: session, source: .server, group: stat.group)
             }
+          } label: {
+            StorageGroupRow(stat: stat, total: total)
           }
         }
-        LabeledContent("消息里的媒体（去重后）", value: Bytes.text(Int64(o.physicalBytes)))
+        NavigationLink {
+          StorageChatsView(session: session, source: .server, group: .image, allMedia: true)
+        } label: {
+          Label("占用最多的会话", systemImage: "chart.bar.fill")
+        }
         LabeledContent("去重省下", value: Bytes.text(Int64(o.dedupSavedBytes)))
         if o.coldTierEnabled {
           LabeledContent("热存储", value: Bytes.text(Int64(o.hotBytes)))
@@ -227,6 +239,22 @@ struct StorageView: View {
       } else {
         HStack { Spacer(); ProgressView(); Spacer() }.padding(.vertical, 40)
       }
+    }
+  }
+
+  private func serverStats(_ o: Qqbridge_V1_GetStorageOverviewResponse) -> [StorageGroupStat] {
+    var bytes: [StorageGroup: Int64] = [:]
+    var counts: [StorageGroup: Int] = [:]
+    for c in o.categories {
+      let g = StorageGroup.of(server: c.category)
+      bytes[g, default: 0] += Int64(c.bytes)
+      counts[g, default: 0] += Int(c.count)
+    }
+    bytes[.message] = Int64(o.messageBytes)
+    counts[.message] = Int(o.messageCount)
+    return StorageGroup.allCases.compactMap { g in
+      guard let b = bytes[g], b > 0 else { return nil }
+      return StorageGroupStat(group: g, bytes: b, count: counts[g] ?? 0)
     }
   }
 
@@ -267,33 +295,6 @@ struct StorageView: View {
     }
   }
 
-  // 占用最多的会话：条形长度按逻辑占用，点进去看按类型的明细。
-  private func chatsSection(_ o: Qqbridge_V1_GetStorageOverviewResponse) -> some View {
-    Section("占用最多的会话") {
-      let top = Array(o.chats.prefix(30))
-      let maxBytes = top.map(\.logicalBytes).max() ?? 1
-      ForEach(top, id: \.chatID) { c in
-        NavigationLink {
-          ChatStorageView(session: session, chatId: c.chatID, title: chatTitle(c))
-        } label: {
-          VStack(alignment: .leading, spacing: 6) {
-            HStack {
-              AvatarView(sha256: dialogs[c.chatID]?.peer?.avatarSha256, title: chatTitle(c), seed: c.peerID, size: 28)
-              Text(chatTitle(c)).lineLimit(1)
-              Spacer()
-              Text(Bytes.text(Int64(c.logicalBytes))).monospacedDigit().foregroundStyle(.secondary)
-            }
-            GeometryReader { geo in
-              Capsule().fill(Color.accentColor.gradient)
-                .frame(width: max(4, geo.size.width * CGFloat(Double(c.logicalBytes) / Double(maxBytes))))
-            }
-            .frame(height: 5)
-          }
-        }
-      }
-    }
-  }
-
   private func chatTitle(_ c: Qqbridge_V1_ChatStorage) -> String {
     dialogs[c.chatID]?.title ?? (c.scene == .group ? "群 \(String(c.peerID))" : "QQ \(String(c.peerID))")
   }
@@ -317,6 +318,16 @@ struct StorageView: View {
 
   private func refreshUsage() async {
     usage = try? await session.media.usage()
+    let byKind = (try? session.store.cacheUsageByKind()) ?? [:]
+    var stats = StorageGroup.allCases.compactMap { g -> StorageGroupStat? in
+      guard g != .message else { return nil }
+      let parts = g.localKinds.compactMap { byKind[$0] }
+      return StorageGroupStat(group: g, bytes: parts.reduce(0) { $0 + $1.bytes }, count: parts.reduce(0) { $0 + $1.count })
+    }
+    if let m = try? session.store.messageUsage() {
+      stats.insert(StorageGroupStat(group: .message, bytes: m.total, count: m.byChat.reduce(0) { $0 + $1.count }), at: 5)
+    }
+    localStats = stats
   }
 
   private func loadOverview() async {
@@ -358,6 +369,9 @@ struct ChatStorageView: View {
             .chartXAxis(.hidden)
             .frame(height: CGFloat(kinds.count) * 36 + 10)
             ForEach(kinds, id: \.kind) { k in
+              NavigationLink {
+                StorageItemsView(session: session, source: .server, group: Self.group(k.kind), chatId: chatId, title: "\(title) · \(Self.kindName(k.kind))")
+              } label: {
               LabeledContent {
                 VStack(alignment: .trailing, spacing: 0) {
                   Text(Bytes.text(Int64(k.logicalBytes))).monospacedDigit()
@@ -366,6 +380,7 @@ struct ChatStorageView: View {
                 }
               } label: {
                 Label { Text(Self.kindName(k.kind)) } icon: { Circle().fill(Self.kindColor(k.kind)).frame(width: 10, height: 10) }
+              }
               }
             }
           }
@@ -386,6 +401,17 @@ struct ChatStorageView: View {
       } catch {
         self.error = LoadState.describe(error)
       }
+    }
+  }
+
+  static func group(_ k: Qqbridge_V1_MediaKind) -> StorageGroup {
+    switch k {
+    case .image: .image
+    case .video: .video
+    case .audio: .audio
+    case .file: .file
+    case .sticker: .sticker
+    default: .other
     }
   }
 
@@ -591,5 +617,43 @@ struct AboutView: View {
     if days > 0 { return "\(days) 天 \(hours) 小时" }
     if hours > 0 { return "\(hours) 小时 \(minutes) 分钟" }
     return "\(minutes) 分钟"
+  }
+}
+
+/// 服务器上"其他"的组成：头像、旧版生成的缩略图和转码等，并解释它们是什么。
+struct ServerOtherView: View {
+  let overview: Qqbridge_V1_GetStorageOverviewResponse
+
+  var body: some View {
+    List {
+      let others = overview.categories.filter { StorageGroup.of(server: $0.category) == .other && $0.bytes > 0 }
+      Section {
+        ForEach(others, id: \.category) { c in
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+              Text(StorageCategoryStyle.name(c.category))
+              Spacer()
+              Text(Bytes.text(Int64(c.bytes))).monospacedDigit().foregroundStyle(.secondary)
+            }
+            HStack(alignment: .firstTextBaseline) {
+              Text(Self.explain(c.category)).font(.caption).foregroundStyle(.secondary)
+              Spacer(minLength: 12)
+              Text("\(c.count) 份").font(.caption).foregroundStyle(.tertiary).fixedSize()
+            }
+          }
+          .padding(.vertical, 2)
+        }
+      }
+    }
+    .navigationTitle("其他")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+
+  static func explain(_ category: String) -> String {
+    switch category {
+    case "avatar": "好友、群和群友的头像。"
+    case "derived": "改用 QQ 自带缩略图之前，服务端为每张图片自己生成的缩略图（约 320px）和预览图（约 1280px），现在只有更早的消息还在用；另有语音转成的 AAC（QQ 的语音是 silk 格式，iPhone 放不了，这部分仍在用）。"
+    default: "没有挂在任何消息上的内容（例如上传了但没发出去的）。"
+    }
   }
 }

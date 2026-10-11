@@ -51,6 +51,14 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `getChatStorage`(request: Qqbridge_V1_GetChatStorageRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_GetChatStorageResponse>
 
+    /// 存储页：某几类内容（StorageCategory.category，另有 message = 消息本身）在各会话的占用，从大到小。
+    @available(iOS 13, *)
+    func `listStorageChats`(request: Qqbridge_V1_ListStorageChatsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListStorageChatsResponse>
+
+    /// 存储页：某个会话（chat_id = 0 表示全部）里某几类的具体内容，从大到小，带被几个会话引用。
+    @available(iOS 13, *)
+    func `listStorageItems`(request: Qqbridge_V1_ListStorageItemsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListStorageItemsResponse>
+
     /// 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
     @available(iOS 13, *)
     func `runTiering`(request: Qqbridge_V1_RunTieringRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RunTieringResponse>
@@ -134,6 +142,16 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
     }
 
     @available(iOS 13, *)
+    public func `listStorageChats`(request: Qqbridge_V1_ListStorageChatsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListStorageChatsResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/ListStorageChats", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `listStorageItems`(request: Qqbridge_V1_ListStorageItemsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListStorageItemsResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/ListStorageItems", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `runTiering`(request: Qqbridge_V1_RunTieringRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RunTieringResponse> {
         return await self.client.unary(path: "/qqbridge.v1.MediaService/RunTiering", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -170,6 +188,8 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
             public static let setStoragePolicy = Connect.MethodSpec(name: "SetStoragePolicy", service: "qqbridge.v1.MediaService", type: .unary)
             public static let deleteStoragePolicy = Connect.MethodSpec(name: "DeleteStoragePolicy", service: "qqbridge.v1.MediaService", type: .unary)
             public static let getChatStorage = Connect.MethodSpec(name: "GetChatStorage", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let listStorageChats = Connect.MethodSpec(name: "ListStorageChats", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let listStorageItems = Connect.MethodSpec(name: "ListStorageItems", service: "qqbridge.v1.MediaService", type: .unary)
             public static let runTiering = Connect.MethodSpec(name: "RunTiering", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStickers = Connect.MethodSpec(name: "ListStickers", service: "qqbridge.v1.MediaService", type: .unary)
             public static let prepareStickers = Connect.MethodSpec(name: "PrepareStickers", service: "qqbridge.v1.MediaService", type: .unary)

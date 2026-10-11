@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/media.proto.
  */
 export const file_qqbridge_v1_media: GenFile = /*@__PURE__*/
-  fileDesc("ChdxcWJyaWRnZS92MS9tZWRpYS5wcm90bxILcXFicmlkZ2UudjEiNQoITWVkaWFSZWYSDwoHY2hhdF9pZBgBIAEoAxILCgNzZXEYAiABKAMSCwoDb3JkGAMgASgNIkwKE1JlcXVlc3RNZWRpYVJlcXVlc3QSIwoEcmVmcxgBIAMoCzIVLnFxYnJpZGdlLnYxLk1lZGlhUmVmEhAKCG9yaWdpbmFsGAIgASgIIk0KFFJlcXVlc3RNZWRpYVJlc3BvbnNlEg4KBnF1ZXVlZBgBIAEoDRIlCgVtZWRpYRgCIAMoCzIWLnFxYnJpZGdlLnYxLk1lZGlhSW5mbyJQChRQcmVwYXJlVXBsb2FkUmVxdWVzdBIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIMCgRtaW1lGAMgASgJEgwKBG5hbWUYBCABKAkiSwoVUHJlcGFyZVVwbG9hZFJlc3BvbnNlEg4KBmV4aXN0cxgBIAEoCBISCgp1cGxvYWRfdXJsGAIgASgJEg4KBm9mZnNldBgDIAEoBCImChRTaWduTWVkaWFVcmxzUmVxdWVzdBIOCgZzaGEyNTYYASADKAkiQgoVU2lnbk1lZGlhVXJsc1Jlc3BvbnNlEikKBHVybHMYASADKAsyGy5xcWJyaWRnZS52MS5TaWduZWRNZWRpYVVybCJBCg5TaWduZWRNZWRpYVVybBIOCgZzaGEyNTYYASABKAkSCwoDdXJsGAIgASgJEhIKCmV4cGlyZXNfYXQYAyABKAMiKAoWTGlzdE1lZGlhVXNhZ2VzUmVxdWVzdBIOCgZzaGEyNTYYASABKAkiQgoXTGlzdE1lZGlhVXNhZ2VzUmVzcG9uc2USJwoGdXNhZ2VzGAEgAygLMhcucXFicmlkZ2UudjEuTWVkaWFVc2FnZSLpAQoKTWVkaWFVc2FnZRIPCgdjaGF0X2lkGAEgASgDEiEKBXNjZW5lGAIgASgOMhIucXFicmlkZ2UudjEuU2NlbmUSDwoHcGVlcl9pZBgDIAEoAxITCgttZXNzYWdlX3NlcRgEIAEoAxIZChFmb3J3YXJkX2J1bmRsZV9pZBgFIAEoCRIRCglub2RlX3BhdGgYBiADKA0SEQoJc2VuZGVyX2lkGAcgASgDEgwKBHRpbWUYCCABKAMSDAoEcm9sZRgJIAEoCRIkCgRraW5kGAogASgOMhYucXFicmlkZ2UudjEuTWVkaWFLaW5kIioKGUdldFN0b3JhZ2VPdmVydmlld1JlcXVlc3QSDQoFbGltaXQYASABKA0ixAIKGkdldFN0b3JhZ2VPdmVydmlld1Jlc3BvbnNlEhYKDnBoeXNpY2FsX2J5dGVzGAEgASgEEhUKDWxvZ2ljYWxfYnl0ZXMYAiABKAQSGQoRZGVkdXBfc2F2ZWRfYnl0ZXMYAyABKAQSEgoKYmxvYl9jb3VudBgEIAEoDRInCgVjaGF0cxgFIAMoCzIYLnFxYnJpZGdlLnYxLkNoYXRTdG9yYWdlEhEKCWhvdF9ieXRlcxgGIAEoBBISCgpjb2xkX2J5dGVzGAcgASgEEhkKEWNvbGRfdGllcl9lbmFibGVkGAggASgIEjAKCmNhdGVnb3JpZXMYCSADKAsyHC5xcWJyaWRnZS52MS5TdG9yYWdlQ2F0ZWdvcnkSKwoHdm9sdW1lcxgKIAMoCzIaLnFxYnJpZGdlLnYxLlN0b3JhZ2VWb2x1bWUiQQoPU3RvcmFnZUNhdGVnb3J5EhAKCGNhdGVnb3J5GAEgASgJEg0KBWJ5dGVzGAIgASgEEg0KBWNvdW50GAMgASgNIlkKDVN0b3JhZ2VWb2x1bWUSDAoEdGllchgBIAEoCRIRCglhdmFpbGFibGUYAiABKAgSEwoLdG90YWxfYnl0ZXMYAyABKAQSEgoKZnJlZV9ieXRlcxgEIAEoBCK9AQoLQ2hhdFN0b3JhZ2USDwoHY2hhdF9pZBgBIAEoAxIhCgVzY2VuZRgCIAEoDjISLnFxYnJpZGdlLnYxLlNjZW5lEg8KB3BlZXJfaWQYAyABKAMSFQoNbG9naWNhbF9ieXRlcxgEIAEoBBIXCg9leGNsdXNpdmVfYnl0ZXMYBSABKAQSEgoKYmxvYl9jb3VudBgGIAEoDRIRCglob3RfYnl0ZXMYByABKAQSEgoKY29sZF9ieXRlcxgIIAEoBCJ+ChJQbGFuQ2xlYW51cFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIlCgVraW5kcxgCIAMoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBIcCg9vbGRlcl90aGFuX2RheXMYAyABKA1IAIgBAUISChBfb2xkZXJfdGhhbl9kYXlzIo8BChNQbGFuQ2xlYW51cFJlc3BvbnNlEhEKCXJlZl9jb3VudBgBIAEoDRISCgpibG9iX2NvdW50GAIgASgNEhwKFHB1cmdlYWJsZV9ibG9iX2NvdW50GAMgASgNEhMKC2ZyZWVkX2J5dGVzGAQgASgEEh4KFmtlcHRfc2hhcmVkX2Jsb2JfY291bnQYBSABKA0igQEKFUV4ZWN1dGVDbGVhbnVwUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEiUKBWtpbmRzGAIgAygOMhYucXFicmlkZ2UudjEuTWVkaWFLaW5kEhwKD29sZGVyX3RoYW5fZGF5cxgDIAEoDUgAiAEBQhIKEF9vbGRlcl90aGFuX2RheXMijwEKFkV4ZWN1dGVDbGVhbnVwUmVzcG9uc2USEQoJcmVmX2NvdW50GAEgASgNEhIKCmJsb2JfY291bnQYAiABKA0SGQoRcHVyZ2VkX2Jsb2JfY291bnQYAyABKA0SEwoLZnJlZWRfYnl0ZXMYBCABKAQSHgoWa2VwdF9zaGFyZWRfYmxvYl9jb3VudBgFIAEoDSL0AgoNU3RvcmFnZVBvbGljeRInCgVzY29wZRgBIAEoDjIYLnFxYnJpZGdlLnYxLlBvbGljeVNjb3BlEiEKBXNjZW5lGAIgASgOMhIucXFicmlkZ2UudjEuU2NlbmUSDwoHY2hhdF9pZBgDIAEoAxIfChJrZWVwX29yaWdpbmFsX2RheXMYBCABKAVIAIgBARIhChRhdXRvX2ZldGNoX21heF9ieXRlcxgFIAEoBEgBiAEBEhwKD2NvbGRfYWZ0ZXJfZGF5cxgGIAEoBUgCiAEBEhsKDmNvbGRfbWluX2J5dGVzGAcgASgESAOIAQESHAoPaG90X3F1b3RhX2J5dGVzGAggASgESASIAQFCFQoTX2tlZXBfb3JpZ2luYWxfZGF5c0IXChVfYXV0b19mZXRjaF9tYXhfYnl0ZXNCEgoQX2NvbGRfYWZ0ZXJfZGF5c0IRCg9fY29sZF9taW5fYnl0ZXNCEgoQX2hvdF9xdW90YV9ieXRlcyIcChpMaXN0U3RvcmFnZVBvbGljaWVzUmVxdWVzdCJLChtMaXN0U3RvcmFnZVBvbGljaWVzUmVzcG9uc2USLAoIcG9saWNpZXMYASADKAsyGi5xcWJyaWRnZS52MS5TdG9yYWdlUG9saWN5IkUKF1NldFN0b3JhZ2VQb2xpY3lSZXF1ZXN0EioKBnBvbGljeRgBIAEoCzIaLnFxYnJpZGdlLnYxLlN0b3JhZ2VQb2xpY3kiGgoYU2V0U3RvcmFnZVBvbGljeVJlc3BvbnNlInkKGkRlbGV0ZVN0b3JhZ2VQb2xpY3lSZXF1ZXN0EicKBXNjb3BlGAEgASgOMhgucXFicmlkZ2UudjEuUG9saWN5U2NvcGUSIQoFc2NlbmUYAiABKA4yEi5xcWJyaWRnZS52MS5TY2VuZRIPCgdjaGF0X2lkGAMgASgDIi4KG0RlbGV0ZVN0b3JhZ2VQb2xpY3lSZXNwb25zZRIPCgdkZWxldGVkGAEgASgIIjsKFUdldENoYXRTdG9yYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEhEKCXRvcF9saW1pdBgCIAEoBSKvAQoLS2luZFN0b3JhZ2USJAoEa2luZBgBIAEoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBINCgVjb3VudBgCIAEoDRIVCg1sb2dpY2FsX2J5dGVzGAMgASgEEhcKD2V4Y2x1c2l2ZV9ieXRlcxgEIAEoBBIRCglob3RfYnl0ZXMYBSABKAQSEgoKY29sZF9ieXRlcxgGIAEoBBIUCgxwdXJnZWRfY291bnQYByABKA0imQEKClN0b3JlZEl0ZW0SDgoGc2hhMjU2GAEgASgJEgwKBHNpemUYAiABKAQSJAoEa2luZBgDIAEoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBIMCgR0aWVyGAQgASgJEg4KBnNoYXJlZBgFIAEoCBIWCg5sYXN0X2FjY2Vzc19hdBgGIAEoAxIRCglmaXJzdF9zZXEYByABKAMinAEKFkVmZmVjdGl2ZVN0b3JhZ2VQb2xpY3kSGgoSa2VlcF9vcmlnaW5hbF9kYXlzGAEgASgFEhwKFGF1dG9fZmV0Y2hfbWF4X2J5dGVzGAIgASgEEhcKD2NvbGRfYWZ0ZXJfZGF5cxgDIAEoBRIWCg5jb2xkX21pbl9ieXRlcxgEIAEoBBIXCg9ob3RfcXVvdGFfYnl0ZXMYBSABKAQiywEKFkdldENoYXRTdG9yYWdlUmVzcG9uc2USKQoHc3VtbWFyeRgBIAEoCzIYLnFxYnJpZGdlLnYxLkNoYXRTdG9yYWdlEicKBWtpbmRzGAIgAygLMhgucXFicmlkZ2UudjEuS2luZFN0b3JhZ2USKAoHbGFyZ2VzdBgDIAMoCzIXLnFxYnJpZGdlLnYxLlN0b3JlZEl0ZW0SMwoGcG9saWN5GAQgASgLMiMucXFicmlkZ2UudjEuRWZmZWN0aXZlU3RvcmFnZVBvbGljeSIkChFSdW5UaWVyaW5nUmVxdWVzdBIPCgdkcnlfcnVuGAEgASgIIpsBChJSdW5UaWVyaW5nUmVzcG9uc2USEgoKY2FuZGlkYXRlcxgBIAEoDRINCgVieXRlcxgCIAEoBBINCgVtb3ZlZBgDIAEoDRITCgttb3ZlZF9ieXRlcxgEIAEoBBIOCgZieV9hZ2UYBSABKA0SFQoNYnlfY2hhdF9xdW90YRgGIAEoDRIXCg9ieV9nbG9iYWxfcXVvdGEYByABKA0iWgoHU3RpY2tlchILCgNtZDUYASABKAkSDgoGc2hhMjU2GAIgASgJEhQKDHRodW1iX3NoYTI1NhgDIAEoCRIMCgRkZXNjGAQgASgJEg4KBm1hcmtldBgFIAEoCCImChNMaXN0U3RpY2tlcnNSZXF1ZXN0Eg8KB3JlZnJlc2gYASABKAgiPgoUTGlzdFN0aWNrZXJzUmVzcG9uc2USJgoIc3RpY2tlcnMYASADKAsyFC5xcWJyaWRnZS52MS5TdGlja2VyIiUKFlByZXBhcmVTdGlja2Vyc1JlcXVlc3QSCwoDbWQ1GAEgAygJIkEKF1ByZXBhcmVTdGlja2Vyc1Jlc3BvbnNlEiYKCHN0aWNrZXJzGAEgAygLMhQucXFicmlkZ2UudjEuU3RpY2tlciIjChFBZGRTdGlja2VyUmVxdWVzdBIOCgZzaGEyNTYYASABKAkiFAoSQWRkU3RpY2tlclJlc3BvbnNlKnMKC1BvbGljeVNjb3BlEhwKGFBPTElDWV9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1BPTElDWV9TQ09QRV9HTE9CQUwQARIWChJQT0xJQ1lfU0NPUEVfU0NFTkUQAhIVChFQT0xJQ1lfU0NPUEVfQ0hBVBADMuYKCgxNZWRpYVNlcnZpY2USVgoNUHJlcGFyZVVwbG9hZBIhLnFxYnJpZGdlLnYxLlByZXBhcmVVcGxvYWRSZXF1ZXN0GiIucXFicmlkZ2UudjEuUHJlcGFyZVVwbG9hZFJlc3BvbnNlElYKDVNpZ25NZWRpYVVybHMSIS5xcWJyaWRnZS52MS5TaWduTWVkaWFVcmxzUmVxdWVzdBoiLnFxYnJpZGdlLnYxLlNpZ25NZWRpYVVybHNSZXNwb25zZRJcCg9MaXN0TWVkaWFVc2FnZXMSIy5xcWJyaWRnZS52MS5MaXN0TWVkaWFVc2FnZXNSZXF1ZXN0GiQucXFicmlkZ2UudjEuTGlzdE1lZGlhVXNhZ2VzUmVzcG9uc2USZQoSR2V0U3RvcmFnZU92ZXJ2aWV3EiYucXFicmlkZ2UudjEuR2V0U3RvcmFnZU92ZXJ2aWV3UmVxdWVzdBonLnFxYnJpZGdlLnYxLkdldFN0b3JhZ2VPdmVydmlld1Jlc3BvbnNlElAKC1BsYW5DbGVhbnVwEh8ucXFicmlkZ2UudjEuUGxhbkNsZWFudXBSZXF1ZXN0GiAucXFicmlkZ2UudjEuUGxhbkNsZWFudXBSZXNwb25zZRJZCg5FeGVjdXRlQ2xlYW51cBIiLnFxYnJpZGdlLnYxLkV4ZWN1dGVDbGVhbnVwUmVxdWVzdBojLnFxYnJpZGdlLnYxLkV4ZWN1dGVDbGVhbnVwUmVzcG9uc2USaAoTTGlzdFN0b3JhZ2VQb2xpY2llcxInLnFxYnJpZGdlLnYxLkxpc3RTdG9yYWdlUG9saWNpZXNSZXF1ZXN0GigucXFicmlkZ2UudjEuTGlzdFN0b3JhZ2VQb2xpY2llc1Jlc3BvbnNlEl8KEFNldFN0b3JhZ2VQb2xpY3kSJC5xcWJyaWRnZS52MS5TZXRTdG9yYWdlUG9saWN5UmVxdWVzdBolLnFxYnJpZGdlLnYxLlNldFN0b3JhZ2VQb2xpY3lSZXNwb25zZRJoChNEZWxldGVTdG9yYWdlUG9saWN5EicucXFicmlkZ2UudjEuRGVsZXRlU3RvcmFnZVBvbGljeVJlcXVlc3QaKC5xcWJyaWRnZS52MS5EZWxldGVTdG9yYWdlUG9saWN5UmVzcG9uc2USWQoOR2V0Q2hhdFN0b3JhZ2USIi5xcWJyaWRnZS52MS5HZXRDaGF0U3RvcmFnZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5HZXRDaGF0U3RvcmFnZVJlc3BvbnNlEk0KClJ1blRpZXJpbmcSHi5xcWJyaWRnZS52MS5SdW5UaWVyaW5nUmVxdWVzdBofLnFxYnJpZGdlLnYxLlJ1blRpZXJpbmdSZXNwb25zZRJTCgxMaXN0U3RpY2tlcnMSIC5xcWJyaWRnZS52MS5MaXN0U3RpY2tlcnNSZXF1ZXN0GiEucXFicmlkZ2UudjEuTGlzdFN0aWNrZXJzUmVzcG9uc2USXAoPUHJlcGFyZVN0aWNrZXJzEiMucXFicmlkZ2UudjEuUHJlcGFyZVN0aWNrZXJzUmVxdWVzdBokLnFxYnJpZGdlLnYxLlByZXBhcmVTdGlja2Vyc1Jlc3BvbnNlEk0KCkFkZFN0aWNrZXISHi5xcWJyaWRnZS52MS5BZGRTdGlja2VyUmVxdWVzdBofLnFxYnJpZGdlLnYxLkFkZFN0aWNrZXJSZXNwb25zZRJTCgxSZXF1ZXN0TWVkaWESIC5xcWJyaWRnZS52MS5SZXF1ZXN0TWVkaWFSZXF1ZXN0GiEucXFicmlkZ2UudjEuUmVxdWVzdE1lZGlhUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
+  fileDesc("ChdxcWJyaWRnZS92MS9tZWRpYS5wcm90bxILcXFicmlkZ2UudjEiNQoITWVkaWFSZWYSDwoHY2hhdF9pZBgBIAEoAxILCgNzZXEYAiABKAMSCwoDb3JkGAMgASgNIkwKE1JlcXVlc3RNZWRpYVJlcXVlc3QSIwoEcmVmcxgBIAMoCzIVLnFxYnJpZGdlLnYxLk1lZGlhUmVmEhAKCG9yaWdpbmFsGAIgASgIIk0KFFJlcXVlc3RNZWRpYVJlc3BvbnNlEg4KBnF1ZXVlZBgBIAEoDRIlCgVtZWRpYRgCIAMoCzIWLnFxYnJpZGdlLnYxLk1lZGlhSW5mbyJQChRQcmVwYXJlVXBsb2FkUmVxdWVzdBIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIMCgRtaW1lGAMgASgJEgwKBG5hbWUYBCABKAkiSwoVUHJlcGFyZVVwbG9hZFJlc3BvbnNlEg4KBmV4aXN0cxgBIAEoCBISCgp1cGxvYWRfdXJsGAIgASgJEg4KBm9mZnNldBgDIAEoBCImChRTaWduTWVkaWFVcmxzUmVxdWVzdBIOCgZzaGEyNTYYASADKAkiQgoVU2lnbk1lZGlhVXJsc1Jlc3BvbnNlEikKBHVybHMYASADKAsyGy5xcWJyaWRnZS52MS5TaWduZWRNZWRpYVVybCJBCg5TaWduZWRNZWRpYVVybBIOCgZzaGEyNTYYASABKAkSCwoDdXJsGAIgASgJEhIKCmV4cGlyZXNfYXQYAyABKAMiKAoWTGlzdE1lZGlhVXNhZ2VzUmVxdWVzdBIOCgZzaGEyNTYYASABKAkiQgoXTGlzdE1lZGlhVXNhZ2VzUmVzcG9uc2USJwoGdXNhZ2VzGAEgAygLMhcucXFicmlkZ2UudjEuTWVkaWFVc2FnZSLpAQoKTWVkaWFVc2FnZRIPCgdjaGF0X2lkGAEgASgDEiEKBXNjZW5lGAIgASgOMhIucXFicmlkZ2UudjEuU2NlbmUSDwoHcGVlcl9pZBgDIAEoAxITCgttZXNzYWdlX3NlcRgEIAEoAxIZChFmb3J3YXJkX2J1bmRsZV9pZBgFIAEoCRIRCglub2RlX3BhdGgYBiADKA0SEQoJc2VuZGVyX2lkGAcgASgDEgwKBHRpbWUYCCABKAMSDAoEcm9sZRgJIAEoCRIkCgRraW5kGAogASgOMhYucXFicmlkZ2UudjEuTWVkaWFLaW5kIioKGUdldFN0b3JhZ2VPdmVydmlld1JlcXVlc3QSDQoFbGltaXQYASABKA0i8gIKGkdldFN0b3JhZ2VPdmVydmlld1Jlc3BvbnNlEhYKDnBoeXNpY2FsX2J5dGVzGAEgASgEEhUKDWxvZ2ljYWxfYnl0ZXMYAiABKAQSGQoRZGVkdXBfc2F2ZWRfYnl0ZXMYAyABKAQSEgoKYmxvYl9jb3VudBgEIAEoDRInCgVjaGF0cxgFIAMoCzIYLnFxYnJpZGdlLnYxLkNoYXRTdG9yYWdlEhEKCWhvdF9ieXRlcxgGIAEoBBISCgpjb2xkX2J5dGVzGAcgASgEEhkKEWNvbGRfdGllcl9lbmFibGVkGAggASgIEjAKCmNhdGVnb3JpZXMYCSADKAsyHC5xcWJyaWRnZS52MS5TdG9yYWdlQ2F0ZWdvcnkSKwoHdm9sdW1lcxgKIAMoCzIaLnFxYnJpZGdlLnYxLlN0b3JhZ2VWb2x1bWUSFQoNbWVzc2FnZV9ieXRlcxgLIAEoBBIVCg1tZXNzYWdlX2NvdW50GAwgASgEIjwKF0xpc3RTdG9yYWdlQ2hhdHNSZXF1ZXN0EhIKCmNhdGVnb3JpZXMYASADKAkSDQoFbGltaXQYAiABKA0icAoLU3RvcmFnZUNoYXQSDwoHY2hhdF9pZBgBIAEoAxIhCgVzY2VuZRgCIAEoDjISLnFxYnJpZGdlLnYxLlNjZW5lEg8KB3BlZXJfaWQYAyABKAMSDQoFYnl0ZXMYBCABKAQSDQoFY291bnQYBSABKA0iQwoYTGlzdFN0b3JhZ2VDaGF0c1Jlc3BvbnNlEicKBWNoYXRzGAEgAygLMhgucXFicmlkZ2UudjEuU3RvcmFnZUNoYXQiXQoXTGlzdFN0b3JhZ2VJdGVtc1JlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxISCgpjYXRlZ29yaWVzGAIgAygJEg4KBm9mZnNldBgDIAEoDRINCgVsaW1pdBgEIAEoDSLLAQoLU3RvcmFnZUl0ZW0SDgoGc2hhMjU2GAEgASgJEgwKBHNpemUYAiABKAQSEAoIY2F0ZWdvcnkYAyABKAkSDQoFc3RhdGUYBCABKAkSDAoEdGllchgFIAEoCRIRCglyZWZfY2hhdHMYBiABKA0SDwoHY2hhdF9pZBgHIAEoAxILCgNzZXEYCCABKAMSDAoEdGltZRgJIAEoAxIMCgRtaW1lGAogASgJEgwKBG5hbWUYCyABKAkSFAoMdGh1bWJfc2hhMjU2GAwgASgJIlEKGExpc3RTdG9yYWdlSXRlbXNSZXNwb25zZRInCgVpdGVtcxgBIAMoCzIYLnFxYnJpZGdlLnYxLlN0b3JhZ2VJdGVtEgwKBG1vcmUYAiABKAgiQQoPU3RvcmFnZUNhdGVnb3J5EhAKCGNhdGVnb3J5GAEgASgJEg0KBWJ5dGVzGAIgASgEEg0KBWNvdW50GAMgASgNIlkKDVN0b3JhZ2VWb2x1bWUSDAoEdGllchgBIAEoCRIRCglhdmFpbGFibGUYAiABKAgSEwoLdG90YWxfYnl0ZXMYAyABKAQSEgoKZnJlZV9ieXRlcxgEIAEoBCK9AQoLQ2hhdFN0b3JhZ2USDwoHY2hhdF9pZBgBIAEoAxIhCgVzY2VuZRgCIAEoDjISLnFxYnJpZGdlLnYxLlNjZW5lEg8KB3BlZXJfaWQYAyABKAMSFQoNbG9naWNhbF9ieXRlcxgEIAEoBBIXCg9leGNsdXNpdmVfYnl0ZXMYBSABKAQSEgoKYmxvYl9jb3VudBgGIAEoDRIRCglob3RfYnl0ZXMYByABKAQSEgoKY29sZF9ieXRlcxgIIAEoBCJ+ChJQbGFuQ2xlYW51cFJlcXVlc3QSDwoHY2hhdF9pZBgBIAEoAxIlCgVraW5kcxgCIAMoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBIcCg9vbGRlcl90aGFuX2RheXMYAyABKA1IAIgBAUISChBfb2xkZXJfdGhhbl9kYXlzIo8BChNQbGFuQ2xlYW51cFJlc3BvbnNlEhEKCXJlZl9jb3VudBgBIAEoDRISCgpibG9iX2NvdW50GAIgASgNEhwKFHB1cmdlYWJsZV9ibG9iX2NvdW50GAMgASgNEhMKC2ZyZWVkX2J5dGVzGAQgASgEEh4KFmtlcHRfc2hhcmVkX2Jsb2JfY291bnQYBSABKA0igQEKFUV4ZWN1dGVDbGVhbnVwUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEiUKBWtpbmRzGAIgAygOMhYucXFicmlkZ2UudjEuTWVkaWFLaW5kEhwKD29sZGVyX3RoYW5fZGF5cxgDIAEoDUgAiAEBQhIKEF9vbGRlcl90aGFuX2RheXMijwEKFkV4ZWN1dGVDbGVhbnVwUmVzcG9uc2USEQoJcmVmX2NvdW50GAEgASgNEhIKCmJsb2JfY291bnQYAiABKA0SGQoRcHVyZ2VkX2Jsb2JfY291bnQYAyABKA0SEwoLZnJlZWRfYnl0ZXMYBCABKAQSHgoWa2VwdF9zaGFyZWRfYmxvYl9jb3VudBgFIAEoDSL0AgoNU3RvcmFnZVBvbGljeRInCgVzY29wZRgBIAEoDjIYLnFxYnJpZGdlLnYxLlBvbGljeVNjb3BlEiEKBXNjZW5lGAIgASgOMhIucXFicmlkZ2UudjEuU2NlbmUSDwoHY2hhdF9pZBgDIAEoAxIfChJrZWVwX29yaWdpbmFsX2RheXMYBCABKAVIAIgBARIhChRhdXRvX2ZldGNoX21heF9ieXRlcxgFIAEoBEgBiAEBEhwKD2NvbGRfYWZ0ZXJfZGF5cxgGIAEoBUgCiAEBEhsKDmNvbGRfbWluX2J5dGVzGAcgASgESAOIAQESHAoPaG90X3F1b3RhX2J5dGVzGAggASgESASIAQFCFQoTX2tlZXBfb3JpZ2luYWxfZGF5c0IXChVfYXV0b19mZXRjaF9tYXhfYnl0ZXNCEgoQX2NvbGRfYWZ0ZXJfZGF5c0IRCg9fY29sZF9taW5fYnl0ZXNCEgoQX2hvdF9xdW90YV9ieXRlcyIcChpMaXN0U3RvcmFnZVBvbGljaWVzUmVxdWVzdCJLChtMaXN0U3RvcmFnZVBvbGljaWVzUmVzcG9uc2USLAoIcG9saWNpZXMYASADKAsyGi5xcWJyaWRnZS52MS5TdG9yYWdlUG9saWN5IkUKF1NldFN0b3JhZ2VQb2xpY3lSZXF1ZXN0EioKBnBvbGljeRgBIAEoCzIaLnFxYnJpZGdlLnYxLlN0b3JhZ2VQb2xpY3kiGgoYU2V0U3RvcmFnZVBvbGljeVJlc3BvbnNlInkKGkRlbGV0ZVN0b3JhZ2VQb2xpY3lSZXF1ZXN0EicKBXNjb3BlGAEgASgOMhgucXFicmlkZ2UudjEuUG9saWN5U2NvcGUSIQoFc2NlbmUYAiABKA4yEi5xcWJyaWRnZS52MS5TY2VuZRIPCgdjaGF0X2lkGAMgASgDIi4KG0RlbGV0ZVN0b3JhZ2VQb2xpY3lSZXNwb25zZRIPCgdkZWxldGVkGAEgASgIIjsKFUdldENoYXRTdG9yYWdlUmVxdWVzdBIPCgdjaGF0X2lkGAEgASgDEhEKCXRvcF9saW1pdBgCIAEoBSKvAQoLS2luZFN0b3JhZ2USJAoEa2luZBgBIAEoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBINCgVjb3VudBgCIAEoDRIVCg1sb2dpY2FsX2J5dGVzGAMgASgEEhcKD2V4Y2x1c2l2ZV9ieXRlcxgEIAEoBBIRCglob3RfYnl0ZXMYBSABKAQSEgoKY29sZF9ieXRlcxgGIAEoBBIUCgxwdXJnZWRfY291bnQYByABKA0imQEKClN0b3JlZEl0ZW0SDgoGc2hhMjU2GAEgASgJEgwKBHNpemUYAiABKAQSJAoEa2luZBgDIAEoDjIWLnFxYnJpZGdlLnYxLk1lZGlhS2luZBIMCgR0aWVyGAQgASgJEg4KBnNoYXJlZBgFIAEoCBIWCg5sYXN0X2FjY2Vzc19hdBgGIAEoAxIRCglmaXJzdF9zZXEYByABKAMinAEKFkVmZmVjdGl2ZVN0b3JhZ2VQb2xpY3kSGgoSa2VlcF9vcmlnaW5hbF9kYXlzGAEgASgFEhwKFGF1dG9fZmV0Y2hfbWF4X2J5dGVzGAIgASgEEhcKD2NvbGRfYWZ0ZXJfZGF5cxgDIAEoBRIWCg5jb2xkX21pbl9ieXRlcxgEIAEoBBIXCg9ob3RfcXVvdGFfYnl0ZXMYBSABKAQiywEKFkdldENoYXRTdG9yYWdlUmVzcG9uc2USKQoHc3VtbWFyeRgBIAEoCzIYLnFxYnJpZGdlLnYxLkNoYXRTdG9yYWdlEicKBWtpbmRzGAIgAygLMhgucXFicmlkZ2UudjEuS2luZFN0b3JhZ2USKAoHbGFyZ2VzdBgDIAMoCzIXLnFxYnJpZGdlLnYxLlN0b3JlZEl0ZW0SMwoGcG9saWN5GAQgASgLMiMucXFicmlkZ2UudjEuRWZmZWN0aXZlU3RvcmFnZVBvbGljeSIkChFSdW5UaWVyaW5nUmVxdWVzdBIPCgdkcnlfcnVuGAEgASgIIpsBChJSdW5UaWVyaW5nUmVzcG9uc2USEgoKY2FuZGlkYXRlcxgBIAEoDRINCgVieXRlcxgCIAEoBBINCgVtb3ZlZBgDIAEoDRITCgttb3ZlZF9ieXRlcxgEIAEoBBIOCgZieV9hZ2UYBSABKA0SFQoNYnlfY2hhdF9xdW90YRgGIAEoDRIXCg9ieV9nbG9iYWxfcXVvdGEYByABKA0iWgoHU3RpY2tlchILCgNtZDUYASABKAkSDgoGc2hhMjU2GAIgASgJEhQKDHRodW1iX3NoYTI1NhgDIAEoCRIMCgRkZXNjGAQgASgJEg4KBm1hcmtldBgFIAEoCCImChNMaXN0U3RpY2tlcnNSZXF1ZXN0Eg8KB3JlZnJlc2gYASABKAgiPgoUTGlzdFN0aWNrZXJzUmVzcG9uc2USJgoIc3RpY2tlcnMYASADKAsyFC5xcWJyaWRnZS52MS5TdGlja2VyIiUKFlByZXBhcmVTdGlja2Vyc1JlcXVlc3QSCwoDbWQ1GAEgAygJIkEKF1ByZXBhcmVTdGlja2Vyc1Jlc3BvbnNlEiYKCHN0aWNrZXJzGAEgAygLMhQucXFicmlkZ2UudjEuU3RpY2tlciIjChFBZGRTdGlja2VyUmVxdWVzdBIOCgZzaGEyNTYYASABKAkiFAoSQWRkU3RpY2tlclJlc3BvbnNlKnMKC1BvbGljeVNjb3BlEhwKGFBPTElDWV9TQ09QRV9VTlNQRUNJRklFRBAAEhcKE1BPTElDWV9TQ09QRV9HTE9CQUwQARIWChJQT0xJQ1lfU0NPUEVfU0NFTkUQAhIVChFQT0xJQ1lfU0NPUEVfQ0hBVBADMqgMCgxNZWRpYVNlcnZpY2USVgoNUHJlcGFyZVVwbG9hZBIhLnFxYnJpZGdlLnYxLlByZXBhcmVVcGxvYWRSZXF1ZXN0GiIucXFicmlkZ2UudjEuUHJlcGFyZVVwbG9hZFJlc3BvbnNlElYKDVNpZ25NZWRpYVVybHMSIS5xcWJyaWRnZS52MS5TaWduTWVkaWFVcmxzUmVxdWVzdBoiLnFxYnJpZGdlLnYxLlNpZ25NZWRpYVVybHNSZXNwb25zZRJcCg9MaXN0TWVkaWFVc2FnZXMSIy5xcWJyaWRnZS52MS5MaXN0TWVkaWFVc2FnZXNSZXF1ZXN0GiQucXFicmlkZ2UudjEuTGlzdE1lZGlhVXNhZ2VzUmVzcG9uc2USZQoSR2V0U3RvcmFnZU92ZXJ2aWV3EiYucXFicmlkZ2UudjEuR2V0U3RvcmFnZU92ZXJ2aWV3UmVxdWVzdBonLnFxYnJpZGdlLnYxLkdldFN0b3JhZ2VPdmVydmlld1Jlc3BvbnNlElAKC1BsYW5DbGVhbnVwEh8ucXFicmlkZ2UudjEuUGxhbkNsZWFudXBSZXF1ZXN0GiAucXFicmlkZ2UudjEuUGxhbkNsZWFudXBSZXNwb25zZRJZCg5FeGVjdXRlQ2xlYW51cBIiLnFxYnJpZGdlLnYxLkV4ZWN1dGVDbGVhbnVwUmVxdWVzdBojLnFxYnJpZGdlLnYxLkV4ZWN1dGVDbGVhbnVwUmVzcG9uc2USaAoTTGlzdFN0b3JhZ2VQb2xpY2llcxInLnFxYnJpZGdlLnYxLkxpc3RTdG9yYWdlUG9saWNpZXNSZXF1ZXN0GigucXFicmlkZ2UudjEuTGlzdFN0b3JhZ2VQb2xpY2llc1Jlc3BvbnNlEl8KEFNldFN0b3JhZ2VQb2xpY3kSJC5xcWJyaWRnZS52MS5TZXRTdG9yYWdlUG9saWN5UmVxdWVzdBolLnFxYnJpZGdlLnYxLlNldFN0b3JhZ2VQb2xpY3lSZXNwb25zZRJoChNEZWxldGVTdG9yYWdlUG9saWN5EicucXFicmlkZ2UudjEuRGVsZXRlU3RvcmFnZVBvbGljeVJlcXVlc3QaKC5xcWJyaWRnZS52MS5EZWxldGVTdG9yYWdlUG9saWN5UmVzcG9uc2USWQoOR2V0Q2hhdFN0b3JhZ2USIi5xcWJyaWRnZS52MS5HZXRDaGF0U3RvcmFnZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5HZXRDaGF0U3RvcmFnZVJlc3BvbnNlEl8KEExpc3RTdG9yYWdlQ2hhdHMSJC5xcWJyaWRnZS52MS5MaXN0U3RvcmFnZUNoYXRzUmVxdWVzdBolLnFxYnJpZGdlLnYxLkxpc3RTdG9yYWdlQ2hhdHNSZXNwb25zZRJfChBMaXN0U3RvcmFnZUl0ZW1zEiQucXFicmlkZ2UudjEuTGlzdFN0b3JhZ2VJdGVtc1JlcXVlc3QaJS5xcWJyaWRnZS52MS5MaXN0U3RvcmFnZUl0ZW1zUmVzcG9uc2USTQoKUnVuVGllcmluZxIeLnFxYnJpZGdlLnYxLlJ1blRpZXJpbmdSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuUnVuVGllcmluZ1Jlc3BvbnNlElMKDExpc3RTdGlja2VycxIgLnFxYnJpZGdlLnYxLkxpc3RTdGlja2Vyc1JlcXVlc3QaIS5xcWJyaWRnZS52MS5MaXN0U3RpY2tlcnNSZXNwb25zZRJcCg9QcmVwYXJlU3RpY2tlcnMSIy5xcWJyaWRnZS52MS5QcmVwYXJlU3RpY2tlcnNSZXF1ZXN0GiQucXFicmlkZ2UudjEuUHJlcGFyZVN0aWNrZXJzUmVzcG9uc2USTQoKQWRkU3RpY2tlchIeLnFxYnJpZGdlLnYxLkFkZFN0aWNrZXJSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuQWRkU3RpY2tlclJlc3BvbnNlElMKDFJlcXVlc3RNZWRpYRIgLnFxYnJpZGdlLnYxLlJlcXVlc3RNZWRpYVJlcXVlc3QaIS5xcWJyaWRnZS52MS5SZXF1ZXN0TWVkaWFSZXNwb25zZWIGcHJvdG8z", [file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.MediaRef
@@ -394,6 +394,20 @@ export type GetStorageOverviewResponse = Message<"qqbridge.v1.GetStorageOverview
    * @generated from field: repeated qqbridge.v1.StorageVolume volumes = 10;
    */
   volumes: StorageVolume[];
+
+  /**
+   * 消息本身（文字、消息段、原始数据）在数据库里占的空间。
+   *
+   * @generated from field: uint64 message_bytes = 11;
+   */
+  messageBytes: bigint;
+
+  /**
+   * 消息条数（估算值，来自表统计信息）。
+   *
+   * @generated from field: uint64 message_count = 12;
+   */
+  messageCount: bigint;
 };
 
 /**
@@ -402,6 +416,220 @@ export type GetStorageOverviewResponse = Message<"qqbridge.v1.GetStorageOverview
  */
 export const GetStorageOverviewResponseSchema: GenMessage<GetStorageOverviewResponse> = /*@__PURE__*/
   messageDesc(file_qqbridge_v1_media, 12);
+
+/**
+ * @generated from message qqbridge.v1.ListStorageChatsRequest
+ */
+export type ListStorageChatsRequest = Message<"qqbridge.v1.ListStorageChatsRequest"> & {
+  /**
+   * @generated from field: repeated string categories = 1;
+   */
+  categories: string[];
+
+  /**
+   * @generated from field: uint32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListStorageChatsRequest.
+ * Use `create(ListStorageChatsRequestSchema)` to create a new message.
+ */
+export const ListStorageChatsRequestSchema: GenMessage<ListStorageChatsRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 13);
+
+/**
+ * @generated from message qqbridge.v1.StorageChat
+ */
+export type StorageChat = Message<"qqbridge.v1.StorageChat"> & {
+  /**
+   * @generated from field: int64 chat_id = 1;
+   */
+  chatId: bigint;
+
+  /**
+   * @generated from field: qqbridge.v1.Scene scene = 2;
+   */
+  scene: Scene;
+
+  /**
+   * @generated from field: int64 peer_id = 3;
+   */
+  peerId: bigint;
+
+  /**
+   * @generated from field: uint64 bytes = 4;
+   */
+  bytes: bigint;
+
+  /**
+   * 内容份数（message 类：消息条数）。
+   *
+   * @generated from field: uint32 count = 5;
+   */
+  count: number;
+};
+
+/**
+ * Describes the message qqbridge.v1.StorageChat.
+ * Use `create(StorageChatSchema)` to create a new message.
+ */
+export const StorageChatSchema: GenMessage<StorageChat> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 14);
+
+/**
+ * @generated from message qqbridge.v1.ListStorageChatsResponse
+ */
+export type ListStorageChatsResponse = Message<"qqbridge.v1.ListStorageChatsResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.StorageChat chats = 1;
+   */
+  chats: StorageChat[];
+};
+
+/**
+ * Describes the message qqbridge.v1.ListStorageChatsResponse.
+ * Use `create(ListStorageChatsResponseSchema)` to create a new message.
+ */
+export const ListStorageChatsResponseSchema: GenMessage<ListStorageChatsResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 15);
+
+/**
+ * @generated from message qqbridge.v1.ListStorageItemsRequest
+ */
+export type ListStorageItemsRequest = Message<"qqbridge.v1.ListStorageItemsRequest"> & {
+  /**
+   * @generated from field: int64 chat_id = 1;
+   */
+  chatId: bigint;
+
+  /**
+   * @generated from field: repeated string categories = 2;
+   */
+  categories: string[];
+
+  /**
+   * @generated from field: uint32 offset = 3;
+   */
+  offset: number;
+
+  /**
+   * @generated from field: uint32 limit = 4;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListStorageItemsRequest.
+ * Use `create(ListStorageItemsRequestSchema)` to create a new message.
+ */
+export const ListStorageItemsRequestSchema: GenMessage<ListStorageItemsRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 16);
+
+/**
+ * @generated from message qqbridge.v1.StorageItem
+ */
+export type StorageItem = Message<"qqbridge.v1.StorageItem"> & {
+  /**
+   * @generated from field: string sha256 = 1;
+   */
+  sha256: string;
+
+  /**
+   * @generated from field: uint64 size = 2;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string category = 3;
+   */
+  category: string;
+
+  /**
+   * present / purged（原件已清理）。
+   *
+   * @generated from field: string state = 4;
+   */
+  state: string;
+
+  /**
+   * hot / cold。
+   *
+   * @generated from field: string tier = 5;
+   */
+  tier: string;
+
+  /**
+   * 有几个会话引用了它（> 1 = 和别的会话共用）。
+   *
+   * @generated from field: uint32 ref_chats = 6;
+   */
+  refChats: number;
+
+  /**
+   * 第一次出现的会话和消息（群文件没有消息：seq = 0）。
+   *
+   * @generated from field: int64 chat_id = 7;
+   */
+  chatId: bigint;
+
+  /**
+   * @generated from field: int64 seq = 8;
+   */
+  seq: bigint;
+
+  /**
+   * @generated from field: int64 time = 9;
+   */
+  time: bigint;
+
+  /**
+   * @generated from field: string mime = 10;
+   */
+  mime: string;
+
+  /**
+   * @generated from field: string name = 11;
+   */
+  name: string;
+
+  /**
+   * 预览用的缩略图（没有时为空）。
+   *
+   * @generated from field: string thumb_sha256 = 12;
+   */
+  thumbSha256: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.StorageItem.
+ * Use `create(StorageItemSchema)` to create a new message.
+ */
+export const StorageItemSchema: GenMessage<StorageItem> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 17);
+
+/**
+ * @generated from message qqbridge.v1.ListStorageItemsResponse
+ */
+export type ListStorageItemsResponse = Message<"qqbridge.v1.ListStorageItemsResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.StorageItem items = 1;
+   */
+  items: StorageItem[];
+
+  /**
+   * @generated from field: bool more = 2;
+   */
+  more: boolean;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListStorageItemsResponse.
+ * Use `create(ListStorageItemsResponseSchema)` to create a new message.
+ */
+export const ListStorageItemsResponseSchema: GenMessage<ListStorageItemsResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_media, 18);
 
 /**
  * @generated from message qqbridge.v1.StorageCategory
@@ -431,7 +659,7 @@ export type StorageCategory = Message<"qqbridge.v1.StorageCategory"> & {
  * Use `create(StorageCategorySchema)` to create a new message.
  */
 export const StorageCategorySchema: GenMessage<StorageCategory> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 13);
+  messageDesc(file_qqbridge_v1_media, 19);
 
 /**
  * @generated from message qqbridge.v1.StorageVolume
@@ -467,7 +695,7 @@ export type StorageVolume = Message<"qqbridge.v1.StorageVolume"> & {
  * Use `create(StorageVolumeSchema)` to create a new message.
  */
 export const StorageVolumeSchema: GenMessage<StorageVolume> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 14);
+  messageDesc(file_qqbridge_v1_media, 20);
 
 /**
  * @generated from message qqbridge.v1.ChatStorage
@@ -523,7 +751,7 @@ export type ChatStorage = Message<"qqbridge.v1.ChatStorage"> & {
  * Use `create(ChatStorageSchema)` to create a new message.
  */
 export const ChatStorageSchema: GenMessage<ChatStorage> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 15);
+  messageDesc(file_qqbridge_v1_media, 21);
 
 /**
  * @generated from message qqbridge.v1.PlanCleanupRequest
@@ -550,7 +778,7 @@ export type PlanCleanupRequest = Message<"qqbridge.v1.PlanCleanupRequest"> & {
  * Use `create(PlanCleanupRequestSchema)` to create a new message.
  */
 export const PlanCleanupRequestSchema: GenMessage<PlanCleanupRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 16);
+  messageDesc(file_qqbridge_v1_media, 22);
 
 /**
  * @generated from message qqbridge.v1.PlanCleanupResponse
@@ -589,7 +817,7 @@ export type PlanCleanupResponse = Message<"qqbridge.v1.PlanCleanupResponse"> & {
  * Use `create(PlanCleanupResponseSchema)` to create a new message.
  */
 export const PlanCleanupResponseSchema: GenMessage<PlanCleanupResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 17);
+  messageDesc(file_qqbridge_v1_media, 23);
 
 /**
  * @generated from message qqbridge.v1.ExecuteCleanupRequest
@@ -616,7 +844,7 @@ export type ExecuteCleanupRequest = Message<"qqbridge.v1.ExecuteCleanupRequest">
  * Use `create(ExecuteCleanupRequestSchema)` to create a new message.
  */
 export const ExecuteCleanupRequestSchema: GenMessage<ExecuteCleanupRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 18);
+  messageDesc(file_qqbridge_v1_media, 24);
 
 /**
  * @generated from message qqbridge.v1.ExecuteCleanupResponse
@@ -655,7 +883,7 @@ export type ExecuteCleanupResponse = Message<"qqbridge.v1.ExecuteCleanupResponse
  * Use `create(ExecuteCleanupResponseSchema)` to create a new message.
  */
 export const ExecuteCleanupResponseSchema: GenMessage<ExecuteCleanupResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 19);
+  messageDesc(file_qqbridge_v1_media, 25);
 
 /**
  * @generated from message qqbridge.v1.StoragePolicy
@@ -722,7 +950,7 @@ export type StoragePolicy = Message<"qqbridge.v1.StoragePolicy"> & {
  * Use `create(StoragePolicySchema)` to create a new message.
  */
 export const StoragePolicySchema: GenMessage<StoragePolicy> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 20);
+  messageDesc(file_qqbridge_v1_media, 26);
 
 /**
  * @generated from message qqbridge.v1.ListStoragePoliciesRequest
@@ -735,7 +963,7 @@ export type ListStoragePoliciesRequest = Message<"qqbridge.v1.ListStoragePolicie
  * Use `create(ListStoragePoliciesRequestSchema)` to create a new message.
  */
 export const ListStoragePoliciesRequestSchema: GenMessage<ListStoragePoliciesRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 21);
+  messageDesc(file_qqbridge_v1_media, 27);
 
 /**
  * @generated from message qqbridge.v1.ListStoragePoliciesResponse
@@ -752,7 +980,7 @@ export type ListStoragePoliciesResponse = Message<"qqbridge.v1.ListStoragePolici
  * Use `create(ListStoragePoliciesResponseSchema)` to create a new message.
  */
 export const ListStoragePoliciesResponseSchema: GenMessage<ListStoragePoliciesResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 22);
+  messageDesc(file_qqbridge_v1_media, 28);
 
 /**
  * @generated from message qqbridge.v1.SetStoragePolicyRequest
@@ -769,7 +997,7 @@ export type SetStoragePolicyRequest = Message<"qqbridge.v1.SetStoragePolicyReque
  * Use `create(SetStoragePolicyRequestSchema)` to create a new message.
  */
 export const SetStoragePolicyRequestSchema: GenMessage<SetStoragePolicyRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 23);
+  messageDesc(file_qqbridge_v1_media, 29);
 
 /**
  * @generated from message qqbridge.v1.SetStoragePolicyResponse
@@ -782,7 +1010,7 @@ export type SetStoragePolicyResponse = Message<"qqbridge.v1.SetStoragePolicyResp
  * Use `create(SetStoragePolicyResponseSchema)` to create a new message.
  */
 export const SetStoragePolicyResponseSchema: GenMessage<SetStoragePolicyResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 24);
+  messageDesc(file_qqbridge_v1_media, 30);
 
 /**
  * @generated from message qqbridge.v1.DeleteStoragePolicyRequest
@@ -809,7 +1037,7 @@ export type DeleteStoragePolicyRequest = Message<"qqbridge.v1.DeleteStoragePolic
  * Use `create(DeleteStoragePolicyRequestSchema)` to create a new message.
  */
 export const DeleteStoragePolicyRequestSchema: GenMessage<DeleteStoragePolicyRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 25);
+  messageDesc(file_qqbridge_v1_media, 31);
 
 /**
  * @generated from message qqbridge.v1.DeleteStoragePolicyResponse
@@ -826,7 +1054,7 @@ export type DeleteStoragePolicyResponse = Message<"qqbridge.v1.DeleteStoragePoli
  * Use `create(DeleteStoragePolicyResponseSchema)` to create a new message.
  */
 export const DeleteStoragePolicyResponseSchema: GenMessage<DeleteStoragePolicyResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 26);
+  messageDesc(file_qqbridge_v1_media, 32);
 
 /**
  * @generated from message qqbridge.v1.GetChatStorageRequest
@@ -850,7 +1078,7 @@ export type GetChatStorageRequest = Message<"qqbridge.v1.GetChatStorageRequest">
  * Use `create(GetChatStorageRequestSchema)` to create a new message.
  */
 export const GetChatStorageRequestSchema: GenMessage<GetChatStorageRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 27);
+  messageDesc(file_qqbridge_v1_media, 33);
 
 /**
  * @generated from message qqbridge.v1.KindStorage
@@ -899,7 +1127,7 @@ export type KindStorage = Message<"qqbridge.v1.KindStorage"> & {
  * Use `create(KindStorageSchema)` to create a new message.
  */
 export const KindStorageSchema: GenMessage<KindStorage> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 28);
+  messageDesc(file_qqbridge_v1_media, 34);
 
 /**
  * @generated from message qqbridge.v1.StoredItem
@@ -954,7 +1182,7 @@ export type StoredItem = Message<"qqbridge.v1.StoredItem"> & {
  * Use `create(StoredItemSchema)` to create a new message.
  */
 export const StoredItemSchema: GenMessage<StoredItem> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 29);
+  messageDesc(file_qqbridge_v1_media, 35);
 
 /**
  * @generated from message qqbridge.v1.EffectiveStoragePolicy
@@ -997,7 +1225,7 @@ export type EffectiveStoragePolicy = Message<"qqbridge.v1.EffectiveStoragePolicy
  * Use `create(EffectiveStoragePolicySchema)` to create a new message.
  */
 export const EffectiveStoragePolicySchema: GenMessage<EffectiveStoragePolicy> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 30);
+  messageDesc(file_qqbridge_v1_media, 36);
 
 /**
  * @generated from message qqbridge.v1.GetChatStorageResponse
@@ -1029,7 +1257,7 @@ export type GetChatStorageResponse = Message<"qqbridge.v1.GetChatStorageResponse
  * Use `create(GetChatStorageResponseSchema)` to create a new message.
  */
 export const GetChatStorageResponseSchema: GenMessage<GetChatStorageResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 31);
+  messageDesc(file_qqbridge_v1_media, 37);
 
 /**
  * @generated from message qqbridge.v1.RunTieringRequest
@@ -1046,7 +1274,7 @@ export type RunTieringRequest = Message<"qqbridge.v1.RunTieringRequest"> & {
  * Use `create(RunTieringRequestSchema)` to create a new message.
  */
 export const RunTieringRequestSchema: GenMessage<RunTieringRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 32);
+  messageDesc(file_qqbridge_v1_media, 38);
 
 /**
  * @generated from message qqbridge.v1.RunTieringResponse
@@ -1093,7 +1321,7 @@ export type RunTieringResponse = Message<"qqbridge.v1.RunTieringResponse"> & {
  * Use `create(RunTieringResponseSchema)` to create a new message.
  */
 export const RunTieringResponseSchema: GenMessage<RunTieringResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 33);
+  messageDesc(file_qqbridge_v1_media, 39);
 
 /**
  * @generated from message qqbridge.v1.Sticker
@@ -1134,7 +1362,7 @@ export type Sticker = Message<"qqbridge.v1.Sticker"> & {
  * Use `create(StickerSchema)` to create a new message.
  */
 export const StickerSchema: GenMessage<Sticker> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 34);
+  messageDesc(file_qqbridge_v1_media, 40);
 
 /**
  * @generated from message qqbridge.v1.ListStickersRequest
@@ -1151,7 +1379,7 @@ export type ListStickersRequest = Message<"qqbridge.v1.ListStickersRequest"> & {
  * Use `create(ListStickersRequestSchema)` to create a new message.
  */
 export const ListStickersRequestSchema: GenMessage<ListStickersRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 35);
+  messageDesc(file_qqbridge_v1_media, 41);
 
 /**
  * @generated from message qqbridge.v1.ListStickersResponse
@@ -1168,7 +1396,7 @@ export type ListStickersResponse = Message<"qqbridge.v1.ListStickersResponse"> &
  * Use `create(ListStickersResponseSchema)` to create a new message.
  */
 export const ListStickersResponseSchema: GenMessage<ListStickersResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 36);
+  messageDesc(file_qqbridge_v1_media, 42);
 
 /**
  * @generated from message qqbridge.v1.PrepareStickersRequest
@@ -1187,7 +1415,7 @@ export type PrepareStickersRequest = Message<"qqbridge.v1.PrepareStickersRequest
  * Use `create(PrepareStickersRequestSchema)` to create a new message.
  */
 export const PrepareStickersRequestSchema: GenMessage<PrepareStickersRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 37);
+  messageDesc(file_qqbridge_v1_media, 43);
 
 /**
  * @generated from message qqbridge.v1.PrepareStickersResponse
@@ -1206,7 +1434,7 @@ export type PrepareStickersResponse = Message<"qqbridge.v1.PrepareStickersRespon
  * Use `create(PrepareStickersResponseSchema)` to create a new message.
  */
 export const PrepareStickersResponseSchema: GenMessage<PrepareStickersResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 38);
+  messageDesc(file_qqbridge_v1_media, 44);
 
 /**
  * @generated from message qqbridge.v1.AddStickerRequest
@@ -1223,7 +1451,7 @@ export type AddStickerRequest = Message<"qqbridge.v1.AddStickerRequest"> & {
  * Use `create(AddStickerRequestSchema)` to create a new message.
  */
 export const AddStickerRequestSchema: GenMessage<AddStickerRequest> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 39);
+  messageDesc(file_qqbridge_v1_media, 45);
 
 /**
  * @generated from message qqbridge.v1.AddStickerResponse
@@ -1236,7 +1464,7 @@ export type AddStickerResponse = Message<"qqbridge.v1.AddStickerResponse"> & {
  * Use `create(AddStickerResponseSchema)` to create a new message.
  */
 export const AddStickerResponseSchema: GenMessage<AddStickerResponse> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_media, 40);
+  messageDesc(file_qqbridge_v1_media, 46);
 
 /**
  * @generated from enum qqbridge.v1.PolicyScope
@@ -1371,6 +1599,26 @@ export const MediaService: GenService<{
     methodKind: "unary";
     input: typeof GetChatStorageRequestSchema;
     output: typeof GetChatStorageResponseSchema;
+  },
+  /**
+   * 存储页：某几类内容（StorageCategory.category，另有 message = 消息本身）在各会话的占用，从大到小。
+   *
+   * @generated from rpc qqbridge.v1.MediaService.ListStorageChats
+   */
+  listStorageChats: {
+    methodKind: "unary";
+    input: typeof ListStorageChatsRequestSchema;
+    output: typeof ListStorageChatsResponseSchema;
+  },
+  /**
+   * 存储页：某个会话（chat_id = 0 表示全部）里某几类的具体内容，从大到小，带被几个会话引用。
+   *
+   * @generated from rpc qqbridge.v1.MediaService.ListStorageItems
+   */
+  listStorageItems: {
+    methodKind: "unary";
+    input: typeof ListStorageItemsRequestSchema;
+    output: typeof ListStorageItemsResponseSchema;
   },
   /**
    * 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。

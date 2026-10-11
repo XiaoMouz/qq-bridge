@@ -53,32 +53,39 @@ public enum ChatItem: Sendable, Identifiable, Equatable {
 extension LocalStore {
   /// 会话列表（置顶在前，然后按最后一条消息时间倒序），带上对方资料。
   public func observeDialogs(limit: Int = 500) -> AsyncValueObservation<[DialogItem]> {
-    ValueObservation.tracking { db in
-      let rows = try Row.fetchAll(
-        db,
-        sql: """
-          select d.data as dialog, p.data as peer from dialog d
-          left join peer p on p.qqAccountId = d.qqAccountId and p.peerId = d.peerId
-                          and p.kind = case d.scene when ? then ? else ? end
-          order by d.pinned desc, d.topTime desc limit ?
-          """,
-        arguments: [Qqbridge_V1_Scene.group.rawValue, Qqbridge_V1_PeerKind.group.rawValue, Qqbridge_V1_PeerKind.user.rawValue, limit]
+    ValueObservation.tracking { db in try Self.dialogItems(db, limit: limit) }
+      .removeDuplicates()
+      .values(in: db)
+  }
+
+  /// 会话列表的一次性快照（不观察变化）。
+  public func dialogItems(limit: Int = 500) throws -> [DialogItem] {
+    try db.read { db in try Self.dialogItems(db, limit: limit) }
+  }
+
+  static func dialogItems(_ db: Database, limit: Int) throws -> [DialogItem] {
+    let rows = try Row.fetchAll(
+      db,
+      sql: """
+        select d.data as dialog, p.data as peer from dialog d
+        left join peer p on p.qqAccountId = d.qqAccountId and p.peerId = d.peerId
+                        and p.kind = case d.scene when ? then ? else ? end
+        order by d.pinned desc, d.topTime desc limit ?
+        """,
+      arguments: [Qqbridge_V1_Scene.group.rawValue, Qqbridge_V1_PeerKind.group.rawValue, Qqbridge_V1_PeerKind.user.rawValue, limit]
+    )
+    let items = try rows.map { row in
+      DialogItem(
+        dialog: try Qqbridge_V1_Dialog(serializedBytes: row["dialog"] as Data),
+        peer: try (row["peer"] as Data?).map { try Qqbridge_V1_Peer(serializedBytes: $0) }
       )
-      let items = try rows.map { row in
-        DialogItem(
-          dialog: try Qqbridge_V1_Dialog(serializedBytes: row["dialog"] as Data),
-          peer: try (row["peer"] as Data?).map { try Qqbridge_V1_Peer(serializedBytes: $0) }
-        )
-      }
-      // 置顶的按置顶时间倒序（最近置顶的在最上面），其余按最后一条消息时间倒序。
-      return items.sorted { a, b in
-        if a.dialog.pinned != b.dialog.pinned { return a.dialog.pinned }
-        if a.dialog.pinned, a.dialog.pinnedAt != b.dialog.pinnedAt { return a.dialog.pinnedAt > b.dialog.pinnedAt }
-        return a.dialog.topTime > b.dialog.topTime
-      }
     }
-    .removeDuplicates()
-    .values(in: db)
+    // 置顶的按置顶时间倒序（最近置顶的在最上面），其余按最后一条消息时间倒序。
+    return items.sorted { a, b in
+      if a.dialog.pinned != b.dialog.pinned { return a.dialog.pinned }
+      if a.dialog.pinned, a.dialog.pinnedAt != b.dialog.pinnedAt { return a.dialog.pinnedAt > b.dialog.pinnedAt }
+      return a.dialog.topTime > b.dialog.topTime
+    }
   }
 
   /// 一个会话最近 limit 条消息（以及这段时间里的服务事件、还没发出去的消息），按时间升序。
