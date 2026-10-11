@@ -30,6 +30,8 @@ service DialogService {
 message OpenChatRequest {
   Scene scene = 1;
   int64 peer_id = 2;
+  // 从群成员资料卡发起的私聊：所在的群（对方不是好友时走群临时会话）。
+  int64 via_group_id = 3;
 }
 
 message OpenChatResponse {

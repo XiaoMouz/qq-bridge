@@ -205,10 +205,11 @@ struct ContactGroupView: View {
 
 extension DialogActions {
   /// 拿到和某人 / 某群的会话 id（没有就让服务端新建）。
-  static func openChat(_ session: Session, scene: Qqbridge_V1_Scene, peerId: Int64) async throws -> Int64 {
+  static func openChat(_ session: Session, scene: Qqbridge_V1_Scene, peerId: Int64, viaGroupId: Int64 = 0) async throws -> Int64 {
     var req = Qqbridge_V1_OpenChatRequest()
     req.scene = scene
     req.peerID = peerId
+    req.viaGroupID = viaGroupId
     return try await session.api.dialogs.openChat(request: req, headers: session.api.headers).get().chatID
   }
 }

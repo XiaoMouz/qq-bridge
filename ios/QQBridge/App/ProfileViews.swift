@@ -12,6 +12,8 @@ struct UserProfileView: View {
   /// 从联系人点开：显示发消息、消息提醒、删除好友。
   var contactActions = false
   var onDeleted: (() -> Void)? = nil
+  /// 从群里点开的资料卡：所在的群（发起私聊时对方不是好友就走群临时会话）。
+  var viaGroupId: Int64 = 0
   @Environment(AppModel.self) private var model
   @State private var profile: Qqbridge_V1_UserProfile?
   /// 本地缓存的资料：打开时先用它显示名字、头像、签名，服务端刷新回来再换成新的。
@@ -59,6 +61,17 @@ struct UserProfileView: View {
       }
       if let onMention {
         Section { Button("@\(displayName)", systemImage: "at", action: onMention) }
+      }
+      // 群成员资料卡：发消息（不是好友时走群临时会话）、加好友。
+      if !contactActions, userId != model.qqAccount?.uin {
+        Section {
+          Button("发消息", systemImage: "message") { Task { await openChat() } }
+          if !(peer?.isFriend ?? false) {
+            Button("加好友", systemImage: "person.badge.plus") {
+              actionError = "QQ 的接口不支持主动加好友，请在手机 QQ 里添加 \(displayName)（QQ \(String(userId))）"
+            }
+          }
+        }
       }
       if contactActions {
         Section {
@@ -114,7 +127,7 @@ struct UserProfileView: View {
 
   private func openChat() async {
     do {
-      model.pendingChat = try await DialogActions.openChat(session, scene: .friend, peerId: userId)
+      model.pendingChat = try await DialogActions.openChat(session, scene: .friend, peerId: userId, viaGroupId: viaGroupId)
     } catch {
       actionError = LoadState.describe(error)
     }
@@ -251,7 +264,7 @@ struct GroupInfoView: View {
             profileUser = nil
             mention(t.userId)
           }
-        })
+        }, viaGroupId: dialog.peerID)
       }
       .presentationDetents([.medium, .large])
     }

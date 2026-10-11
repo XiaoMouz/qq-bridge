@@ -155,6 +155,13 @@
       "when": 1791616152884,
       "tag": "0021_mention_seen",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791616153884,
+      "tag": "0022_chat_via_group",
+      "breakpoints": true
     }
   ]
 }

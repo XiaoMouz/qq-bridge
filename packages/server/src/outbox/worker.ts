@@ -29,6 +29,7 @@ interface Claimed {
   content: OutgoingMessage;
   attempts: number;
   scene: string;
+  via_group_id: number | null;
   peer_id: number;
   qq_account_id: number;
 }
@@ -83,7 +84,7 @@ export class OutboxWorker {
   async runOnce(): Promise<number> {
     const due = await rows<Claimed>(
       this.db,
-      sql`select o.id, o.account_id, o.client_random_id, o.content, o.attempts, c.scene, c.peer_id, c.qq_account_id
+      sql`select o.id, o.account_id, o.client_random_id, o.content, o.attempts, c.scene, c.peer_id, c.qq_account_id, c.via_group_id
             from outbox o join chats c on c.id = o.chat_id
            where o.state = 'pending'
              and (o.next_attempt_at is null or o.next_attempt_at <= now())
@@ -116,6 +117,8 @@ export class OutboxWorker {
           clientRandomId: String(entry.client_random_id),
           chatType: entry.scene === 'group' ? 2 : 1,
           peerUin: String(entry.peer_id),
+          // 不是好友的群友：带上群号走群临时会话。
+          ...(entry.scene !== 'group' && entry.via_group_id ? { viaGroupId: String(entry.via_group_id) } : {}),
           message,
         },
         this.o.sendTimeoutMs,

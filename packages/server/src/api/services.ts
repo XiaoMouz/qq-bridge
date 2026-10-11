@@ -266,7 +266,8 @@ function dialogService(deps: ApiDeps): ServiceImpl<typeof DialogService> {
       const peerId = toSafeNumber(req.peerId, 'peer_id');
       if (peerId <= 0) throw new ConnectError('peer_id is required', Code.InvalidArgument);
       try {
-        return { chatId: BigInt(await deps.ingest.openChat(requireAuth(ctx).accountId, scene, peerId)) };
+        const via = req.viaGroupId ? toSafeNumber(req.viaGroupId, 'via_group_id') : 0;
+        return { chatId: BigInt(await deps.ingest.openChat(requireAuth(ctx).accountId, scene, peerId, via)) };
       } catch (error) {
         if (error instanceof NotFoundError) throw new ConnectError(error.message, Code.NotFound);
         throw error;

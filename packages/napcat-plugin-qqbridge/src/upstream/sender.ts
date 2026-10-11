@@ -11,6 +11,8 @@ export interface SendParams {
   clientRandomId: string;
   chatType: number;
   peerUin: string;
+  /** 群临时会话：对方所在的群。 */
+  viaGroupId?: string;
   message: unknown[];
 }
 
@@ -69,7 +71,9 @@ export class Sender {
     const data = (await callAction(
       this.ctx,
       group ? 'send_group_msg' : 'send_private_msg',
-      group ? { group_id: peer, message: p.message } : { user_id: peer, message: p.message },
+      group
+        ? { group_id: peer, message: p.message }
+        : { user_id: peer, ...(Number(p.viaGroupId) > 0 ? { group_id: Number(p.viaGroupId) } : {}), message: p.message },
     )) as { message_id?: unknown } | null;
     const messageId = Number(data?.message_id);
     if (!Number.isFinite(messageId)) throw new Error('send succeeded without a message_id');

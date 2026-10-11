@@ -29,6 +29,9 @@ public nonisolated struct Qqbridge_V1_OpenChatRequest: Sendable {
 
   public var peerID: Int64 = 0
 
+  /// 从群成员资料卡发起的私聊：所在的群（对方不是好友时走群临时会话）。
+  public var viaGroupID: Int64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -262,7 +265,7 @@ fileprivate nonisolated let _protobuf_package = "qqbridge.v1"
 
 nonisolated extension Qqbridge_V1_OpenChatRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".OpenChatRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}scene\0\u{3}peer_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}scene\0\u{3}peer_id\0\u{3}via_group_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -272,6 +275,7 @@ nonisolated extension Qqbridge_V1_OpenChatRequest: SwiftProtobuf.Message, SwiftP
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularEnumField(value: &self.scene) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.peerID) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.viaGroupID) }()
       default: break
       }
     }
@@ -284,12 +288,16 @@ nonisolated extension Qqbridge_V1_OpenChatRequest: SwiftProtobuf.Message, SwiftP
     if self.peerID != 0 {
       try visitor.visitSingularInt64Field(value: self.peerID, fieldNumber: 2)
     }
+    if self.viaGroupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.viaGroupID, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_OpenChatRequest, rhs: Qqbridge_V1_OpenChatRequest) -> Bool {
     if lhs.scene != rhs.scene {return false}
     if lhs.peerID != rhs.peerID {return false}
+    if lhs.viaGroupID != rhs.viaGroupID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
