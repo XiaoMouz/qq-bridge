@@ -24,24 +24,48 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     print("APNs registration failed: \(error.localizedDescription)")
   }
 
+  // 用带完成回调的版本，并在主线程上调用回调：async 版本会在后台线程结束，系统随后在后台线程碰 UIKit，直接崩溃。
   nonisolated func userNotificationCenter(
     _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification
-  ) async -> UNNotificationPresentationOptions {
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void
+  ) {
     let chatId = Self.chatId(notification.request.content.userInfo)
     let content = notification.request.content
     let title = content.title, body = content.body
     // App 在前台：不弹系统通知；不是正在看的会话就显示 App 内横幅（点开可以快速回复）。
-    await MainActor.run {
-      guard let model, let chatId, chatId != model.openChatId else { return }
-      model.showBanner(InAppBanner(chatId: chatId, title: title, body: body))
+    Task { @MainActor in
+      if let model, let chatId, chatId != model.openChatId {
+        model.showBanner(InAppBanner(chatId: chatId, title: title, body: body))
+      }
+      completionHandler([])
     }
-    return []
   }
 
-  nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-    guard let chatId = Self.chatId(response.notification.request.content.userInfo) else { return }
-    await MainActor.run { model?.pendingChat = chatId }
+  nonisolated func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping @Sendable () -> Void
+  ) {
+    let chatId = Self.chatId(response.notification.request.content.userInfo)
+    Task { @MainActor in
+      if let chatId {
+        // 冷启动时界面还没接上 model：先记下，接上后再打开。
+        if let model { model.pendingChat = chatId } else { pendingChat = chatId }
+      }
+      completionHandler()
+    }
+  }
+
+  /// 冷启动时点的通知（model 还没接上）。
+  var pendingChat: Int64?
+
+  func attach(_ model: AppModel) {
+    self.model = model
+    if let chatId = pendingChat {
+      pendingChat = nil
+      model.pendingChat = chatId
+    }
   }
 
   nonisolated private static func chatId(_ info: [AnyHashable: Any]) -> Int64? {

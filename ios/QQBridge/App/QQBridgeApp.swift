@@ -20,7 +20,7 @@ struct QQBridgeApp: App {
       }
       .environment(model)
       .task {
-        delegate.model = model
+        delegate.attach(model)
         model.launch()
       }
     }
