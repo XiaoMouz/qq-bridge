@@ -39,8 +39,6 @@ struct MessageRow: View {
       switch item {
       case .event(let e):
         Notice(text: EventText.describe(e, context: context))
-      case .message(let m) where m.state == .recalled:
-        Notice(text: m.senderID == context.selfUin ? "你撤回了一条消息" : "\(context.name(of: m.senderID)) 撤回了一条消息")
       case .message(let m):
         if context.selection.active {
           // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
@@ -74,7 +72,7 @@ struct MessageRow: View {
   private func showsSender(_ m: Qqbridge_V1_Message) -> Bool {
     guard context.isGroup, m.senderID != context.selfUin else { return false }
     if showsTime { return true }
-    if case .message(let p)? = previous, p.senderID == m.senderID, p.state != .recalled { return false }
+    if case .message(let p)? = previous, p.senderID == m.senderID { return false }
     return true
   }
 }
@@ -104,6 +102,13 @@ struct MessageBubbleRow: View {
   let showsSender: Bool
 
   private var outgoing: Bool { message.senderID == context.selfUin }
+  private var recalled: Bool { message.state == .recalled }
+
+  /// 自己撤回的就是"已撤回"；被别人（群主、管理员）撤回的写上是谁。
+  private var recalledText: String {
+    guard message.recalledBy != 0, message.recalledBy != message.senderID else { return "已撤回" }
+    return message.recalledBy == context.selfUin ? "被你撤回" : "被\(context.name(of: message.recalledBy))撤回"
+  }
 
   var body: some View {
     HStack(alignment: .top, spacing: 8) {
@@ -125,8 +130,13 @@ struct MessageBubbleRow: View {
             }
           }
         }
-        MessageContent(message: message, context: context, outgoing: outgoing)
-          .contextMenu { menu }
+        // 撤回的消息照样显示，旁边标"已撤回"（服务端保留了原内容）。
+        HStack(alignment: .bottom, spacing: 6) {
+          if recalled, outgoing { RecalledTag(text: recalledText) }
+          MessageContent(message: message, context: context, outgoing: outgoing)
+            .contextMenu { menu }
+          if recalled, !outgoing { RecalledTag(text: recalledText) }
+        }
         if !message.reactions.isEmpty { Reactions(message: message, context: context) }
       }
       if !outgoing { Spacer(minLength: 48) }
@@ -134,8 +144,10 @@ struct MessageBubbleRow: View {
   }
 
   @ViewBuilder private var menu: some View {
-    Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
-    Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
+    if !recalled {
+      Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
+      Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
+    }
     Button("多选", systemImage: "checkmark.circle") { context.selection.start(with: message.seq) }
     if !message.text.isEmpty {
       Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
@@ -143,14 +155,14 @@ struct MessageBubbleRow: View {
     if context.isGroup, !outgoing {
       Button("@\(context.name(of: message.senderID))", systemImage: "at") { context.actions.mention(message.senderID) }
     }
-    if context.isGroup {
+    if context.isGroup, !recalled {
       Menu("回应", systemImage: "face.smiling") {
         ForEach(quickReactions, id: \.id) { r in
           Button(r.label) { context.actions.react(message, r.id) }
         }
       }
     }
-    if outgoing, Date().timeIntervalSince1970 - Double(message.time) < 120 {
+    if outgoing, !recalled, Date().timeIntervalSince1970 - Double(message.time) < 120 {
       Button("撤回", systemImage: "arrow.uturn.backward", role: .destructive) { context.actions.recall(message) }
     }
   }
@@ -172,6 +184,19 @@ struct SenderAvatar: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         context.actions.mention(userId)
       }
+  }
+}
+
+/// 消息旁边的"已撤回"标记。
+struct RecalledTag: View {
+  let text: String
+  var body: some View {
+    Label(text, systemImage: "arrow.uturn.backward")
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      .labelStyle(.titleAndIcon)
+      .fixedSize()
+      .padding(.bottom, 2)
   }
 }
 

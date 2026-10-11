@@ -240,7 +240,7 @@ struct DialogRow: View {
   /// 顶部消息的发送者：群里显示名字（群名片 > 昵称），自己发的显示"我"；私聊只在自己发的时候显示"我"。
   private var sender: String? {
     let m = item.dialog.topMessage
-    guard m.seq > 0, m.state != .recalled, m.kind == .normal, item.dialog.draft.segments.isEmpty else { return nil }
+    guard m.seq > 0, m.kind == .normal, item.dialog.draft.segments.isEmpty else { return nil }
     let selfUin = (try? session?.store.selfUin(qqAccountId: item.dialog.qqAccountID)) ?? 0
     if m.senderID == selfUin { return "我" }
     guard item.isGroup else { return nil }
@@ -329,7 +329,11 @@ enum Format {
 
   /// 消息的一行预览。
   static func preview(_ m: Qqbridge_V1_Message) -> String {
-    if m.state == .recalled { return "[消息已撤回]" }
+    // 撤回的消息照样显示内容，前面标一下。
+    m.state == .recalled ? "[已撤回] " + content(m) : content(m)
+  }
+
+  private static func content(_ m: Qqbridge_V1_Message) -> String {
     if !m.text.isEmpty { return m.text }
     for seg in m.segments {
       switch seg.kind {
