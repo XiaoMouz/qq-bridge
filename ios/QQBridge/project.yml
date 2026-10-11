@@ -40,6 +40,8 @@ targets:
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}
+        # 只用系统自带的 HTTPS，属于豁免加密；上传 TestFlight 时不用再回答出口合规问题。
+        ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UISupportedInterfaceOrientations~ipad:
           [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
@@ -49,6 +51,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat
+        # 签名：ShenZhen CodeNav 团队，Xcode 自动管理证书和描述文件。
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_ENTITLEMENTS: App/QQBridge.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
