@@ -109,13 +109,18 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
     let cell = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
       guard let self, let item = self.byId[id], let context = self.messageContext else { return }
-      cell.contentConfiguration = UIHostingConfiguration {
-        MessageRow(item: item, context: context, previous: self.previousById[id])
+      // 不带动画地换内容：滚动动画（回到底部、跳到某条）途中复用的格子会继承动画，
+      // 内容从上一条消息的排版滑到新位置，截到中途就是气泡错位、重叠、缺一块。
+      UIView.performWithoutAnimation {
+        cell.contentConfiguration = UIHostingConfiguration {
+          MessageRow(item: item, context: context, previous: self.previousById[id])
+        }
+        .margins(.horizontal, 12)
+        .margins(.vertical, 2)
+        cell.backgroundConfiguration = .clear()
+        cell.contentView.transform = Self.flip
+        cell.contentView.layoutIfNeeded()
       }
-      .margins(.horizontal, 12)
-      .margins(.vertical, 2)
-      cell.backgroundConfiguration = .clear()
-      cell.contentView.transform = Self.flip
     }
     dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { cv, indexPath, id in
       cv.dequeueConfiguredReusableCell(using: cell, for: indexPath, item: id)

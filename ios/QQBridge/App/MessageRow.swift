@@ -121,12 +121,17 @@ struct MessageRow: View {
           .opacity(Double(context.timeReveal.offset / TimeReveal.width))
       }
     }
+    // 高亮的淡入淡出只作用在底色上：以前整行挂着这个动画，跳转时可见的行的排版变化也跟着做动画，
+    // 复用的格子会从上一条消息的位置滑过来（气泡错位、叠在一起、看不见）。
     .background {
-      if case .message(let m) = item, context.highlight.seq == m.seq {
-        Color.accentColor.opacity(0.15).padding(.horizontal, -12)
-      }
+      Color.accentColor.opacity(isHighlighted ? 0.15 : 0).padding(.horizontal, -12)
+        .animation(.easeOut(duration: 0.4), value: isHighlighted)
     }
-    .animation(.easeOut(duration: 0.4), value: context.highlight.seq)
+  }
+
+  private var isHighlighted: Bool {
+    if case .message(let m) = item { return context.highlight.seq == m.seq }
+    return false
   }
 
   /// 行内坐标系的名字（气泡位置用）。
