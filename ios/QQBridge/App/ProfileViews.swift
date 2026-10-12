@@ -14,6 +14,8 @@ struct UserProfileView: View {
   var onDeleted: (() -> Void)? = nil
   /// 从群里点开的资料卡：所在的群（发起私聊时对方不是好友就走群临时会话）。
   var viaGroupId: Int64 = 0
+  /// 作为弹出卡片显示：不要顶部的「资料」标题栏。
+  var asCard = false
   @Environment(AppModel.self) private var model
   @State private var profile: Qqbridge_V1_UserProfile?
   /// 本地缓存的资料：打开时先用它显示名字、头像、签名，服务端刷新回来再换成新的。
@@ -100,6 +102,7 @@ struct UserProfileView: View {
     }
     .navigationTitle("资料")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar(asCard ? .hidden : .automatic, for: .navigationBar)
     .overlay { if loading && profile == nil && cached == nil { ProgressView() } }
     .onAppear { if cached == nil { cached = try? session.store.peer(kind: .user, peerId: userId) } }
     .alert("操作失败", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } }), presenting: actionError) { _ in
@@ -274,7 +277,7 @@ struct GroupInfoView: View {
             profileUser = nil
             mention(t.userId)
           }
-        }, viaGroupId: dialog.peerID)
+        }, viaGroupId: dialog.peerID, asCard: true)
       }
       .presentationDetents([.medium, .large])
     }

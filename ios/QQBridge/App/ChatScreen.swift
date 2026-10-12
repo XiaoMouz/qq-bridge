@@ -304,7 +304,7 @@ struct ChatScreen: View {
         UserProfileView(session: session, userId: target.userId, groupMember: members.byId[target.userId], onMention: isGroup ? {
           profileUser = nil
           actions.mention(target.userId)
-        } : nil, viaGroupId: isGroup ? (dialog?.peerID ?? 0) : 0)
+        } : nil, viaGroupId: isGroup ? (dialog?.peerID ?? 0) : 0, asCard: true)
       }
       .presentationDetents([.medium, .large])
     }
