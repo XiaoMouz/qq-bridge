@@ -194,6 +194,8 @@ final class AppModel {
           self.typing[t.chatID] = Date().addingTimeInterval(6)
         case .call(let call):
           self.activeCall = call.phase == .ended ? nil : call
+        case .mediaReady(let m):
+          MediaReady.shared.publish(m)
         }
       }
     }

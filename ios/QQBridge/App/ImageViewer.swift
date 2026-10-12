@@ -609,15 +609,17 @@ final class ImagePage {
     if !placeholder.isEmpty, let file = try? await session.media.file(for: placeholder, chatId: chatId) {
       image = await Self.decode(file)
     }
-    // 原图：服务端还在下载就接着等（每 2 秒问一次，最多 2 分钟）；网络出错重试几次。只有确实拿不到（过期、失败）才提示。
+    // 原图：服务端还在下载就等它推「下好了」（先登记再请求，不会漏）；没等到（断线）再问一次兜底。
+    // 只有确实拿不到（过期、失败）才提示。
+    let watch = target.seq > 0 ? MediaReady.shared.watch(chatId: target.chatId, seq: target.seq, ord: media.ord, thumb: false) : nil
     var found: (String, URL)?
-    for attempt in 0..<60 {
+    for attempt in 0..<6 {
       if Task.isCancelled { return }
       switch await originalSha() {
       case .ready(let sha):
         if let file = try? await session.media.file(for: sha, chatId: chatId) {
           found = (sha, file)
-        } else if attempt >= 3 {
+        } else if attempt >= 2 {
           originalFailed = true
           return
         }
@@ -625,10 +627,15 @@ final class ImagePage {
         originalFailed = true
         return
       case .waiting:
-        break
+        if let event = await watch?.next() {
+          if event.state != "stored" {
+            originalFailed = true
+            return
+          }
+          if let file = try? await session.media.file(for: event.sha256, chatId: chatId) { found = (event.sha256, file) }
+        }
       }
       if found != nil { break }
-      try? await Task.sleep(for: .seconds(2))
     }
     guard let (sha, file) = found else {
       originalFailed = true

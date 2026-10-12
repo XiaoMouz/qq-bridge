@@ -530,8 +530,9 @@ struct BlockView: View {
       // 没有封面时向服务端要 QQ 自带的封面（几十 KB，不下视频本身）。
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId, onNeedThumb: { requestMedia(v.media) }, isVideo: true)
         .onTapGesture {
-          // 按需的视频：点一下开始下载，下好后再点播放。
-          if v.media.state == .onDemand { requestMedia(v.media) } else { context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
+          // 按需的视频也直接打开播放器：播放器向服务端要原件，等服务端推「下好了」后自动播放。
+          // （不能走 requestMedia：那只要视频封面，而封面一般已经有了，点了没反应。）
+          context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0))
         }
         .overlay {
           Image(systemName: v.media.state == .onDemand ? "arrow.down.circle.fill" : v.media.state == .pending ? "hourglass.circle.fill" : "play.circle.fill")

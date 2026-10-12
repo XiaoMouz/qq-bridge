@@ -123,7 +123,24 @@ message SubscribeResponse {
     TypingUpdate typing = 10;
     // 通话状态变化（临时事件）。
     CallUpdate call = 11;
+    // 某个媒体下好了 / 拿不到了（临时事件）：等着看大图、视频、聊天记录里媒体的界面据此刷新，不用轮询。
+    MediaReadyUpdate media_ready = 12;
   }
+}
+
+message MediaReadyUpdate {
+  int64 chat_id = 1;
+  // 所在消息的 seq；在聊天记录（合并转发）里时是会话里那条聊天记录消息的 seq。
+  int64 seq = 2;
+  uint32 ord = 3;
+  // 在聊天记录里时：展开到哪一层（"0.2"，最外层为空）和这一层的第几个节点；不在聊天记录里时 node = -1。
+  string forward_path = 4;
+  int32 node = 5;
+  // true = 缩略图 / 视频封面，false = 原件。
+  bool thumb = 6;
+  // stored / expired / skipped / failed。
+  string state = 7;
+  string sha256 = 8;
 }
 
 message CallUpdate {

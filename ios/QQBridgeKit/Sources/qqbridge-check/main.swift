@@ -88,6 +88,7 @@ do {
       case .connection(let s): print("  连接：\(s)")
       case .typing(let t): print("  正在输入：会话 \(t.chatID)")
       case .call(let c): print("  通话：\(c.phase) \(c.peerName)")
+      case .mediaReady(let m): print("  媒体：会话 \(m.chatID) #\(m.seq) \(m.state)")
       }
     }
   }

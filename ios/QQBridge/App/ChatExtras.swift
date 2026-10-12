@@ -318,12 +318,17 @@ struct SharedMediaView: View {
       var req = Qqbridge_V1_RequestMediaRequest()
       req.refs = [ref]
       req.original = true
-      for _ in 0..<60 {
+      // 先登记再请求；服务端还在下载就等它推「下好了」。
+      let watch = MediaReady.shared.watch(chatId: chatId, seq: seq, ord: f.media.ord, thumb: false)
+      for _ in 0..<6 {
         if let m = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get().media.first {
           if m.state == .stored, !m.sha256.isEmpty { sha = m.sha256; break }
           if m.state == .expired || m.state == .failed || m.state == .skipped { break }
         }
-        try? await Task.sleep(for: .seconds(2))
+        if let e = await watch.next(timeout: .seconds(300)) {
+          if e.state == "stored", !e.sha256.isEmpty { sha = e.sha256; break }
+          break
+        }
       }
     }
     guard !sha.isEmpty, let cached = try? await session.media.file(for: sha, chatId: chatId) else {

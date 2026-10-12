@@ -66,9 +66,11 @@ struct GroupEssenceView: View {
     .refreshable { await load() }
     .task {
       await load()
-      // 图片缩略图刚开始下载：每 3 秒重新拉一次列表，下好就显示（最多 1 分钟），不用退出再进。
-      for _ in 0..<20 where waitingForThumbs {
-        try? await Task.sleep(for: .seconds(3))
+      // 图片缩略图刚开始下载：等服务端推「下好了」再重新拉一次列表，不用退出再进。
+      let watch = MediaReady.shared.watch(chatId: chatId, seqs: Set(items.map(\.seq)))
+      for _ in 0..<50 where waitingForThumbs {
+        guard await watch.next() != nil else { break }
+        try? await Task.sleep(for: .milliseconds(300))
         if Task.isCancelled { return }
         await load()
       }

@@ -248,7 +248,19 @@ export type Update =
   | { type: 'chatEvent'; chatId: number; chatPts: number; event: ChatEventRow }
   /** 临时事件（"对方正在输入"）：不占 pts、不存档。 */
   | { type: 'typing'; chatId: number; userId: number; text: string }
-  | { type: 'call'; call: CallRecord };
+  | { type: 'call'; call: CallRecord }
+  /** 临时事件：某个媒体下好了 / 拿不到了。 */
+  | {
+      type: 'mediaReady';
+      chatId: number;
+      seq: number;
+      ord: number;
+      forwardPath: string;
+      node: number;
+      thumb: boolean;
+      state: string;
+      sha256: string;
+    };
 
 /** 生成 (a, b, c) 形式的列表；调用方需保证非空。 */
 export function sqlList(values: readonly (number | string)[]): SQL {

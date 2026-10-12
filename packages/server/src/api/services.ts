@@ -208,6 +208,22 @@ function streamEventToProto(event: StreamEvent): MessageInitShape<typeof Subscri
           return { event: { case: 'typing', value: { chatId: BigInt(u.chatId), userId: BigInt(u.userId), text: u.text } } };
         case 'call':
           return { event: { case: 'call', value: { call: callToProto(u.call) } } };
+        case 'mediaReady':
+          return {
+            event: {
+              case: 'mediaReady',
+              value: {
+                chatId: BigInt(u.chatId),
+                seq: BigInt(u.seq),
+                ord: u.ord,
+                forwardPath: u.forwardPath,
+                node: u.node,
+                thumb: u.thumb,
+                state: u.state,
+                sha256: u.sha256,
+              },
+            },
+          };
       }
     }
   }

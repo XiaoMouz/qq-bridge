@@ -109,9 +109,10 @@ struct MediaViewer: View {
       var req = Qqbridge_V1_RequestMediaRequest()
       req.refs = [ref]
       req.original = true
-      // 服务端还在下载就接着等（每 2 秒问一次，最多 10 分钟）；只有过期、失败才提示拿不到。
+      // 服务端还在下载就等它推「下好了」（先登记再请求）；没等到（断线、超时）再问一次。只有过期、失败才提示拿不到。
+      let watch = MediaReady.shared.watch(chatId: target.chatId, seq: target.seq, ord: media.ord, thumb: false)
       var got: Qqbridge_V1_MediaInfo?
-      for _ in 0..<300 {
+      for _ in 0..<6 {
         if Task.isCancelled { return }
         if let m = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get().media.first {
           if m.state == .stored, !m.sha256.isEmpty {
@@ -120,7 +121,7 @@ struct MediaViewer: View {
           }
           if m.state == .expired || m.state == .failed || m.state == .skipped { break }
         }
-        try? await Task.sleep(for: .seconds(2))
+        if let e = await watch.next(timeout: .seconds(300)), e.state != "stored" { break }
       }
       fetching = false
       guard let got else {
@@ -152,7 +153,9 @@ struct MediaViewer: View {
     req.chatID = target.chatId
     req.seq = f.seq
     req.path = f.path
-    for _ in 0..<300 {
+    // 先登记，再看现在的状态；还在下载就等服务端推「下好了」，再取一次最新的媒体信息。
+    let watch = MediaReady.shared.watchForward(chatId: target.chatId, seq: f.seq, path: f.path, node: f.node, ord: ord)
+    for _ in 0..<6 {
       if Task.isCancelled { return nil }
       if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get(), f.node < res.nodes.count {
         for seg in res.nodes[f.node].segments {
@@ -164,7 +167,7 @@ struct MediaViewer: View {
           }
         }
       }
-      try? await Task.sleep(for: .seconds(2))
+      _ = await watch.next(timeout: .seconds(300))
     }
     return nil
   }
@@ -228,8 +231,10 @@ struct ForwardView: View {
       req.chatID = chatId
       req.seq = seq
       req.path = path
-      // 里面的图片 / 表情 / 视频还在下载时每 2 秒再拉一次（最多 10 分钟），下好就显示。
-      for round in 0..<300 {
+      // 里面的图片 / 表情 / 视频还在下载：等服务端推「这一层有媒体下好了」再重新拉一次，下好就显示。
+      let watch = MediaReady.shared.watchForward(chatId: chatId, seq: seq, path: path)
+      for round in 0..<200 {
+        if Task.isCancelled { return }
         if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get() {
           nodes = res.nodes
           unavailable = res.unavailable
@@ -238,7 +243,9 @@ struct ForwardView: View {
         }
         loading = false
         guard nodes.contains(where: Self.downloading) else { break }
-        try? await Task.sleep(for: .seconds(2))
+        // 一批里常常几张一起下好：等到一个后再稍等一下，合并成一次刷新。
+        guard await watch.next() != nil else { continue }
+        try? await Task.sleep(for: .milliseconds(300))
       }
     }
   }

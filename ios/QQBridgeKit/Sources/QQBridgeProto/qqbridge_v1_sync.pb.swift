@@ -342,6 +342,15 @@ public nonisolated struct Qqbridge_V1_SubscribeResponse: Sendable {
     set {event = .call(newValue)}
   }
 
+  /// 某个媒体下好了 / 拿不到了（临时事件）：等着看大图、视频、聊天记录里媒体的界面据此刷新，不用轮询。
+  public var mediaReady: Qqbridge_V1_MediaReadyUpdate {
+    get {
+      if case .mediaReady(let v)? = event {return v}
+      return Qqbridge_V1_MediaReadyUpdate()
+    }
+    set {event = .mediaReady(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Event: Equatable, Sendable {
@@ -359,8 +368,40 @@ public nonisolated struct Qqbridge_V1_SubscribeResponse: Sendable {
     case typing(Qqbridge_V1_TypingUpdate)
     /// 通话状态变化（临时事件）。
     case call(Qqbridge_V1_CallUpdate)
+    /// 某个媒体下好了 / 拿不到了（临时事件）：等着看大图、视频、聊天记录里媒体的界面据此刷新，不用轮询。
+    case mediaReady(Qqbridge_V1_MediaReadyUpdate)
 
   }
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_MediaReadyUpdate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chatID: Int64 = 0
+
+  /// 所在消息的 seq；在聊天记录（合并转发）里时是会话里那条聊天记录消息的 seq。
+  public var seq: Int64 = 0
+
+  public var ord: UInt32 = 0
+
+  /// 在聊天记录里时：展开到哪一层（"0.2"，最外层为空）和这一层的第几个节点；不在聊天记录里时 node = -1。
+  public var forwardPath: String = String()
+
+  public var node: Int32 = 0
+
+  /// true = 缩略图 / 视频封面，false = 原件。
+  public var thumb: Bool = false
+
+  /// stored / expired / skipped / failed。
+  public var state: String = String()
+
+  public var sha256: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -1084,7 +1125,7 @@ nonisolated extension Qqbridge_V1_SubscribeRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SubscribeResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}difference\0\u{1}dialog\0\u{1}peer\0\u{1}tombstone\0\u{3}chat_message\0\u{1}heartbeat\0\u{1}resync\0\u{1}outbox\0\u{3}chat_event\0\u{1}typing\0\u{1}call\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}difference\0\u{1}dialog\0\u{1}peer\0\u{1}tombstone\0\u{3}chat_message\0\u{1}heartbeat\0\u{1}resync\0\u{1}outbox\0\u{3}chat_event\0\u{1}typing\0\u{1}call\0\u{3}media_ready\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1235,6 +1276,19 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
           self.event = .call(v)
         }
       }()
+      case 12: try {
+        var v: Qqbridge_V1_MediaReadyUpdate?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .mediaReady(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .mediaReady(v)
+        }
+      }()
       default: break
       }
     }
@@ -1290,6 +1344,10 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
       guard case .call(let v)? = self.event else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
     }()
+    case .mediaReady?: try {
+      guard case .mediaReady(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -1297,6 +1355,71 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
 
   public static func ==(lhs: Qqbridge_V1_SubscribeResponse, rhs: Qqbridge_V1_SubscribeResponse) -> Bool {
     if lhs.event != rhs.event {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_MediaReadyUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MediaReadyUpdate"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{1}ord\0\u{3}forward_path\0\u{1}node\0\u{1}thumb\0\u{1}state\0\u{1}sha256\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.ord) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.forwardPath) }()
+      case 5: try { try decoder.decodeSingularInt32Field(value: &self.node) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.thumb) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.state) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    }
+    if self.seq != 0 {
+      try visitor.visitSingularInt64Field(value: self.seq, fieldNumber: 2)
+    }
+    if self.ord != 0 {
+      try visitor.visitSingularUInt32Field(value: self.ord, fieldNumber: 3)
+    }
+    if !self.forwardPath.isEmpty {
+      try visitor.visitSingularStringField(value: self.forwardPath, fieldNumber: 4)
+    }
+    if self.node != 0 {
+      try visitor.visitSingularInt32Field(value: self.node, fieldNumber: 5)
+    }
+    if self.thumb != false {
+      try visitor.visitSingularBoolField(value: self.thumb, fieldNumber: 6)
+    }
+    if !self.state.isEmpty {
+      try visitor.visitSingularStringField(value: self.state, fieldNumber: 7)
+    }
+    if !self.sha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_MediaReadyUpdate, rhs: Qqbridge_V1_MediaReadyUpdate) -> Bool {
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.seq != rhs.seq {return false}
+    if lhs.ord != rhs.ord {return false}
+    if lhs.forwardPath != rhs.forwardPath {return false}
+    if lhs.node != rhs.node {return false}
+    if lhs.thumb != rhs.thumb {return false}
+    if lhs.state != rhs.state {return false}
+    if lhs.sha256 != rhs.sha256 {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

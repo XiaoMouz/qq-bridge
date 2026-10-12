@@ -23,7 +23,7 @@ import { maybeOne, one, rows, type Db, type Tx } from '../db/client.ts';
 import { pgJson, stripNul } from '../db/nul.ts';
 import { addUsage, findReusableBlob, reusedMediaPatch, type ReusableBlob } from '../media/accounting.ts';
 import { NotFoundError } from '../sync/difference.ts';
-import { CHAT_EVENT_COLUMNS, MESSAGE_COLUMNS, PEER_COLUMNS, toChatEvent, toMessage, toPeer } from '../sync/rows.ts';
+import { CHAT_EVENT_COLUMNS, MESSAGE_COLUMNS, PEER_COLUMNS, toChatEvent, toMessage, toPeer, type Update } from '../sync/rows.ts';
 import type { WriteContext, WriterRegistry } from '../sync/writer.ts';
 
 // 三种未读互不重复：QQ 的回复会自动带上 "@被回复人"，所以回复我的消息只算"回复我"，不再算 @我；
@@ -379,7 +379,8 @@ export class IngestService {
     extra: Partial<Pick<MediaInfo, 'thumbhash' | 'thumbSha256' | 'previewSha256' | 'width' | 'height' | 'playableSha256' | 'waveform'>> = {},
   ): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
-    return this.writers.forAccount(accountId).run(async (w) => {
+    let ready: Update | null = null;
+    const done = await this.writers.forAccount(accountId).run(async (w) => {
       const locked = await one<MediaRefTarget & { sha256: string | null }>(
         w.tx,
         sql`select chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, sha256 from media_refs where id = ${refId} for update`,
@@ -391,6 +392,7 @@ export class IngestService {
              where id = ${refId}`,
       );
       await addUsage(w.tx, locked.chat_id, blob.sha256);
+      ready = await mediaReadyOf(w.tx, refId, false, 'stored', blob.sha256);
       await updateMessageMedia(w, locked, {
         state: 'stored',
         sha256: blob.sha256,
@@ -400,12 +402,15 @@ export class IngestService {
       });
       return true;
     });
+    if (done && ready) this.writers.publishEphemeral(accountId, ready);
+    return done;
   }
 
   /** QQ 缩略图下好了：记进消息的缩略图（原件状态不变）。 */
   async thumbStored(refId: number, blob: { sha256: string; size: number }): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
-    return this.writers.forAccount(accountId).run(async (w) => {
+    let ready: Update | null = null;
+    const done = await this.writers.forAccount(accountId).run(async (w) => {
       const locked = await one<MediaRefTarget & { sha256: string | null }>(
         w.tx,
         sql`select chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, sha256 from media_refs where id = ${refId} for update`,
@@ -416,14 +421,18 @@ export class IngestService {
       );
       await addUsage(w.tx, locked.chat_id, blob.sha256);
       await updateMessageMedia(w, locked, { thumbSha256: blob.sha256 });
+      ready = await mediaReadyOf(w.tx, refId, true, 'stored', blob.sha256);
       return true;
     });
+    if (done && ready) this.writers.publishEphemeral(accountId, ready);
+    return done;
   }
 
   /** 媒体拿不到了（链接过期、超过大小上限、多次重试后放弃）：记录原因，并把消息里的媒体状态告诉客户端。 */
   async mediaUnavailable(refId: number, state: 'expired' | 'skipped' | 'failed', reason: string): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
-    return this.writers.forAccount(accountId).run(async (w) => {
+    let ready: Update | null = null;
+    const done = await this.writers.forAccount(accountId).run(async (w) => {
       const locked = await one<MediaRefTarget & { sha256: string | null; role: string }>(
         w.tx,
         sql`select chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, sha256, role from media_refs where id = ${refId} for update`,
@@ -434,10 +443,15 @@ export class IngestService {
              where id = ${refId}`,
       );
       // QQ 缩略图拿不到不影响原件的状态（客户端没缩略图时显示占位，点开照样拉原图）。
-      if (locked.role !== QQ_THUMB_ROLE) await updateMessageMedia(w, locked, { state });
+      const thumb = locked.role === QQ_THUMB_ROLE;
+      if (!thumb) await updateMessageMedia(w, locked, { state });
+      ready = await mediaReadyOf(w.tx, refId, thumb, state, '');
       return true;
     });
+    if (done && ready) this.writers.publishEphemeral(accountId, ready);
+    return done;
   }
+
 
   /**
    * 服务事件（入群、禁言、戳一戳、设精华、群文件……）：存进会话时间线，按 chat_pts 同步。
@@ -944,4 +958,28 @@ function muteChange(event: IncomingChatEvent, selfUin: number): Pick<PeerProfile
     default:
       return null;
   }
+}
+
+/** 媒体下好了 / 拿不到了的临时事件（在写入的事务里读位置，提交后推给在线的客户端）。不在消息里的返回 null。 */
+async function mediaReadyOf(tx: Tx, refId: number, thumb: boolean, state: string, sha256: string): Promise<Update | null> {
+  const r = await maybeOne<{ chat_id: number; message_seq: number | null; ordinal: number; node_path: number[] | null; b_seq: number | null; b_path: string | null }>(
+    tx,
+    sql`select r.chat_id, r.message_seq, r.ordinal, r.node_path, b.message_seq as b_seq, b.path as b_path
+          from media_refs r left join forward_bundles b on b.id::text = r.forward_bundle_id where r.id = ${refId}`,
+  );
+  if (!r) return null;
+  const inForward = r.b_seq !== null;
+  const seq = Number(inForward ? r.b_seq : (r.message_seq ?? 0));
+  if (!seq) return null;
+  return {
+    type: 'mediaReady',
+    chatId: Number(r.chat_id),
+    seq,
+    ord: Number(r.ordinal),
+    forwardPath: inForward ? (r.b_path ?? '') : '',
+    node: inForward ? Number(r.node_path?.[0] ?? 0) : -1,
+    thumb,
+    state,
+    sha256,
+  };
 }

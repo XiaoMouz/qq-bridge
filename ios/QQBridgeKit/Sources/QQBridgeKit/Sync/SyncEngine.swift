@@ -22,6 +22,8 @@ public enum SyncEvent: Sendable {
   case connection(ConnectionState)
   case typing(Qqbridge_V1_TypingUpdate)
   case call(Qqbridge_V1_Call)
+  /// 某个媒体下好了 / 拿不到了。
+  case mediaReady(Qqbridge_V1_MediaReadyUpdate)
 }
 
 public actor SyncEngine {
@@ -170,6 +172,8 @@ public actor SyncEngine {
         emit(.typing(t))
       case .call(let c):
         emit(.call(c.call))
+      case .mediaReady(let m):
+        emit(.mediaReady(m))
       }
     }
   }
