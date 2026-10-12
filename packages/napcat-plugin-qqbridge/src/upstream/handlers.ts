@@ -78,6 +78,36 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       return { ok: true };
     },
 
+    /**
+     * 原样转发（QQ 自己的"转发"）：把源会话里的消息按 msgId 逐条转到目标会话，聊天记录、卡片、markdown 都保持原样。
+     * 返回每条是否成功（失败的由服务端改用重新组装的方式发）。
+     */
+    'x.forward_native': async (params: {
+      from?: { chatType?: number; peerUid?: string; peerUin?: string };
+      to?: { chatType?: number; peerUid?: string; peerUin?: string };
+      msgIds?: string[];
+    }) => {
+      if (!params?.from || !params.to || !Array.isArray(params.msgIds) || params.msgIds.length === 0) {
+        throw new Error('x.forward_native: from, to and msgIds are required');
+      }
+      const src = await historyPeer(ctx, params.from);
+      const dst = await historyPeer(ctx, params.to);
+      const api = msgApi(ctx.core);
+      const results: { msgId: string; ok: boolean; error?: string }[] = [];
+      for (const id of params.msgIds) {
+        try {
+          // NapCat 的 MsgApi.forwardMsg(源会话, 目标会话, 消息 id 数组)。
+          const res = await api.forwardMsg(src, dst, [String(id)]);
+          const code = Number(res?.result ?? 0);
+          results.push(code === 0 ? { msgId: String(id), ok: true } : { msgId: String(id), ok: false, error: String(res?.errMsg ?? code) });
+        } catch (error) {
+          results.push({ msgId: String(id), ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      ctx.logger.info('[qqbridge] forward_native', JSON.stringify(results));
+      return { results };
+    },
+
     /** 最近会话及每个会话的最新一条原始消息（服务端据此对账和预热）。 */
     'x.recent_contacts': async (params: { count?: number }) => {
       const count = clamp(params?.count, 1, 500, 200);

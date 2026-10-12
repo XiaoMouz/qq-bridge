@@ -96,7 +96,7 @@ export function createDeps(
     signer: new MediaUrlSigner(opts.mediaUrlSecret),
     activeChats: new ActiveChats(),
     logger,
-  };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow, deps.forwards);
+  };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow, deps.forwards, () => deps.upstream, deps.logger.child({ component: 'forward' }));
   deps.groupContent = new GroupContentService(db, media, () => deps.upstream, {
     ...(opts.uploadMaxBytes ? { maxFileBytes: opts.uploadMaxBytes * 2 } : {}),
     logger: logger.child({ component: 'group-content' }),

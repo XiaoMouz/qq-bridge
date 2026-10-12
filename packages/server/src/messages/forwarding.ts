@@ -7,6 +7,8 @@ import { maybeOne, rows, type Db } from '../db/client.ts';
 import type { IngestService } from '../ingest/service.ts';
 import type { OutboxService } from '../outbox/service.ts';
 import type { ForwardService } from './forwards.ts';
+import type { UpstreamHub } from '../upstream/hub.ts';
+import type { Logger } from 'pino';
 import { sqlList, type OutboxRow } from '../sync/rows.ts';
 
 export const MAX_FORWARD_MESSAGES = 100;
@@ -25,6 +27,8 @@ interface SourceMessage {
   seq: number;
   sender_uin: number;
   segments: Segment[];
+  qq_msg_id?: string | null;
+  peer_uid?: string | null;
 }
 
 export class MessageForwarder {
@@ -36,6 +40,9 @@ export class MessageForwarder {
     private readonly fetchNow: () => ((refId: number) => Promise<void>) | null,
     /** 展开消息里的聊天记录（转发聊天记录时要把节点重新打包）。 */
     private readonly forwards: Pick<ForwardService, 'get'> | null = null,
+    /** 上游（原样转发用）。 */
+    private readonly upstream: () => Pick<UpstreamHub, 'call' | 'isConnected'> | null = () => null,
+    private readonly logger: Logger | null = null,
   ) {}
 
   async forward(
@@ -53,12 +60,27 @@ export class MessageForwarder {
            where c.id = ${req.fromChatId} and q.account_id = ${accountId}`,
     );
     if (!chat) throw new ForwardError('not_found', `chat ${req.fromChatId} not found`);
-    const messages = await rows<SourceMessage>(
+    let messages = await rows<SourceMessage>(
       this.db,
-      sql`select seq, sender_uin, segments from messages
+      sql`select seq, sender_uin, segments, qq_msg_id, raw->>'peerUid' as peer_uid from messages
            where chat_id = ${req.fromChatId} and seq in ${sqlList(seqs)} and state = 'normal' order by seq`,
     );
     if (messages.length === 0) throw new ForwardError('not_found', 'no messages to forward');
+
+    // 逐条转发：先用 QQ 自己的转发原样转（聊天记录、卡片、机器人消息都不变）；只有这条路不通的才重新组装。
+    let targetsLeft = targets;
+    if (!req.bundle) {
+      const leftover = new Map<number, SourceMessage[]>();
+      for (const chatId of targets) {
+        const failed = await this.forwardNative(accountId, chat, chatId, messages);
+        if (failed.length > 0) leftover.set(chatId, failed);
+      }
+      if (leftover.size === 0) return [];
+      targetsLeft = [...leftover.keys()];
+      // 各目标没转成的消息取并集，下面统一重新组装（同一目标里已经原样转成的不会重复发）。
+      const failedSeqs = new Set([...leftover.values()].flat().map((m) => m.seq));
+      messages = messages.filter((m) => failedSeqs.has(m.seq));
+    }
 
     // 先把每条消息转成外发消息段（媒体在这里准备好，所有目标共用）。
     const converted: { msg: SourceMessage; parts: OutgoingSegment[][] }[] = [];
@@ -83,7 +105,7 @@ export class MessageForwarder {
     }
 
     const entries: OutboxRow[] = [];
-    for (const chatId of targets) {
+    for (const chatId of targetsLeft) {
       for (const segments of batches) {
         entries.push(
           await this.outbox.enqueue(accountId, deviceId, { chatId, clientRandomId: randomInt(1, 2 ** 47), message: { segments } }),
@@ -91,6 +113,45 @@ export class MessageForwarder {
       }
     }
     return entries;
+  }
+
+  /** 用 QQ 自己的转发把消息原样转到目标会话；返回没转成的（没有 QQ 消息 id、QQ 离线、临时会话、QQ 报错）。 */
+  private async forwardNative(
+    accountId: number,
+    from: { scene: string; peer_id: number; qq_account_id: number },
+    toChatId: number,
+    messages: SourceMessage[],
+  ): Promise<SourceMessage[]> {
+    const hub = this.upstream();
+    const to = await maybeOne<{ scene: string; peer_id: number; qq_account_id: number }>(
+      this.db,
+      sql`select c.scene, c.peer_id, c.qq_account_id from chats c join qq_accounts q on q.id = c.qq_account_id
+           where c.id = ${toChatId} and q.account_id = ${accountId}`,
+    );
+    const supported = (s: string) => s === 'group' || s === 'friend';
+    if (!hub || !to || to.qq_account_id !== from.qq_account_id || !supported(from.scene) || !supported(to.scene) || !hub.isConnected(from.qq_account_id)) {
+      return messages;
+    }
+    const withId = messages.filter((m) => m.qq_msg_id);
+    if (withId.length === 0) return messages;
+    const peer = (scene: string, peerId: number, uid?: string | null) => ({
+      chatType: scene === 'group' ? 2 : 1,
+      peerUin: String(peerId),
+      ...(scene === 'friend' && uid ? { peerUid: uid } : {}),
+    });
+    const res = await hub
+      .call<{ results?: { msgId: string; ok: boolean }[] }>(from.qq_account_id, 'x.forward_native', {
+        from: peer(from.scene, from.peer_id, withId[0]!.peer_uid),
+        to: peer(to.scene, to.peer_id),
+        msgIds: withId.map((m) => m.qq_msg_id),
+      }, 60_000)
+      .catch((error: unknown) => {
+        this.logger?.warn({ err: error }, 'native forward failed');
+        return null;
+      });
+    if (res) this.logger?.info({ results: res.results }, 'native forward');
+    const ok = new Set((res?.results ?? []).filter((r) => r.ok).map((r) => r.msgId));
+    return messages.filter((m) => !m.qq_msg_id || !ok.has(m.qq_msg_id));
   }
 
   /** 一条存档消息 → 一条或几条外发消息（语音、视频、文件要单独成条）。 */
