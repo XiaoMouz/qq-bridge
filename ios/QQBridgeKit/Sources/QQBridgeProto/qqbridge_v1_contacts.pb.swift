@@ -427,6 +427,12 @@ public nonisolated struct Qqbridge_V1_GroupNotice: Sendable {
 
   public var readCount: UInt32 = 0
 
+  /// 自己已读 / 已确认。
+  public var readByMe: Bool = false
+
+  /// 置顶。
+  public var pinned: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -636,6 +642,126 @@ public nonisolated struct Qqbridge_V1_FetchGroupFileResponse: Sendable {
   public var size: UInt64 = 0
 
   public var mime: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListGroupAlbumsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_GroupAlbum: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  public var name: String = String()
+
+  public var desc: String = String()
+
+  public var coverURL: String = String()
+
+  public var count: UInt32 = 0
+
+  public var creatorID: Int64 = 0
+
+  public var creatorName: String = String()
+
+  /// unix 秒。
+  public var updatedAt: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListGroupAlbumsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var albums: [Qqbridge_V1_GroupAlbum] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListGroupAlbumMediaRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var albumID: String = String()
+
+  /// 翻页：上一页返回的 next_cursor（空 = 从最新开始）。
+  public var cursor: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_GroupAlbumMedia: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: String = String()
+
+  /// 列表里显示的小图（约 400px）和看大图用的原图。
+  public var thumbURL: String = String()
+
+  public var url: String = String()
+
+  public var width: UInt32 = 0
+
+  public var height: UInt32 = 0
+
+  public var isVideo: Bool = false
+
+  public var videoURL: String = String()
+
+  public var uploaderID: Int64 = 0
+
+  public var uploaderName: String = String()
+
+  /// unix 秒。
+  public var time: Int64 = 0
+
+  public var batchID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ListGroupAlbumMediaResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var media: [Qqbridge_V1_GroupAlbumMedia] = []
+
+  public var nextCursor: String = String()
+
+  public var hasMore_p: Bool = false
+
+  public var albumName: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1527,7 +1653,7 @@ nonisolated extension Qqbridge_V1_ListGroupNoticesRequest: SwiftProtobuf.Message
 
 nonisolated extension Qqbridge_V1_GroupNotice: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GroupNotice"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}sender_id\0\u{3}sender_name\0\u{1}time\0\u{1}text\0\u{3}image_urls\0\u{3}confirm_required\0\u{3}read_count\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}sender_id\0\u{3}sender_name\0\u{1}time\0\u{1}text\0\u{3}image_urls\0\u{3}confirm_required\0\u{3}read_count\0\u{3}read_by_me\0\u{1}pinned\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1543,6 +1669,8 @@ nonisolated extension Qqbridge_V1_GroupNotice: SwiftProtobuf.Message, SwiftProto
       case 6: try { try decoder.decodeRepeatedStringField(value: &self.imageUrls) }()
       case 7: try { try decoder.decodeSingularBoolField(value: &self.confirmRequired) }()
       case 8: try { try decoder.decodeSingularUInt32Field(value: &self.readCount) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.readByMe) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.pinned) }()
       default: break
       }
     }
@@ -1573,6 +1701,12 @@ nonisolated extension Qqbridge_V1_GroupNotice: SwiftProtobuf.Message, SwiftProto
     if self.readCount != 0 {
       try visitor.visitSingularUInt32Field(value: self.readCount, fieldNumber: 8)
     }
+    if self.readByMe != false {
+      try visitor.visitSingularBoolField(value: self.readByMe, fieldNumber: 9)
+    }
+    if self.pinned != false {
+      try visitor.visitSingularBoolField(value: self.pinned, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1585,6 +1719,8 @@ nonisolated extension Qqbridge_V1_GroupNotice: SwiftProtobuf.Message, SwiftProto
     if lhs.imageUrls != rhs.imageUrls {return false}
     if lhs.confirmRequired != rhs.confirmRequired {return false}
     if lhs.readCount != rhs.readCount {return false}
+    if lhs.readByMe != rhs.readByMe {return false}
+    if lhs.pinned != rhs.pinned {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2074,6 +2210,296 @@ nonisolated extension Qqbridge_V1_FetchGroupFileResponse: SwiftProtobuf.Message,
     if lhs.sha256 != rhs.sha256 {return false}
     if lhs.size != rhs.size {return false}
     if lhs.mime != rhs.mime {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListGroupAlbumsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListGroupAlbumsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListGroupAlbumsRequest, rhs: Qqbridge_V1_ListGroupAlbumsRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_GroupAlbum: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GroupAlbum"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}desc\0\u{3}cover_url\0\u{1}count\0\u{3}creator_id\0\u{3}creator_name\0\u{3}updated_at\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.desc) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.coverURL) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.count) }()
+      case 6: try { try decoder.decodeSingularInt64Field(value: &self.creatorID) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.creatorName) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self.updatedAt) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    if !self.desc.isEmpty {
+      try visitor.visitSingularStringField(value: self.desc, fieldNumber: 3)
+    }
+    if !self.coverURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.coverURL, fieldNumber: 4)
+    }
+    if self.count != 0 {
+      try visitor.visitSingularUInt32Field(value: self.count, fieldNumber: 5)
+    }
+    if self.creatorID != 0 {
+      try visitor.visitSingularInt64Field(value: self.creatorID, fieldNumber: 6)
+    }
+    if !self.creatorName.isEmpty {
+      try visitor.visitSingularStringField(value: self.creatorName, fieldNumber: 7)
+    }
+    if self.updatedAt != 0 {
+      try visitor.visitSingularInt64Field(value: self.updatedAt, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_GroupAlbum, rhs: Qqbridge_V1_GroupAlbum) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.desc != rhs.desc {return false}
+    if lhs.coverURL != rhs.coverURL {return false}
+    if lhs.count != rhs.count {return false}
+    if lhs.creatorID != rhs.creatorID {return false}
+    if lhs.creatorName != rhs.creatorName {return false}
+    if lhs.updatedAt != rhs.updatedAt {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListGroupAlbumsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListGroupAlbumsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}albums\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.albums) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.albums.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.albums, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListGroupAlbumsResponse, rhs: Qqbridge_V1_ListGroupAlbumsResponse) -> Bool {
+    if lhs.albums != rhs.albums {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListGroupAlbumMediaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListGroupAlbumMediaRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}album_id\0\u{1}cursor\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.albumID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.cursor) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.albumID.isEmpty {
+      try visitor.visitSingularStringField(value: self.albumID, fieldNumber: 2)
+    }
+    if !self.cursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.cursor, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListGroupAlbumMediaRequest, rhs: Qqbridge_V1_ListGroupAlbumMediaRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.albumID != rhs.albumID {return false}
+    if lhs.cursor != rhs.cursor {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_GroupAlbumMedia: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GroupAlbumMedia"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}thumb_url\0\u{1}url\0\u{1}width\0\u{1}height\0\u{3}is_video\0\u{3}video_url\0\u{3}uploader_id\0\u{3}uploader_name\0\u{1}time\0\u{3}batch_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.thumbURL) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.url) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.width) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.height) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.isVideo) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.videoURL) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self.uploaderID) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.uploaderName) }()
+      case 10: try { try decoder.decodeSingularInt64Field(value: &self.time) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.batchID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.thumbURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.thumbURL, fieldNumber: 2)
+    }
+    if !self.url.isEmpty {
+      try visitor.visitSingularStringField(value: self.url, fieldNumber: 3)
+    }
+    if self.width != 0 {
+      try visitor.visitSingularUInt32Field(value: self.width, fieldNumber: 4)
+    }
+    if self.height != 0 {
+      try visitor.visitSingularUInt32Field(value: self.height, fieldNumber: 5)
+    }
+    if self.isVideo != false {
+      try visitor.visitSingularBoolField(value: self.isVideo, fieldNumber: 6)
+    }
+    if !self.videoURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.videoURL, fieldNumber: 7)
+    }
+    if self.uploaderID != 0 {
+      try visitor.visitSingularInt64Field(value: self.uploaderID, fieldNumber: 8)
+    }
+    if !self.uploaderName.isEmpty {
+      try visitor.visitSingularStringField(value: self.uploaderName, fieldNumber: 9)
+    }
+    if self.time != 0 {
+      try visitor.visitSingularInt64Field(value: self.time, fieldNumber: 10)
+    }
+    if !self.batchID.isEmpty {
+      try visitor.visitSingularStringField(value: self.batchID, fieldNumber: 11)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_GroupAlbumMedia, rhs: Qqbridge_V1_GroupAlbumMedia) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.thumbURL != rhs.thumbURL {return false}
+    if lhs.url != rhs.url {return false}
+    if lhs.width != rhs.width {return false}
+    if lhs.height != rhs.height {return false}
+    if lhs.isVideo != rhs.isVideo {return false}
+    if lhs.videoURL != rhs.videoURL {return false}
+    if lhs.uploaderID != rhs.uploaderID {return false}
+    if lhs.uploaderName != rhs.uploaderName {return false}
+    if lhs.time != rhs.time {return false}
+    if lhs.batchID != rhs.batchID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ListGroupAlbumMediaResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ListGroupAlbumMediaResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}media\0\u{3}next_cursor\0\u{3}has_more\0\u{3}album_name\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.media) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.nextCursor) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.hasMore_p) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.albumName) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.media.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.media, fieldNumber: 1)
+    }
+    if !self.nextCursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.nextCursor, fieldNumber: 2)
+    }
+    if self.hasMore_p != false {
+      try visitor.visitSingularBoolField(value: self.hasMore_p, fieldNumber: 3)
+    }
+    if !self.albumName.isEmpty {
+      try visitor.visitSingularStringField(value: self.albumName, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ListGroupAlbumMediaResponse, rhs: Qqbridge_V1_ListGroupAlbumMediaResponse) -> Bool {
+    if lhs.media != rhs.media {return false}
+    if lhs.nextCursor != rhs.nextCursor {return false}
+    if lhs.hasMore_p != rhs.hasMore_p {return false}
+    if lhs.albumName != rhs.albumName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

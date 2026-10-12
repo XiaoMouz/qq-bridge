@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/contacts.proto.
  */
 export const file_qqbridge_v1_contacts: GenFile = /*@__PURE__*/
-  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0ImoKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXISLwoKY2F0ZWdvcmllcxgCIAMoCzIbLnFxYnJpZGdlLnYxLkZyaWVuZENhdGVnb3J5ImAKDkZyaWVuZENhdGVnb3J5EgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSDAoEc29ydBgDIAEoBRIQCgh1c2VyX2lkcxgEIAMoAxIUCgxzcGVjaWFsX2NhcmUYBSABKAgiJgoTRGVsZXRlRnJpZW5kUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDIhYKFERlbGV0ZUZyaWVuZFJlc3BvbnNlIhMKEUxpc3RHcm91cHNSZXF1ZXN0IjcKEkxpc3RHcm91cHNSZXNwb25zZRIhCgZncm91cHMYASADKAsyES5xcWJyaWRnZS52MS5QZWVyIjkKFUdldFVzZXJQcm9maWxlUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgibQoLVXNlclByb2ZpbGUSHwoEcGVlchgBIAEoCzIRLnFxYnJpZGdlLnYxLlBlZXISCwoDc2V4GAIgASgJEgsKA2FnZRgDIAEoDRINCgVsZXZlbBgEIAEoDRIUCgxyZWZyZXNoZWRfYXQYBSABKAMiUgoWR2V0VXNlclByb2ZpbGVSZXNwb25zZRIpCgdwcm9maWxlGAEgASgLMhgucXFicmlkZ2UudjEuVXNlclByb2ZpbGUSDQoFc3RhbGUYAiABKAgiOwoWR2V0R3JvdXBQcm9maWxlUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAxIPCgdyZWZyZXNoGAIgASgIInEKDEdyb3VwUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchIYChBtYXhfbWVtYmVyX2NvdW50GAIgASgNEhAKCG93bmVyX2lkGAMgASgDEhQKDHJlZnJlc2hlZF9hdBgEIAEoAyJUChdHZXRHcm91cFByb2ZpbGVSZXNwb25zZRIqCgdwcm9maWxlGAEgASgLMhkucXFicmlkZ2UudjEuR3JvdXBQcm9maWxlEg0KBXN0YWxlGAIgASgIIqUBCgtHcm91cE1lbWJlchIPCgd1c2VyX2lkGAEgASgDEhAKCG5pY2tuYW1lGAIgASgJEgwKBGNhcmQYAyABKAkSDAoEcm9sZRgEIAEoCRINCgV0aXRsZRgFIAEoCRINCgVsZXZlbBgGIAEoCRIRCglqb2luZWRfYXQYByABKAMSFAoMbGFzdF9zZW50X2F0GAggASgDEhAKCGlzX3JvYm90GAkgASgIIlsKF0xpc3RHcm91cE1lbWJlcnNSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgSDgoGb2Zmc2V0GAMgASgFEg0KBWxpbWl0GAQgASgFImMKGExpc3RHcm91cE1lbWJlcnNSZXNwb25zZRIpCgdtZW1iZXJzGAEgAygLMhgucXFicmlkZ2UudjEuR3JvdXBNZW1iZXISDQoFdG90YWwYAiABKA0SDQoFc3RhbGUYAyABKAgiGAoWUmVmcmVzaENvbnRhY3RzUmVxdWVzdCI6ChdSZWZyZXNoQ29udGFjdHNSZXNwb25zZRIPCgdmcmllbmRzGAEgASgNEg4KBmdyb3VwcxgCIAEoDSI4ChFHZXRBdmF0YXJzUmVxdWVzdBIQCgh1c2VyX2lkcxgBIAMoAxIRCglncm91cF9pZHMYAiADKAMiLQoKVXNlckF2YXRhchIPCgd1c2VyX2lkGAEgASgDEg4KBnNoYTI1NhgCIAEoCSJnChJHZXRBdmF0YXJzUmVzcG9uc2USKAoHYXZhdGFycxgBIAMoCzIXLnFxYnJpZGdlLnYxLlVzZXJBdmF0YXISJwoGZ3JvdXBzGAIgAygLMhcucXFicmlkZ2UudjEuVXNlckF2YXRhciIrChdMaXN0R3JvdXBOb3RpY2VzUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAyKfAQoLR3JvdXBOb3RpY2USCgoCaWQYASABKAkSEQoJc2VuZGVyX2lkGAIgASgDEhMKC3NlbmRlcl9uYW1lGAMgASgJEgwKBHRpbWUYBCABKAMSDAoEdGV4dBgFIAEoCRISCgppbWFnZV91cmxzGAYgAygJEhgKEGNvbmZpcm1fcmVxdWlyZWQYByABKAgSEgoKcmVhZF9jb3VudBgIIAEoDSJFChhMaXN0R3JvdXBOb3RpY2VzUmVzcG9uc2USKQoHbm90aWNlcxgBIAMoCzIYLnFxYnJpZGdlLnYxLkdyb3VwTm90aWNlIisKF0xpc3RHcm91cEVzc2VuY2VSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDIrEBCgxHcm91cEVzc2VuY2USCwoDc2VxGAEgASgDEhEKCXNlbmRlcl9pZBgCIAEoAxITCgtzZW5kZXJfbmFtZRgDIAEoCRIVCg1vcGVyYXRvcl9uYW1lGAQgASgJEgwKBHRpbWUYBSABKAMSJQoHbWVzc2FnZRgGIAEoCzIULnFxYnJpZGdlLnYxLk1lc3NhZ2USDAoEdGV4dBgHIAEoCRISCgppbWFnZV91cmxzGAggAygJIkQKGExpc3RHcm91cEVzc2VuY2VSZXNwb25zZRIoCgVpdGVtcxgBIAMoCzIZLnFxYnJpZGdlLnYxLkdyb3VwRXNzZW5jZSI8ChVMaXN0R3JvdXBGaWxlc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSEQoJZm9sZGVyX2lkGAIgASgJImYKC0dyb3VwRm9sZGVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEgoKZmlsZV9jb3VudBgDIAEoDRITCgttb2RpZnlfdGltZRgEIAEoAxIUCgxjcmVhdG9yX25hbWUYBSABKAkivgEKCUdyb3VwRmlsZRIKCgJpZBgBIAEoCRINCgVidXNpZBgCIAEoDRIMCgRuYW1lGAMgASgJEgwKBHNpemUYBCABKAQSEwoLbW9kaWZ5X3RpbWUYBSABKAMSEQoJZGVhZF90aW1lGAYgASgDEhMKC3VwbG9hZGVyX2lkGAcgASgDEhUKDXVwbG9hZGVyX25hbWUYCCABKAkSFgoOZG93bmxvYWRfY291bnQYCSABKA0SDgoGc2hhMjU2GAogASgJImoKFkxpc3RHcm91cEZpbGVzUmVzcG9uc2USKQoHZm9sZGVycxgBIAMoCzIYLnFxYnJpZGdlLnYxLkdyb3VwRm9sZGVyEiUKBWZpbGVzGAIgAygLMhYucXFicmlkZ2UudjEuR3JvdXBGaWxlIlcKFUZldGNoR3JvdXBGaWxlUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAxIPCgdmaWxlX2lkGAIgASgJEg0KBWJ1c2lkGAMgASgNEgwKBG5hbWUYBCABKAkiRAoWRmV0Y2hHcm91cEZpbGVSZXNwb25zZRIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIMCgRtaW1lGAMgASgJMsUICg5Db250YWN0U2VydmljZRJQCgtMaXN0RnJpZW5kcxIfLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3RGcmllbmRzUmVzcG9uc2USTQoKTGlzdEdyb3VwcxIeLnFxYnJpZGdlLnYxLkxpc3RHcm91cHNSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1Jlc3BvbnNlElkKDkdldFVzZXJQcm9maWxlEiIucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXF1ZXN0GiMucXFicmlkZ2UudjEuR2V0VXNlclByb2ZpbGVSZXNwb25zZRJcCg9HZXRHcm91cFByb2ZpbGUSIy5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXF1ZXN0GiQucXFicmlkZ2UudjEuR2V0R3JvdXBQcm9maWxlUmVzcG9uc2USXwoQTGlzdEdyb3VwTWVtYmVycxIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cE1lbWJlcnNSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1Jlc3BvbnNlElwKD1JlZnJlc2hDb250YWN0cxIjLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1JlcXVlc3QaJC5xcWJyaWRnZS52MS5SZWZyZXNoQ29udGFjdHNSZXNwb25zZRJNCgpHZXRBdmF0YXJzEh4ucXFicmlkZ2UudjEuR2V0QXZhdGFyc1JlcXVlc3QaHy5xcWJyaWRnZS52MS5HZXRBdmF0YXJzUmVzcG9uc2USXwoQTGlzdEdyb3VwTm90aWNlcxIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cE5vdGljZXNSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwTm90aWNlc1Jlc3BvbnNlEl8KEExpc3RHcm91cEVzc2VuY2USJC5xcWJyaWRnZS52MS5MaXN0R3JvdXBFc3NlbmNlUmVxdWVzdBolLnFxYnJpZGdlLnYxLkxpc3RHcm91cEVzc2VuY2VSZXNwb25zZRJZCg5MaXN0R3JvdXBGaWxlcxIiLnFxYnJpZGdlLnYxLkxpc3RHcm91cEZpbGVzUmVxdWVzdBojLnFxYnJpZGdlLnYxLkxpc3RHcm91cEZpbGVzUmVzcG9uc2USWQoORmV0Y2hHcm91cEZpbGUSIi5xcWJyaWRnZS52MS5GZXRjaEdyb3VwRmlsZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5GZXRjaEdyb3VwRmlsZVJlc3BvbnNlElMKDERlbGV0ZUZyaWVuZBIgLnFxYnJpZGdlLnYxLkRlbGV0ZUZyaWVuZFJlcXVlc3QaIS5xcWJyaWRnZS52MS5EZWxldGVGcmllbmRSZXNwb25zZWIGcHJvdG8z", [file_qqbridge_v1_common]);
+  fileDesc("ChpxcWJyaWRnZS92MS9jb250YWN0cy5wcm90bxILcXFicmlkZ2UudjEiFAoSTGlzdEZyaWVuZHNSZXF1ZXN0ImoKE0xpc3RGcmllbmRzUmVzcG9uc2USIgoHZnJpZW5kcxgBIAMoCzIRLnFxYnJpZGdlLnYxLlBlZXISLwoKY2F0ZWdvcmllcxgCIAMoCzIbLnFxYnJpZGdlLnYxLkZyaWVuZENhdGVnb3J5ImAKDkZyaWVuZENhdGVnb3J5EgoKAmlkGAEgASgFEgwKBG5hbWUYAiABKAkSDAoEc29ydBgDIAEoBRIQCgh1c2VyX2lkcxgEIAMoAxIUCgxzcGVjaWFsX2NhcmUYBSABKAgiJgoTRGVsZXRlRnJpZW5kUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDIhYKFERlbGV0ZUZyaWVuZFJlc3BvbnNlIhMKEUxpc3RHcm91cHNSZXF1ZXN0IjcKEkxpc3RHcm91cHNSZXNwb25zZRIhCgZncm91cHMYASADKAsyES5xcWJyaWRnZS52MS5QZWVyIjkKFUdldFVzZXJQcm9maWxlUmVxdWVzdBIPCgd1c2VyX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgibQoLVXNlclByb2ZpbGUSHwoEcGVlchgBIAEoCzIRLnFxYnJpZGdlLnYxLlBlZXISCwoDc2V4GAIgASgJEgsKA2FnZRgDIAEoDRINCgVsZXZlbBgEIAEoDRIUCgxyZWZyZXNoZWRfYXQYBSABKAMiUgoWR2V0VXNlclByb2ZpbGVSZXNwb25zZRIpCgdwcm9maWxlGAEgASgLMhgucXFicmlkZ2UudjEuVXNlclByb2ZpbGUSDQoFc3RhbGUYAiABKAgiOwoWR2V0R3JvdXBQcm9maWxlUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAxIPCgdyZWZyZXNoGAIgASgIInEKDEdyb3VwUHJvZmlsZRIfCgRwZWVyGAEgASgLMhEucXFicmlkZ2UudjEuUGVlchIYChBtYXhfbWVtYmVyX2NvdW50GAIgASgNEhAKCG93bmVyX2lkGAMgASgDEhQKDHJlZnJlc2hlZF9hdBgEIAEoAyJUChdHZXRHcm91cFByb2ZpbGVSZXNwb25zZRIqCgdwcm9maWxlGAEgASgLMhkucXFicmlkZ2UudjEuR3JvdXBQcm9maWxlEg0KBXN0YWxlGAIgASgIIqUBCgtHcm91cE1lbWJlchIPCgd1c2VyX2lkGAEgASgDEhAKCG5pY2tuYW1lGAIgASgJEgwKBGNhcmQYAyABKAkSDAoEcm9sZRgEIAEoCRINCgV0aXRsZRgFIAEoCRINCgVsZXZlbBgGIAEoCRIRCglqb2luZWRfYXQYByABKAMSFAoMbGFzdF9zZW50X2F0GAggASgDEhAKCGlzX3JvYm90GAkgASgIIlsKF0xpc3RHcm91cE1lbWJlcnNSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDEg8KB3JlZnJlc2gYAiABKAgSDgoGb2Zmc2V0GAMgASgFEg0KBWxpbWl0GAQgASgFImMKGExpc3RHcm91cE1lbWJlcnNSZXNwb25zZRIpCgdtZW1iZXJzGAEgAygLMhgucXFicmlkZ2UudjEuR3JvdXBNZW1iZXISDQoFdG90YWwYAiABKA0SDQoFc3RhbGUYAyABKAgiGAoWUmVmcmVzaENvbnRhY3RzUmVxdWVzdCI6ChdSZWZyZXNoQ29udGFjdHNSZXNwb25zZRIPCgdmcmllbmRzGAEgASgNEg4KBmdyb3VwcxgCIAEoDSI4ChFHZXRBdmF0YXJzUmVxdWVzdBIQCgh1c2VyX2lkcxgBIAMoAxIRCglncm91cF9pZHMYAiADKAMiLQoKVXNlckF2YXRhchIPCgd1c2VyX2lkGAEgASgDEg4KBnNoYTI1NhgCIAEoCSJnChJHZXRBdmF0YXJzUmVzcG9uc2USKAoHYXZhdGFycxgBIAMoCzIXLnFxYnJpZGdlLnYxLlVzZXJBdmF0YXISJwoGZ3JvdXBzGAIgAygLMhcucXFicmlkZ2UudjEuVXNlckF2YXRhciIrChdMaXN0R3JvdXBOb3RpY2VzUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAyLDAQoLR3JvdXBOb3RpY2USCgoCaWQYASABKAkSEQoJc2VuZGVyX2lkGAIgASgDEhMKC3NlbmRlcl9uYW1lGAMgASgJEgwKBHRpbWUYBCABKAMSDAoEdGV4dBgFIAEoCRISCgppbWFnZV91cmxzGAYgAygJEhgKEGNvbmZpcm1fcmVxdWlyZWQYByABKAgSEgoKcmVhZF9jb3VudBgIIAEoDRISCgpyZWFkX2J5X21lGAkgASgIEg4KBnBpbm5lZBgKIAEoCCJFChhMaXN0R3JvdXBOb3RpY2VzUmVzcG9uc2USKQoHbm90aWNlcxgBIAMoCzIYLnFxYnJpZGdlLnYxLkdyb3VwTm90aWNlIisKF0xpc3RHcm91cEVzc2VuY2VSZXF1ZXN0EhAKCGdyb3VwX2lkGAEgASgDIrEBCgxHcm91cEVzc2VuY2USCwoDc2VxGAEgASgDEhEKCXNlbmRlcl9pZBgCIAEoAxITCgtzZW5kZXJfbmFtZRgDIAEoCRIVCg1vcGVyYXRvcl9uYW1lGAQgASgJEgwKBHRpbWUYBSABKAMSJQoHbWVzc2FnZRgGIAEoCzIULnFxYnJpZGdlLnYxLk1lc3NhZ2USDAoEdGV4dBgHIAEoCRISCgppbWFnZV91cmxzGAggAygJIkQKGExpc3RHcm91cEVzc2VuY2VSZXNwb25zZRIoCgVpdGVtcxgBIAMoCzIZLnFxYnJpZGdlLnYxLkdyb3VwRXNzZW5jZSI8ChVMaXN0R3JvdXBGaWxlc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSEQoJZm9sZGVyX2lkGAIgASgJImYKC0dyb3VwRm9sZGVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEgoKZmlsZV9jb3VudBgDIAEoDRITCgttb2RpZnlfdGltZRgEIAEoAxIUCgxjcmVhdG9yX25hbWUYBSABKAkivgEKCUdyb3VwRmlsZRIKCgJpZBgBIAEoCRINCgVidXNpZBgCIAEoDRIMCgRuYW1lGAMgASgJEgwKBHNpemUYBCABKAQSEwoLbW9kaWZ5X3RpbWUYBSABKAMSEQoJZGVhZF90aW1lGAYgASgDEhMKC3VwbG9hZGVyX2lkGAcgASgDEhUKDXVwbG9hZGVyX25hbWUYCCABKAkSFgoOZG93bmxvYWRfY291bnQYCSABKA0SDgoGc2hhMjU2GAogASgJImoKFkxpc3RHcm91cEZpbGVzUmVzcG9uc2USKQoHZm9sZGVycxgBIAMoCzIYLnFxYnJpZGdlLnYxLkdyb3VwRm9sZGVyEiUKBWZpbGVzGAIgAygLMhYucXFicmlkZ2UudjEuR3JvdXBGaWxlIlcKFUZldGNoR3JvdXBGaWxlUmVxdWVzdBIQCghncm91cF9pZBgBIAEoAxIPCgdmaWxlX2lkGAIgASgJEg0KBWJ1c2lkGAMgASgNEgwKBG5hbWUYBCABKAkiRAoWRmV0Y2hHcm91cEZpbGVSZXNwb25zZRIOCgZzaGEyNTYYASABKAkSDAoEc2l6ZRgCIAEoBBIMCgRtaW1lGAMgASgJIioKFkxpc3RHcm91cEFsYnVtc1JlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMilAEKCkdyb3VwQWxidW0SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRkZXNjGAMgASgJEhEKCWNvdmVyX3VybBgEIAEoCRINCgVjb3VudBgFIAEoDRISCgpjcmVhdG9yX2lkGAYgASgDEhQKDGNyZWF0b3JfbmFtZRgHIAEoCRISCgp1cGRhdGVkX2F0GAggASgDIkIKF0xpc3RHcm91cEFsYnVtc1Jlc3BvbnNlEicKBmFsYnVtcxgBIAMoCzIXLnFxYnJpZGdlLnYxLkdyb3VwQWxidW0iUAoaTGlzdEdyb3VwQWxidW1NZWRpYVJlcXVlc3QSEAoIZ3JvdXBfaWQYASABKAMSEAoIYWxidW1faWQYAiABKAkSDgoGY3Vyc29yGAMgASgJIs0BCg9Hcm91cEFsYnVtTWVkaWESCgoCaWQYASABKAkSEQoJdGh1bWJfdXJsGAIgASgJEgsKA3VybBgDIAEoCRINCgV3aWR0aBgEIAEoDRIOCgZoZWlnaHQYBSABKA0SEAoIaXNfdmlkZW8YBiABKAgSEQoJdmlkZW9fdXJsGAcgASgJEhMKC3VwbG9hZGVyX2lkGAggASgDEhUKDXVwbG9hZGVyX25hbWUYCSABKAkSDAoEdGltZRgKIAEoAxIQCghiYXRjaF9pZBgLIAEoCSKFAQobTGlzdEdyb3VwQWxidW1NZWRpYVJlc3BvbnNlEisKBW1lZGlhGAEgAygLMhwucXFicmlkZ2UudjEuR3JvdXBBbGJ1bU1lZGlhEhMKC25leHRfY3Vyc29yGAIgASgJEhAKCGhhc19tb3JlGAMgASgIEhIKCmFsYnVtX25hbWUYBCABKAkyjQoKDkNvbnRhY3RTZXJ2aWNlElAKC0xpc3RGcmllbmRzEh8ucXFicmlkZ2UudjEuTGlzdEZyaWVuZHNSZXF1ZXN0GiAucXFicmlkZ2UudjEuTGlzdEZyaWVuZHNSZXNwb25zZRJNCgpMaXN0R3JvdXBzEh4ucXFicmlkZ2UudjEuTGlzdEdyb3Vwc1JlcXVlc3QaHy5xcWJyaWRnZS52MS5MaXN0R3JvdXBzUmVzcG9uc2USWQoOR2V0VXNlclByb2ZpbGUSIi5xcWJyaWRnZS52MS5HZXRVc2VyUHJvZmlsZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5HZXRVc2VyUHJvZmlsZVJlc3BvbnNlElwKD0dldEdyb3VwUHJvZmlsZRIjLnFxYnJpZGdlLnYxLkdldEdyb3VwUHJvZmlsZVJlcXVlc3QaJC5xcWJyaWRnZS52MS5HZXRHcm91cFByb2ZpbGVSZXNwb25zZRJfChBMaXN0R3JvdXBNZW1iZXJzEiQucXFicmlkZ2UudjEuTGlzdEdyb3VwTWVtYmVyc1JlcXVlc3QaJS5xcWJyaWRnZS52MS5MaXN0R3JvdXBNZW1iZXJzUmVzcG9uc2USXAoPUmVmcmVzaENvbnRhY3RzEiMucXFicmlkZ2UudjEuUmVmcmVzaENvbnRhY3RzUmVxdWVzdBokLnFxYnJpZGdlLnYxLlJlZnJlc2hDb250YWN0c1Jlc3BvbnNlEk0KCkdldEF2YXRhcnMSHi5xcWJyaWRnZS52MS5HZXRBdmF0YXJzUmVxdWVzdBofLnFxYnJpZGdlLnYxLkdldEF2YXRhcnNSZXNwb25zZRJfChBMaXN0R3JvdXBOb3RpY2VzEiQucXFicmlkZ2UudjEuTGlzdEdyb3VwTm90aWNlc1JlcXVlc3QaJS5xcWJyaWRnZS52MS5MaXN0R3JvdXBOb3RpY2VzUmVzcG9uc2USXwoQTGlzdEdyb3VwRXNzZW5jZRIkLnFxYnJpZGdlLnYxLkxpc3RHcm91cEVzc2VuY2VSZXF1ZXN0GiUucXFicmlkZ2UudjEuTGlzdEdyb3VwRXNzZW5jZVJlc3BvbnNlElkKDkxpc3RHcm91cEZpbGVzEiIucXFicmlkZ2UudjEuTGlzdEdyb3VwRmlsZXNSZXF1ZXN0GiMucXFicmlkZ2UudjEuTGlzdEdyb3VwRmlsZXNSZXNwb25zZRJcCg9MaXN0R3JvdXBBbGJ1bXMSIy5xcWJyaWRnZS52MS5MaXN0R3JvdXBBbGJ1bXNSZXF1ZXN0GiQucXFicmlkZ2UudjEuTGlzdEdyb3VwQWxidW1zUmVzcG9uc2USaAoTTGlzdEdyb3VwQWxidW1NZWRpYRInLnFxYnJpZGdlLnYxLkxpc3RHcm91cEFsYnVtTWVkaWFSZXF1ZXN0GigucXFicmlkZ2UudjEuTGlzdEdyb3VwQWxidW1NZWRpYVJlc3BvbnNlElkKDkZldGNoR3JvdXBGaWxlEiIucXFicmlkZ2UudjEuRmV0Y2hHcm91cEZpbGVSZXF1ZXN0GiMucXFicmlkZ2UudjEuRmV0Y2hHcm91cEZpbGVSZXNwb25zZRJTCgxEZWxldGVGcmllbmQSIC5xcWJyaWRnZS52MS5EZWxldGVGcmllbmRSZXF1ZXN0GiEucXFicmlkZ2UudjEuRGVsZXRlRnJpZW5kUmVzcG9uc2ViBnByb3RvMw", [file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.ListFriendsRequest
@@ -606,6 +606,20 @@ export type GroupNotice = Message<"qqbridge.v1.GroupNotice"> & {
    * @generated from field: uint32 read_count = 8;
    */
   readCount: number;
+
+  /**
+   * 自己已读 / 已确认。
+   *
+   * @generated from field: bool read_by_me = 9;
+   */
+  readByMe: boolean;
+
+  /**
+   * 置顶。
+   *
+   * @generated from field: bool pinned = 10;
+   */
+  pinned: boolean;
 };
 
 /**
@@ -933,6 +947,226 @@ export const FetchGroupFileResponseSchema: GenMessage<FetchGroupFileResponse> = 
   messageDesc(file_qqbridge_v1_contacts, 32);
 
 /**
+ * @generated from message qqbridge.v1.ListGroupAlbumsRequest
+ */
+export type ListGroupAlbumsRequest = Message<"qqbridge.v1.ListGroupAlbumsRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupAlbumsRequest.
+ * Use `create(ListGroupAlbumsRequestSchema)` to create a new message.
+ */
+export const ListGroupAlbumsRequestSchema: GenMessage<ListGroupAlbumsRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 33);
+
+/**
+ * @generated from message qqbridge.v1.GroupAlbum
+ */
+export type GroupAlbum = Message<"qqbridge.v1.GroupAlbum"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string desc = 3;
+   */
+  desc: string;
+
+  /**
+   * @generated from field: string cover_url = 4;
+   */
+  coverUrl: string;
+
+  /**
+   * @generated from field: uint32 count = 5;
+   */
+  count: number;
+
+  /**
+   * @generated from field: int64 creator_id = 6;
+   */
+  creatorId: bigint;
+
+  /**
+   * @generated from field: string creator_name = 7;
+   */
+  creatorName: string;
+
+  /**
+   * unix 秒。
+   *
+   * @generated from field: int64 updated_at = 8;
+   */
+  updatedAt: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupAlbum.
+ * Use `create(GroupAlbumSchema)` to create a new message.
+ */
+export const GroupAlbumSchema: GenMessage<GroupAlbum> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 34);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupAlbumsResponse
+ */
+export type ListGroupAlbumsResponse = Message<"qqbridge.v1.ListGroupAlbumsResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupAlbum albums = 1;
+   */
+  albums: GroupAlbum[];
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupAlbumsResponse.
+ * Use `create(ListGroupAlbumsResponseSchema)` to create a new message.
+ */
+export const ListGroupAlbumsResponseSchema: GenMessage<ListGroupAlbumsResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 35);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupAlbumMediaRequest
+ */
+export type ListGroupAlbumMediaRequest = Message<"qqbridge.v1.ListGroupAlbumMediaRequest"> & {
+  /**
+   * @generated from field: int64 group_id = 1;
+   */
+  groupId: bigint;
+
+  /**
+   * @generated from field: string album_id = 2;
+   */
+  albumId: string;
+
+  /**
+   * 翻页：上一页返回的 next_cursor（空 = 从最新开始）。
+   *
+   * @generated from field: string cursor = 3;
+   */
+  cursor: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupAlbumMediaRequest.
+ * Use `create(ListGroupAlbumMediaRequestSchema)` to create a new message.
+ */
+export const ListGroupAlbumMediaRequestSchema: GenMessage<ListGroupAlbumMediaRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 36);
+
+/**
+ * @generated from message qqbridge.v1.GroupAlbumMedia
+ */
+export type GroupAlbumMedia = Message<"qqbridge.v1.GroupAlbumMedia"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * 列表里显示的小图（约 400px）和看大图用的原图。
+   *
+   * @generated from field: string thumb_url = 2;
+   */
+  thumbUrl: string;
+
+  /**
+   * @generated from field: string url = 3;
+   */
+  url: string;
+
+  /**
+   * @generated from field: uint32 width = 4;
+   */
+  width: number;
+
+  /**
+   * @generated from field: uint32 height = 5;
+   */
+  height: number;
+
+  /**
+   * @generated from field: bool is_video = 6;
+   */
+  isVideo: boolean;
+
+  /**
+   * @generated from field: string video_url = 7;
+   */
+  videoUrl: string;
+
+  /**
+   * @generated from field: int64 uploader_id = 8;
+   */
+  uploaderId: bigint;
+
+  /**
+   * @generated from field: string uploader_name = 9;
+   */
+  uploaderName: string;
+
+  /**
+   * unix 秒。
+   *
+   * @generated from field: int64 time = 10;
+   */
+  time: bigint;
+
+  /**
+   * @generated from field: string batch_id = 11;
+   */
+  batchId: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.GroupAlbumMedia.
+ * Use `create(GroupAlbumMediaSchema)` to create a new message.
+ */
+export const GroupAlbumMediaSchema: GenMessage<GroupAlbumMedia> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 37);
+
+/**
+ * @generated from message qqbridge.v1.ListGroupAlbumMediaResponse
+ */
+export type ListGroupAlbumMediaResponse = Message<"qqbridge.v1.ListGroupAlbumMediaResponse"> & {
+  /**
+   * @generated from field: repeated qqbridge.v1.GroupAlbumMedia media = 1;
+   */
+  media: GroupAlbumMedia[];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor: string;
+
+  /**
+   * @generated from field: bool has_more = 3;
+   */
+  hasMore: boolean;
+
+  /**
+   * @generated from field: string album_name = 4;
+   */
+  albumName: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.ListGroupAlbumMediaResponse.
+ * Use `create(ListGroupAlbumMediaResponseSchema)` to create a new message.
+ */
+export const ListGroupAlbumMediaResponseSchema: GenMessage<ListGroupAlbumMediaResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_contacts, 38);
+
+/**
  * 联系人与资料（docs/design.md 4.8 ContactService）。服务端不在后台逐个爬取资料，只在需要时取：
  * - 好友列表、群列表各一次请求拿全，每天刷新一次（也可 RefreshContacts 手动刷新）；
  * - 头像在打开会话（DialogService.SetActiveChat）时按需下载，一天最多一次；
@@ -1027,6 +1261,24 @@ export const ContactService: GenService<{
     methodKind: "unary";
     input: typeof ListGroupFilesRequestSchema;
     output: typeof ListGroupFilesResponseSchema;
+  },
+  /**
+   * 群相册：相册列表、某个相册里的照片 / 视频（按上传批次分页，图片链接是 QQ 的公开链接）。
+   *
+   * @generated from rpc qqbridge.v1.ContactService.ListGroupAlbums
+   */
+  listGroupAlbums: {
+    methodKind: "unary";
+    input: typeof ListGroupAlbumsRequestSchema;
+    output: typeof ListGroupAlbumsResponseSchema;
+  },
+  /**
+   * @generated from rpc qqbridge.v1.ContactService.ListGroupAlbumMedia
+   */
+  listGroupAlbumMedia: {
+    methodKind: "unary";
+    input: typeof ListGroupAlbumMediaRequestSchema;
+    output: typeof ListGroupAlbumMediaResponseSchema;
   },
   /**
    * 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。

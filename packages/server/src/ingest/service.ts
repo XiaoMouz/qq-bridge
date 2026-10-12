@@ -664,6 +664,11 @@ export class IngestService {
           queued.push(added.id);
           continue;
         }
+        // 看大图要原图时，已经在下载队列里 / 正在下载的也算上：调用方会等它下完（否则会把"还在下载"当成"拿不到"）。
+        if (what === 'original' && (original.fetch_state === 'pending' || original.fetch_state === 'fetching')) {
+          queued.push(original.id);
+          continue;
+        }
         if (!['on_demand', 'failed', 'expired', 'skipped'].includes(original.fetch_state)) continue;
         await w.tx.execute(
           sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()

@@ -568,7 +568,7 @@ struct BlockView: View {
     case .card(let text):
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
     case .app(let card):
-      AppCardView(card: card, outgoing: outgoing)
+      AppCardView(card: card, outgoing: outgoing) { context.actions.openAlbum($0) }
     case .markdown(let content):
       MarkdownBlock(content: content, outgoing: outgoing)
     case .keyboard(let rows):
@@ -991,10 +991,10 @@ enum CardText {
     if let prompt = obj["prompt"] as? String, !prompt.isEmpty { return prompt }
     if let meta = obj["meta"] as? [String: Any] {
       for v in meta.values {
-        if let d = v as? [String: Any], let title = (d["title"] ?? d["desc"]) as? String, !title.isEmpty { return title }
+        if let d = v as? [String: Any], let title = (d["title"] ?? d["desc"]) as? String, !title.isEmpty { return "[卡片] \(title)" }
       }
     }
-    return "[卡片消息] \(app)"
+    return "[卡片]"
   }
 }
 
@@ -1392,6 +1392,8 @@ struct AppCard {
   let desc: String
   let preview: URL?
   let url: URL?
+  /// 群相册卡片：点开看这个相册。
+  var album: AlbumRef? = nil
 
   static func parse(json: String, app: String) -> AppCard? {
     guard let data = json.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1403,15 +1405,34 @@ struct AppCard {
     }
     func link(_ s: String) -> URL? {
       guard !s.isEmpty else { return nil }
-      let full = s.hasPrefix("http") ? s : "https://\(s)"
+      // mqqapi://、mqzone:// 之类只有 QQ 能打开的链接不要。
+      if s.contains("://"), !s.hasPrefix("http") { return nil }
+      // http 链接（QQ 的图床大多也支持 https）换成 https，否则 iOS 不让加载。
+      let full = s.hasPrefix("https") ? s : s.hasPrefix("http://") ? "https://" + s.dropFirst(7) : "https://\(s)"
       guard let u = URL(string: full), u.host() != nil else { return nil }
       return u
     }
     // 小程序：qqdocurl 是网页版（哔哩哔哩是 b23.tv 短链）；分享卡片：jumpUrl。m.q.qq.com 的小程序链接浏览器打不开，不用。
     let candidates = [str("qqdocurl"), str("jumpUrl", "jumpurl"), str("url")].compactMap(link).filter { $0.host() != "m.q.qq.com" }
     let title = str("title")
-    let desc = str("desc", "summary")
+    let desc = str("desc", "summary", "forwardMessage")
     guard !title.isEmpty || !desc.isEmpty else { return nil }
+    // 群相册：jumpUrl 里带群号和相册 id。
+    if (obj["bizsrc"] as? String)?.hasPrefix("group_album") == true || str("jumpUrl").contains("groupalbum") {
+      let q = URLComponents(string: str("jumpUrl"))?.queryItems ?? []
+      func v(_ n: String) -> String { q.first { $0.name.lowercased() == n.lowercased() }?.value ?? "" }
+      if let gid = Int64(v("groupid").isEmpty ? v("groupCode") : v("groupid")), !v("albumid").isEmpty {
+        return AppCard(
+          source: str("tagName").isEmpty ? "群相册" : str("tagName"),
+          icon: nil,
+          title: title,
+          desc: desc,
+          preview: link(str("cover", "preview")),
+          url: nil,
+          album: AlbumRef(groupId: gid, albumId: v("albumid"), title: title.replacingOccurrences(of: "群相册", with: "").trimmingCharacters(in: CharacterSet(charactersIn: "《》 ")))
+        )
+      }
+    }
     // 小程序的 title 是小程序名（哔哩哔哩），desc 才是内容标题。
     let isMini = detail["appid"] != nil
     return AppCard(
@@ -1419,7 +1440,7 @@ struct AppCard {
       icon: link(str("icon", "source_icon")),
       title: isMini ? desc : title,
       desc: isMini ? "" : desc,
-      preview: link(str("preview")),
+      preview: link(str("preview", "cover")),
       url: candidates.first
     )
   }
@@ -1428,14 +1449,15 @@ struct AppCard {
 struct AppCardView: View {
   let card: AppCard
   let outgoing: Bool
+  var onAlbum: (AlbumRef) -> Void = { _ in }
   @Environment(\.openURL) private var openURL
 
   var body: some View {
     Button {
-      if let url = card.url { openURL(url) }
+      if let album = card.album { onAlbum(album) } else if let url = card.url { openURL(url) }
     } label: { content }
     .buttonStyle(.plain)
-    .disabled(card.url == nil)
+    .disabled(card.url == nil && card.album == nil)
   }
 
   private var content: some View {
@@ -1450,11 +1472,13 @@ struct AppCardView: View {
       Text(card.title).font(.subheadline.weight(.medium)).lineLimit(3)
       if !card.desc.isEmpty { Text(card.desc).font(.caption).opacity(0.75).lineLimit(2) }
       if let preview = card.preview {
-        AsyncImage(url: preview) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.secondary.opacity(0.15) }
-          .frame(width: 236, height: 133)
+        RemoteImage(url: preview, maxPixel: 600)
+          .frame(width: 236, height: card.album != nil ? 236 : 133)
           .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
       }
-      if card.url != nil {
+      if card.album != nil {
+        Label("查看相册", systemImage: "photo.on.rectangle.angled").font(.caption2).opacity(0.7)
+      } else if card.url != nil {
         Label("在浏览器中打开", systemImage: "safari").font(.caption2).opacity(0.7)
       }
     }

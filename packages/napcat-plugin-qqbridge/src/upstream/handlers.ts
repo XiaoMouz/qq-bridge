@@ -108,6 +108,15 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       return { results };
     },
 
+    /** 群公告（网页接口原样返回：带自己是否已读 is_read、置顶的 inst）。 */
+    'x.group_notices': async (params: { groupId?: string }) => {
+      if (!params?.groupId) throw new Error('x.group_notices: groupId is required');
+      const web = (ctx.core as any)?.apis?.WebApi;
+      if (typeof web?.getGroupNotice !== 'function') throw new Error('NapCat internal API missing: WebApi.getGroupNotice');
+      const res = await web.getGroupNotice(String(params.groupId));
+      return { feeds: res?.feeds ?? [], inst: res?.inst ?? [] };
+    },
+
     /** 最近会话及每个会话的最新一条原始消息（服务端据此对账和预热）。 */
     'x.recent_contacts': async (params: { count?: number }) => {
       const count = clamp(params?.count, 1, 500, 200);

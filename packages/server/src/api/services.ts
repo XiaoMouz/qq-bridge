@@ -501,15 +501,20 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
           kinds,
           ...(req.beforeSeq ? { beforeSeq: toSafeNumber(req.beforeSeq, 'before_seq') } : {}),
           limit: clampLimit(req.limit, 60, 200),
+          sort: req.sort,
+          offset: req.offset,
+          ...(req.senderId ? { senderId: toSafeNumber(req.senderId, 'sender_id') } : {}),
         });
         return {
           nextBeforeSeq: BigInt(res.nextBeforeSeq),
+          nextOffset: res.nextOffset,
           items: res.items.map((i) => ({
             seq: BigInt(i.seq),
             time: BigInt(Math.floor(i.time.getTime() / 1000)),
             senderId: BigInt(i.senderId),
             kind: mediaKindToProto(i.kind),
             segment: segmentToProto(i.segment),
+            size: BigInt(i.size),
           })),
         };
       } catch (error) {
@@ -973,8 +978,30 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
           imageUrls: n.imageUrls,
           confirmRequired: n.confirmRequired,
           readCount: n.readCount,
+          readByMe: n.readByMe,
+          pinned: n.pinned,
         })),
       }));
+    },
+    async listGroupAlbums(req, ctx) {
+      return groupContent(async () => ({
+        albums: (await deps.groupContent.albums(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'))).map((a) => ({
+          ...a,
+          creatorId: BigInt(a.creatorId),
+          updatedAt: BigInt(a.updatedAt),
+        })),
+      }));
+    },
+    async listGroupAlbumMedia(req, ctx) {
+      return groupContent(async () => {
+        const res = await deps.groupContent.albumMedia(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.albumId, req.cursor);
+        return {
+          media: res.media.map((m) => ({ ...m, uploaderId: BigInt(m.uploaderId), time: BigInt(m.time) })),
+          nextCursor: res.nextCursor,
+          hasMore: res.hasMore,
+          albumName: res.albumName,
+        };
+      });
     },
     async listGroupEssence(req, ctx) {
       return groupContent(async () => ({

@@ -75,6 +75,12 @@ message ListSharedMediaRequest {
   // 翻页：只返回 seq 小于它的（0 = 从最新开始）。
   int64 before_seq = 3;
   int32 limit = 4;
+  // 排序：空 / "time_desc"（新的在前，按 before_seq 翻页）、"time_asc"、"size_desc"、"sender"（按发送者再按时间），
+  // 后三种按 offset 翻页。
+  string sort = 5;
+  int32 offset = 6;
+  // 只看某个人发的（0 = 所有人）。
+  int64 sender_id = 7;
 }
 
 message SharedMedia {
@@ -85,12 +91,15 @@ message SharedMedia {
   MediaKind kind = 4;
   // 含媒体信息的那个消息段（图片、视频、语音、文件、商城表情）。
   Segment segment = 5;
+  uint64 size = 6;
 }
 
 message ListSharedMediaResponse {
   repeated SharedMedia items = 1;
   // 下一页的 before_seq；0 表示没有更多了。
   int64 next_before_seq = 2;
+  // 按 offset 翻页时下一页的 offset；0 表示没有更多了。
+  int32 next_offset = 3;
 }
 
 message SearchCursor {

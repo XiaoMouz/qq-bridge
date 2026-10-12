@@ -27,6 +27,33 @@ export interface GroupNotice {
   imageUrls: string[];
   confirmRequired: boolean;
   readCount: number;
+  readByMe: boolean;
+  pinned: boolean;
+}
+
+export interface GroupAlbum {
+  id: string;
+  name: string;
+  desc: string;
+  coverUrl: string;
+  count: number;
+  creatorId: number;
+  creatorName: string;
+  updatedAt: number;
+}
+
+export interface GroupAlbumMedia {
+  id: string;
+  thumbUrl: string;
+  url: string;
+  width: number;
+  height: number;
+  isVideo: boolean;
+  videoUrl: string;
+  uploaderId: number;
+  uploaderName: string;
+  time: number;
+  batchId: string;
 }
 
 export interface GroupEssence {
@@ -75,6 +102,40 @@ export class GroupContentService {
 
   async notices(accountId: number, groupId: number): Promise<GroupNotice[]> {
     const qq = await this.qqAccountOf(accountId);
+    // 先用网页接口的原始数据（带自己是否已读、置顶的公告）；插件不支持时退回 OneBot 的。
+    const raw = await this.upstream()
+      ?.call<{ feeds?: Ob11[]; inst?: Ob11[] }>(qq, 'x.group_notices', { groupId: String(groupId) }, 30_000)
+      .catch(() => null);
+    if (raw && (raw.feeds?.length || raw.inst?.length)) {
+      const all = [...(raw.inst ?? []).map((f) => ({ f, pinned: true })), ...(raw.feeds ?? []).map((f) => ({ f, pinned: false }))];
+      const seen = new Set<string>();
+      const uniq = all.filter(({ f }) => {
+        const id = String(f.fid ?? '');
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      const names = await this.names(qq, groupId, uniq.map(({ f }) => int(f.u)));
+      return uniq
+        .map(({ f, pinned }) => {
+          const msg = (f.msg ?? {}) as { text?: string; pics?: { id?: string }[] };
+          const settings = (f.settings ?? {}) as { confirm_required?: number };
+          const senderId = int(f.u);
+          return {
+            id: String(f.fid),
+            senderId,
+            senderName: names.get(senderId) ?? String(senderId),
+            time: int(f.pubt),
+            text: decodeEntities(String(msg.text ?? '')),
+            imageUrls: (msg.pics ?? []).filter((p) => p.id).map((p) => `https://gdynamic.qpic.cn/gdynamic/${p.id}/628`),
+            confirmRequired: settings.confirm_required === 1,
+            readCount: int(f.read_num),
+            readByMe: int(f.is_read) === 1,
+            pinned,
+          };
+        })
+        .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.time - a.time);
+    }
     const list = (await this.ob11<Ob11[]>(qq, '_get_group_notice', { group_id: String(groupId) })) ?? [];
     const names = await this.names(qq, groupId, list.map((n) => int(n.sender_id)));
     return list.map((n) => {
@@ -91,8 +152,70 @@ export class GroupContentService {
         imageUrls: images.filter((i) => i.id).map((i) => `https://gdynamic.qpic.cn/gdynamic/${i.id}/628`),
         confirmRequired: settings.confirm_required === 1,
         readCount: int(n.read_num),
+        readByMe: false,
+        pinned: false,
       };
     });
+  }
+
+  async albums(accountId: number, groupId: number): Promise<GroupAlbum[]> {
+    const qq = await this.qqAccountOf(accountId);
+    const res = await this.ob11<Ob11>(qq, 'get_qun_album_list', { group_id: String(groupId) });
+    const list = (Array.isArray(res?.album_list) ? res.album_list : Array.isArray(res) ? res : []) as Ob11[];
+    return list.map((a) => {
+      const cover = (a.cover ?? {}) as { image?: AlbumImage };
+      const creator = (a.creator ?? {}) as { uin?: string; nick?: string };
+      return {
+        id: String(a.album_id ?? ''),
+        name: String(a.name ?? ''),
+        desc: String(a.desc ?? '').trim(),
+        coverUrl: albumUrl(cover.image, 'thumb'),
+        count: int(a.upload_number),
+        creatorId: int(creator.uin),
+        creatorName: String(creator.nick ?? ''),
+        updatedAt: int(a.last_upload_time) || int(a.modify_time),
+      };
+    });
+  }
+
+  async albumMedia(
+    accountId: number,
+    groupId: number,
+    albumId: string,
+    cursor: string,
+  ): Promise<{ media: GroupAlbumMedia[]; nextCursor: string; hasMore: boolean; albumName: string }> {
+    const qq = await this.qqAccountOf(accountId);
+    const res = await this.ob11<Ob11>(qq, 'get_group_album_media_list', {
+      group_id: String(groupId),
+      album_id: albumId,
+      ...(cursor ? { attach_info: cursor } : {}),
+    });
+    const list = (Array.isArray(res?.media_list) ? res.media_list : []) as Ob11[];
+    return {
+      media: list.map((m) => {
+        const image = (m.image ?? undefined) as AlbumImage | undefined;
+        const video = (m.video ?? null) as { cover?: AlbumImage; url?: string; video_url?: string; width?: number; height?: number } | null;
+        const user = (m.upload_user ?? {}) as { uin?: string; nick?: string };
+        const pic = video?.cover ?? image;
+        const big = albumBest(pic);
+        return {
+          id: String(pic?.lloc ?? m.lloc ?? ''),
+          thumbUrl: albumUrl(pic, 'thumb'),
+          url: big.url,
+          width: big.width,
+          height: big.height,
+          isVideo: Boolean(video),
+          videoUrl: String(video?.url ?? video?.video_url ?? ''),
+          uploaderId: int(m.uploader ?? user.uin),
+          uploaderName: String(user.nick ?? ''),
+          time: int(m.upload_time),
+          batchId: String(m.batch_id ?? ''),
+        };
+      }),
+      nextCursor: typeof res?.next_attach_info === 'string' ? res.next_attach_info : '',
+      hasMore: res?.next_has_more === true,
+      albumName: String(((res?.album ?? {}) as { name?: string }).name ?? ''),
+    };
   }
 
   async essence(accountId: number, groupId: number): Promise<GroupEssence[]> {
@@ -261,3 +384,28 @@ export function decodeEntities(text: string): string {
     .replace(/&amp;/g, '&');
 }
 
+
+interface AlbumImage {
+  lloc?: string;
+  photo_url?: { spec?: number; url?: { url?: string; width?: number; height?: number } }[];
+  default_url?: { url?: string; width?: number; height?: number };
+}
+
+/** 去掉链接里 # 后面的统计参数。 */
+function cleanAlbumUrl(url: string | undefined): string {
+  return (url ?? '').split('#')[0]!.replace(/^http:/, 'https:');
+}
+
+/** 相册图片的小图（约 400px，列表、封面用）。 */
+function albumUrl(image: AlbumImage | undefined, _size: 'thumb'): string {
+  if (!image) return '';
+  const mid = image.photo_url?.find((p) => (p.url?.width ?? 0) >= 300 && (p.url?.width ?? 0) <= 800);
+  return cleanAlbumUrl(mid?.url?.url ?? image.default_url?.url);
+}
+
+/** 相册图片的原图（最大的那个尺寸）。 */
+function albumBest(image: AlbumImage | undefined): { url: string; width: number; height: number } {
+  if (!image) return { url: '', width: 0, height: 0 };
+  const best = [...(image.photo_url ?? [])].sort((a, b) => (b.url?.width ?? 0) - (a.url?.width ?? 0))[0]?.url ?? image.default_url;
+  return { url: cleanAlbumUrl(best?.url), width: best?.width ?? 0, height: best?.height ?? 0 };
+}

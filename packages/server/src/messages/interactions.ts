@@ -80,14 +80,16 @@ export class MessageInteractions {
   async sharedMedia(
     accountId: number,
     chatId: number,
-    opts: { kinds: MediaKind[]; beforeSeq?: number; limit: number },
-  ): Promise<{ items: SharedMediaItem[]; nextBeforeSeq: number }> {
+    opts: { kinds: MediaKind[]; beforeSeq?: number; limit: number; sort?: string; offset?: number; senderId?: number },
+  ): Promise<{ items: SharedMediaItem[]; nextBeforeSeq: number; nextOffset: number }> {
     await this.chat(accountId, chatId);
     const kinds = opts.kinds.length ? opts.kinds : (['image', 'video', 'audio', 'file'] as MediaKind[]);
     // 表情包不算共享媒体（与 Telegram 一致），明确要 sticker 时才带上。
     const role = kinds.includes('sticker') ? sql`r.role <> 'qq_thumb'` : sql`r.role = 'attachment'`;
+    const sort = opts.sort || 'time_desc';
+    if (sort !== 'time_desc' || opts.senderId || opts.offset) return this.sharedMediaSorted(chatId, kinds, role, sort, opts);
     // 按消息分页：先取够 limit 条媒体所在的消息，同一条消息里的多个媒体一起返回，翻页不会切开一条消息。
-    const refs = await rows<{ message_seq: number; ordinal: number; kind: MediaKind }>(
+    const refs = await rows<{ message_seq: number; ordinal: number; kind: MediaKind; size: number | null }>(
       this.db,
       sql`with picked as (
             select distinct r.message_seq from media_refs r
@@ -98,7 +100,8 @@ export class MessageInteractions {
                )})
                ${opts.beforeSeq ? sql`and r.message_seq < ${opts.beforeSeq}` : sql``}
              order by r.message_seq desc limit ${opts.limit})
-          select r.message_seq, r.ordinal, r.kind from media_refs r join picked p on p.message_seq = r.message_seq
+          select r.message_seq, r.ordinal, r.kind, coalesce((select b.size from blobs b where b.sha256 = r.sha256), r.size) as size
+            from media_refs r join picked p on p.message_seq = r.message_seq
            where r.chat_id = ${chatId} and r.forward_bundle_id is null and ${role}
              and r.kind in (${sql.join(
                kinds.map((k) => sql`${k}`),
@@ -106,7 +109,7 @@ export class MessageInteractions {
              )})
            order by r.message_seq desc, r.ordinal`,
     );
-    if (refs.length === 0) return { items: [], nextBeforeSeq: 0 };
+    if (refs.length === 0) return { items: [], nextBeforeSeq: 0, nextOffset: 0 };
     const seqs = [...new Set(refs.map((r) => Number(r.message_seq)))];
     const messages = new Map(
       (
@@ -132,9 +135,56 @@ export class MessageInteractions {
         senderId: Number(message.sender_uin),
         kind: ref.kind,
         segment,
+        size: Number(ref.size ?? 0),
       });
     }
-    return { items, nextBeforeSeq: seqs.length < opts.limit ? 0 : Math.min(...seqs) };
+    return { items, nextBeforeSeq: seqs.length < opts.limit ? 0 : Math.min(...seqs), nextOffset: 0 };
+  }
+
+  /** 按时间正序、大小、发送者排序，或只看某个人的：按 offset 翻页（每个媒体一项）。 */
+  private async sharedMediaSorted(
+    chatId: number,
+    kinds: MediaKind[],
+    role: ReturnType<typeof sql>,
+    sort: string,
+    opts: { limit: number; offset?: number; senderId?: number },
+  ): Promise<{ items: SharedMediaItem[]; nextBeforeSeq: number; nextOffset: number }> {
+    const order =
+      sort === 'size_desc'
+        ? sql`size desc nulls last, m.seq desc`
+        : sort === 'time_asc'
+          ? sql`m.seq asc, r.ordinal`
+          : sort === 'sender'
+            ? sql`m.sender_uin, m.seq desc, r.ordinal`
+            : sql`m.seq desc, r.ordinal`;
+    const offset = Math.max(0, opts.offset ?? 0);
+    const list = await rows<{ seq: number; ordinal: number; kind: MediaKind; size: number | null; time: Date | string; sender_uin: number; segments: Segment[] }>(
+      this.db,
+      sql`select m.seq, r.ordinal, r.kind, coalesce(b.size, r.size) as size, m.time, m.sender_uin, m.segments
+            from media_refs r join messages m on m.chat_id = r.chat_id and m.seq = r.message_seq
+            left join blobs b on b.sha256 = r.sha256
+           where r.chat_id = ${chatId} and r.forward_bundle_id is null and ${role} and m.state <> 'recalled'
+             and r.kind in (${sql.join(
+               kinds.map((k) => sql`${k}`),
+               sql`, `,
+             )})
+             ${opts.senderId ? sql`and m.sender_uin = ${opts.senderId}` : sql``}
+           order by ${order} offset ${offset} limit ${opts.limit}`,
+    );
+    const items: SharedMediaItem[] = [];
+    for (const r of list) {
+      const segment = r.segments.find((s) => 'media' in s && s.media?.ord === r.ordinal);
+      if (!segment) continue;
+      items.push({
+        seq: Number(r.seq),
+        time: r.time instanceof Date ? r.time : new Date(r.time),
+        senderId: Number(r.sender_uin),
+        kind: r.kind,
+        segment,
+        size: Number(r.size ?? 0),
+      });
+    }
+    return { items, nextBeforeSeq: 0, nextOffset: list.length < opts.limit ? 0 : offset + list.length };
   }
 
   private online(qqAccountId: number): Pick<UpstreamHub, 'call'> {
@@ -163,4 +213,5 @@ export interface SharedMediaItem {
   senderId: number;
   kind: MediaKind;
   segment: Segment;
+  size: number;
 }

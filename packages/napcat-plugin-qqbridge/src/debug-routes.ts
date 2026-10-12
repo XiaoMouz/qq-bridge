@@ -49,8 +49,23 @@ export function registerDebugRoutes(server: ControlServer, ctx: NapCatPluginCont
           elements: (m.elements ?? []).filter((e: any) => e.elementType !== 1 && e.elementType !== 2).map((e: any) => shallow(e, 0, 6)),
         }));
       }
+      case 'webnotice': {
+        const res = await apis.WebApi.getGroupNotice(req.url.searchParams.get('group') ?? '');
+        const feed = (res?.feeds ?? [])[0];
+        return { keys: Object.keys(res ?? {}), feedKeys: Object.keys(feed ?? {}), feed: shallow(feed, 0, 4), inst: shallow((res?.inst ?? [])[0], 0, 4) };
+      }
+      case 'methods': {
+        // 看内核某个 service 有哪些方法：?kind=methods&service=getGroupService&match=ulletin
+        const s = (ctx.core as any)?.context?.session;
+        const name = req.url.searchParams.get('service') ?? 'getGroupService';
+        const svc = typeof s?.[name] === 'function' ? s[name]() : null;
+        const match = req.url.searchParams.get('match') ?? '';
+        const names = new Set<string>();
+        for (let o = svc; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) for (const k of Object.getOwnPropertyNames(o)) names.add(k);
+        return [...names].filter((k) => k.toLowerCase().includes(match.toLowerCase())).sort();
+      }
       default:
-        return { kinds: ['recent', 'groups', 'fav', 'ob11', 'history'], apis: Object.keys(apis) };
+        return { kinds: ['recent', 'groups', 'fav', 'ob11', 'history', 'methods'], apis: Object.keys(apis) };
     }
   });
 }

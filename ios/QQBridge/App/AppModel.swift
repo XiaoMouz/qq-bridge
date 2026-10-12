@@ -42,6 +42,14 @@ final class AppModel {
   var banner: InAppBanner?
   /// 点了横幅：快速回复的浮层。
   var quickReplyChat: Int64?
+  /// 跳到某个会话的某条消息（从查找聊天记录、共享媒体等子页面回到聊天看上下文）。
+  var messageJump: MessageJump?
+
+  func openMessage(chatId: Int64, seq: Int64) {
+    messageJump = MessageJump(chatId: chatId, seq: seq)
+    if openChatId != chatId { pendingChat = chatId }
+  }
+
   /// 底部的一行提示（例如转发成功），带会话的点一下打开那个会话。
   private(set) var toast: AppToast?
 

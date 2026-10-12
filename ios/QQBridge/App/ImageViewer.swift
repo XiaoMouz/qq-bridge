@@ -609,7 +609,28 @@ final class ImagePage {
     if !placeholder.isEmpty, let file = try? await session.media.file(for: placeholder, chatId: chatId) {
       image = await Self.decode(file)
     }
-    guard let sha = await originalSha(), let file = try? await session.media.file(for: sha, chatId: chatId) else {
+    // 原图：服务端还在下载就接着等（每 2 秒问一次，最多 2 分钟）；网络出错重试几次。只有确实拿不到（过期、失败）才提示。
+    var found: (String, URL)?
+    for attempt in 0..<60 {
+      if Task.isCancelled { return }
+      switch await originalSha() {
+      case .ready(let sha):
+        if let file = try? await session.media.file(for: sha, chatId: chatId) {
+          found = (sha, file)
+        } else if attempt >= 3 {
+          originalFailed = true
+          return
+        }
+      case .gone:
+        originalFailed = true
+        return
+      case .waiting:
+        break
+      }
+      if found != nil { break }
+      try? await Task.sleep(for: .seconds(2))
+    }
+    guard let (sha, file) = found else {
       originalFailed = true
       return
     }
@@ -617,11 +638,19 @@ final class ImagePage {
     original = (sha, file)
   }
 
+  enum OriginalState {
+    case ready(String)
+    /// 服务端还在下载（或这次请求出错了），等会儿再问。
+    case waiting
+    /// 过期、失败，QQ 上也拿不到了。
+    case gone
+  }
+
   /// 原图的 sha256：服务端有（或能从 QQ 拉回）就直接用；从没下过的先让服务端当场从 QQ 拉。
-  private func originalSha() async -> String? {
+  private func originalSha() async -> OriginalState {
     let media = target.media
-    if !media.sha256.isEmpty { return media.sha256 }
-    guard target.seq > 0 else { return nil }
+    if !media.sha256.isEmpty { return .ready(media.sha256) }
+    guard target.seq > 0 else { return .gone }
     var ref = Qqbridge_V1_MediaRef()
     ref.chatID = target.chatId
     ref.seq = target.seq
@@ -629,9 +658,14 @@ final class ImagePage {
     var req = Qqbridge_V1_RequestMediaRequest()
     req.refs = [ref]
     req.original = true
-    let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
-    guard let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty else { return nil }
-    return got.sha256
+    guard let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get(), let got = res.media.first else {
+      return .waiting
+    }
+    if got.state == .stored, !got.sha256.isEmpty { return .ready(got.sha256) }
+    switch got.state {
+    case .expired, .failed, .skipped: return .gone
+    default: return .waiting
+    }
   }
 
   nonisolated static func decode(_ file: URL) async -> UIImage? {

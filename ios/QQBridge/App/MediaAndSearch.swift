@@ -109,9 +109,21 @@ struct MediaViewer: View {
       var req = Qqbridge_V1_RequestMediaRequest()
       req.refs = [ref]
       req.original = true
-      let res = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get()
+      // 服务端还在下载就接着等（每 2 秒问一次，最多 10 分钟）；只有过期、失败才提示拿不到。
+      var got: Qqbridge_V1_MediaInfo?
+      for _ in 0..<300 {
+        if Task.isCancelled { return }
+        if let m = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get().media.first {
+          if m.state == .stored, !m.sha256.isEmpty {
+            got = m
+            break
+          }
+          if m.state == .expired || m.state == .failed || m.state == .skipped { break }
+        }
+        try? await Task.sleep(for: .seconds(2))
+      }
       fetching = false
-      guard let got = res?.media.first, got.state == .stored, !got.sha256.isEmpty else {
+      guard let got else {
         videoMessage = "视频已过期，QQ 上也拿不到了"
         return
       }
@@ -411,111 +423,6 @@ struct StickerPanel: View {
       // 没准备好的（下载失败、超时）：允许下次显示到时再要。
       for m in batch where prepared[m] == nil { requested.remove(m) }
     }
-  }
-}
-
-// MARK: - 会话内搜索、共享媒体
-
-struct ChatSearchView: View {
-  let session: Session
-  let chatId: Int64
-  @State private var query = ""
-  @State private var results: [Qqbridge_V1_Message] = []
-  @State private var searching = false
-
-  var body: some View {
-    List(results, id: \.searchKey) { m in
-      VStack(alignment: .leading, spacing: 4) {
-        HStack {
-          Text(senderName(m)).font(.caption.bold())
-          Spacer()
-          Text(Format.chatTime(m.time)).font(.caption2).foregroundStyle(.secondary)
-        }
-        Text(Format.preview(m)).font(.subheadline).lineLimit(4)
-      }
-    }
-    .listStyle(.plain)
-    .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
-    .onSubmit(of: .search) { Task { await search() } }
-    .navigationTitle("查找聊天记录")
-    .navigationBarTitleDisplayMode(.inline)
-    .overlay {
-      if searching { ProgressView() } else if results.isEmpty, !query.isEmpty { ContentUnavailableView.search(text: query) }
-    }
-  }
-
-  private func senderName(_ m: Qqbridge_V1_Message) -> String {
-    guard let d = try? session.store.dialog(chatId: chatId) else { return String(m.senderID) }
-    return (try? session.store.userName(qqAccountId: d.qqAccountID, userId: m.senderID)) ?? String(m.senderID)
-  }
-
-  private func search() async {
-    let q = query.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return }
-    searching = true
-    defer { searching = false }
-    var req = Qqbridge_V1_SearchMessagesRequest()
-    req.query = q
-    req.chatID = chatId
-    req.limit = 100
-    results = (try? await session.api.messages.searchMessages(request: req, headers: session.api.headers).get().messages) ?? []
-  }
-}
-
-struct SharedMediaView: View {
-  let session: Session
-  let chatId: Int64
-  @State private var items: [Qqbridge_V1_SharedMedia] = []
-  @State private var next: Int64 = 0
-  @State private var done = false
-  @State private var target: MediaTarget?
-
-  var body: some View {
-    ScrollView {
-      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 3), spacing: 2) {
-        ForEach(items, id: \.key) { item in
-          tile(item)
-            .onAppear { if item.key == items.last?.key { Task { await load() } } }
-        }
-      }
-    }
-    .navigationTitle("图片与视频")
-    .navigationBarTitleDisplayMode(.inline)
-    .mediaViewer(item: $target, session: session, chatId: chatId)
-    .task { await load() }
-  }
-
-  @ViewBuilder private func tile(_ item: Qqbridge_V1_SharedMedia) -> some View {
-    let media: Qqbridge_V1_MediaInfo? = {
-      switch item.segment.kind {
-      case .image(let i): return i.media
-      case .video(let v): return v.media
-      default: return nil
-      }
-    }()
-    if let media {
-      CachedImage(sha256: media.thumbSha256, chatId: chatId) { Rectangle().fill(.quaternary) }
-        .aspectRatio(1, contentMode: .fill)
-        .frame(minHeight: 120)
-        .clipped()
-        .overlay(alignment: .bottomTrailing) {
-          if item.kind == .video { Image(systemName: "play.fill").foregroundStyle(.white).padding(6) }
-        }
-        .onTapGesture { target = MediaTarget(kind: item.kind == .video ? .video : .image, media: media, chatId: chatId, seq: item.seq) }
-    }
-  }
-
-  private func load() async {
-    guard !done else { return }
-    var req = Qqbridge_V1_ListSharedMediaRequest()
-    req.chatID = chatId
-    req.kinds = [.image, .video]
-    req.beforeSeq = next
-    req.limit = 60
-    guard let res = try? await session.api.messages.listSharedMedia(request: req, headers: session.api.headers).get() else { return }
-    items += res.items
-    next = res.nextBeforeSeq
-    if next == 0 { done = true }
   }
 }
 

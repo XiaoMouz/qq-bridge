@@ -174,6 +174,19 @@ enum ImageDecoder {
     guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
     return UIImage(cgImage: cg)
   }
+
+  /// 同上，从内存里的数据解（网络图片）。
+  static func downsampled(data: Data, maxPixel: CGFloat) -> UIImage? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+    ]
+    guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+    return UIImage(cgImage: cg)
+  }
 }
 
 /// 播放 UIImage 动图（SwiftUI 的 Image 不会动）。按图片比例适应给定的空间。

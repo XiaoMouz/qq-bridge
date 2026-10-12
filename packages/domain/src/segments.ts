@@ -100,7 +100,7 @@ export function plainText(segments: readonly Segment[]): string {
         case 'market_face':
           return seg.summary ?? '[表情]';
         case 'light_app':
-          return `[卡片] ${seg.appName}`;
+          return cardText(seg.json);
         case 'xml':
           return '[卡片]';
         case 'markdown':
@@ -125,4 +125,23 @@ export function updateMediaInfo(
     }
     return seg;
   });
+}
+
+/**
+ * 卡片（小程序、分享、群相册……）的一句话：卡片自带的提示（「[QQ小程序]标题」「群相册《xx》」），
+ * 没有就用里面的标题 / 简介；都没有才是「[卡片]」（不显示 com.tencent.xxx 这种内部名字）。
+ */
+export function cardText(json: string): string {
+  try {
+    const obj = JSON.parse(json) as { prompt?: unknown; meta?: Record<string, unknown> };
+    if (typeof obj.prompt === 'string' && obj.prompt.trim()) return obj.prompt.trim();
+    for (const v of Object.values(obj.meta ?? {})) {
+      const d = v as { title?: unknown; desc?: unknown };
+      const title = typeof d?.title === 'string' && d.title.trim() ? d.title.trim() : typeof d?.desc === 'string' ? d.desc.trim() : '';
+      if (title) return `[卡片] ${title}`;
+    }
+  } catch {
+    // 不是 JSON：只显示「[卡片]」。
+  }
+  return '[卡片]';
 }

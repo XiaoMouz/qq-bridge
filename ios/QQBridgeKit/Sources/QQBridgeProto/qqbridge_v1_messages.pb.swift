@@ -170,6 +170,15 @@ public nonisolated struct Qqbridge_V1_ListSharedMediaRequest: Sendable {
 
   public var limit: Int32 = 0
 
+  /// 排序：空 / "time_desc"（新的在前，按 before_seq 翻页）、"time_asc"、"size_desc"、"sender"（按发送者再按时间），
+  /// 后三种按 offset 翻页。
+  public var sort: String = String()
+
+  public var offset: Int32 = 0
+
+  /// 只看某个人发的（0 = 所有人）。
+  public var senderID: Int64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -211,6 +220,11 @@ public nonisolated struct Qqbridge_V1_SharedMedia: @unchecked Sendable {
   /// Clears the value of `segment`. Subsequent reads from it will return its default value.
   public mutating func clearSegment() {_uniqueStorage()._segment = nil}
 
+  public var size: UInt64 {
+    get {_storage._size}
+    set {_uniqueStorage()._size = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -227,6 +241,9 @@ public nonisolated struct Qqbridge_V1_ListSharedMediaResponse: Sendable {
 
   /// 下一页的 before_seq；0 表示没有更多了。
   public var nextBeforeSeq: Int64 = 0
+
+  /// 按 offset 翻页时下一页的 offset；0 表示没有更多了。
+  public var nextOffset: Int32 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -734,7 +751,7 @@ nonisolated extension Qqbridge_V1_GetForwardResponse: SwiftProtobuf.Message, Swi
 
 nonisolated extension Qqbridge_V1_ListSharedMediaRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListSharedMediaRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}kinds\0\u{3}before_seq\0\u{1}limit\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}kinds\0\u{3}before_seq\0\u{1}limit\0\u{1}sort\0\u{1}offset\0\u{3}sender_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -746,6 +763,9 @@ nonisolated extension Qqbridge_V1_ListSharedMediaRequest: SwiftProtobuf.Message,
       case 2: try { try decoder.decodeRepeatedEnumField(value: &self.kinds) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.beforeSeq) }()
       case 4: try { try decoder.decodeSingularInt32Field(value: &self.limit) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.sort) }()
+      case 6: try { try decoder.decodeSingularInt32Field(value: &self.offset) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.senderID) }()
       default: break
       }
     }
@@ -764,6 +784,15 @@ nonisolated extension Qqbridge_V1_ListSharedMediaRequest: SwiftProtobuf.Message,
     if self.limit != 0 {
       try visitor.visitSingularInt32Field(value: self.limit, fieldNumber: 4)
     }
+    if !self.sort.isEmpty {
+      try visitor.visitSingularStringField(value: self.sort, fieldNumber: 5)
+    }
+    if self.offset != 0 {
+      try visitor.visitSingularInt32Field(value: self.offset, fieldNumber: 6)
+    }
+    if self.senderID != 0 {
+      try visitor.visitSingularInt64Field(value: self.senderID, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -772,6 +801,9 @@ nonisolated extension Qqbridge_V1_ListSharedMediaRequest: SwiftProtobuf.Message,
     if lhs.kinds != rhs.kinds {return false}
     if lhs.beforeSeq != rhs.beforeSeq {return false}
     if lhs.limit != rhs.limit {return false}
+    if lhs.sort != rhs.sort {return false}
+    if lhs.offset != rhs.offset {return false}
+    if lhs.senderID != rhs.senderID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -779,7 +811,7 @@ nonisolated extension Qqbridge_V1_ListSharedMediaRequest: SwiftProtobuf.Message,
 
 nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SharedMedia"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seq\0\u{1}time\0\u{3}sender_id\0\u{1}kind\0\u{1}segment\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seq\0\u{1}time\0\u{3}sender_id\0\u{1}kind\0\u{1}segment\0\u{1}size\0")
 
   fileprivate class _StorageClass {
     var _seq: Int64 = 0
@@ -787,6 +819,7 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
     var _senderID: Int64 = 0
     var _kind: Qqbridge_V1_MediaKind = .unspecified
     var _segment: Qqbridge_V1_Segment? = nil
+    var _size: UInt64 = 0
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -802,6 +835,7 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
       _senderID = source._senderID
       _kind = source._kind
       _segment = source._segment
+      _size = source._size
     }
   }
 
@@ -825,6 +859,7 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
         case 3: try { try decoder.decodeSingularInt64Field(value: &_storage._senderID) }()
         case 4: try { try decoder.decodeSingularEnumField(value: &_storage._kind) }()
         case 5: try { try decoder.decodeSingularMessageField(value: &_storage._segment) }()
+        case 6: try { try decoder.decodeSingularUInt64Field(value: &_storage._size) }()
         default: break
         }
       }
@@ -852,6 +887,9 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
       try { if let v = _storage._segment {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
       } }()
+      if _storage._size != 0 {
+        try visitor.visitSingularUInt64Field(value: _storage._size, fieldNumber: 6)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -866,6 +904,7 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
         if _storage._senderID != rhs_storage._senderID {return false}
         if _storage._kind != rhs_storage._kind {return false}
         if _storage._segment != rhs_storage._segment {return false}
+        if _storage._size != rhs_storage._size {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -877,7 +916,7 @@ nonisolated extension Qqbridge_V1_SharedMedia: SwiftProtobuf.Message, SwiftProto
 
 nonisolated extension Qqbridge_V1_ListSharedMediaResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListSharedMediaResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}items\0\u{3}next_before_seq\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}items\0\u{3}next_before_seq\0\u{3}next_offset\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -887,6 +926,7 @@ nonisolated extension Qqbridge_V1_ListSharedMediaResponse: SwiftProtobuf.Message
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.items) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.nextBeforeSeq) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.nextOffset) }()
       default: break
       }
     }
@@ -899,12 +939,16 @@ nonisolated extension Qqbridge_V1_ListSharedMediaResponse: SwiftProtobuf.Message
     if self.nextBeforeSeq != 0 {
       try visitor.visitSingularInt64Field(value: self.nextBeforeSeq, fieldNumber: 2)
     }
+    if self.nextOffset != 0 {
+      try visitor.visitSingularInt32Field(value: self.nextOffset, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_ListSharedMediaResponse, rhs: Qqbridge_V1_ListSharedMediaResponse) -> Bool {
     if lhs.items != rhs.items {return false}
     if lhs.nextBeforeSeq != rhs.nextBeforeSeq {return false}
+    if lhs.nextOffset != rhs.nextOffset {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

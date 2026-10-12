@@ -4,53 +4,6 @@ import QQBridgeProto
 import QuickLook
 import SwiftUI
 
-struct GroupNoticesView: View {
-  let session: Session
-  let groupId: Int64
-  @State private var notices: [Qqbridge_V1_GroupNotice] = []
-  @State private var state = LoadState.loading
-
-  var body: some View {
-    List(notices, id: \.id) { n in
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text(n.senderName).font(.subheadline.bold())
-          Spacer()
-          Text(Format.date(n.time)).font(.caption).foregroundStyle(.secondary)
-        }
-        Text(n.text).textSelection(.enabled)
-        ForEach(n.imageUrls, id: \.self) { url in
-          AsyncImage(url: URL(string: url)) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: {
-            RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(height: 160)
-          }
-          .clipShape(RoundedRectangle(cornerRadius: 8))
-        }
-        HStack(spacing: 12) {
-          if n.confirmRequired { Label("需确认", systemImage: "checkmark.seal").font(.caption).foregroundStyle(.orange) }
-          Text("\(n.readCount) 人已读").font(.caption).foregroundStyle(.secondary)
-        }
-      }
-      .padding(.vertical, 4)
-    }
-    .overlay { state.overlay(empty: notices.isEmpty, emptyText: "没有群公告", icon: "megaphone") }
-    .navigationTitle("群公告")
-    .navigationBarTitleDisplayMode(.inline)
-    .refreshable { await load() }
-    .task { await load() }
-  }
-
-  private func load() async {
-    var req = Qqbridge_V1_ListGroupNoticesRequest()
-    req.groupID = groupId
-    do {
-      notices = try await session.api.contacts.listGroupNotices(request: req, headers: session.api.headers).get().notices
-      state = .loaded
-    } catch {
-      state = .failed(LoadState.describe(error))
-    }
-  }
-}
-
 struct GroupEssenceView: View {
   let session: Session
   let groupId: Int64
@@ -58,6 +11,16 @@ struct GroupEssenceView: View {
   @State private var items: [Qqbridge_V1_GroupEssence] = []
   @State private var state = LoadState.loading
   @State private var media: MediaTarget?
+  @State private var requester = MediaRequester()
+
+  /// 存档里的图片还没有缩略图（按需的、没下载的）。
+  private var waitingForThumbs: Bool {
+    items.contains { e in
+      e.hasMessage && e.message.segments.contains { seg in
+        if case .image(let i) = seg.kind { i.media.thumbSha256.isEmpty && i.media.state != .stored && i.media.state != .expired && i.media.state != .failed } else { false }
+      }
+    }
+  }
 
   var body: some View {
     List(items, id: \.seq) { e in
@@ -73,7 +36,9 @@ struct GroupEssenceView: View {
           if !text.isEmpty { Text(text).textSelection(.enabled) }
           ForEach(Array(e.message.segments.enumerated()), id: \.offset) { _, seg in
             if case .image(let i) = seg.kind {
-              MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId)
+              MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId, onNeedThumb: {
+                requester.want(chatId: chatId, seq: e.seq, ord: i.media.ord, session: session)
+              })
                 .onTapGesture { media = MediaTarget(kind: .image, media: i.media, chatId: chatId, seq: e.seq) }
             }
           }
@@ -99,7 +64,15 @@ struct GroupEssenceView: View {
     .navigationBarTitleDisplayMode(.inline)
     .mediaViewer(item: $media, session: session, chatId: chatId)
     .refreshable { await load() }
-    .task { await load() }
+    .task {
+      await load()
+      // 图片缩略图刚开始下载：每 3 秒重新拉一次列表，下好就显示（最多 1 分钟），不用退出再进。
+      for _ in 0..<20 where waitingForThumbs {
+        try? await Task.sleep(for: .seconds(3))
+        if Task.isCancelled { return }
+        await load()
+      }
+    }
   }
 
   private func load() async {

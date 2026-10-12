@@ -23,6 +23,9 @@ service ContactService {
   rpc ListGroupNotices(ListGroupNoticesRequest) returns (ListGroupNoticesResponse);
   rpc ListGroupEssence(ListGroupEssenceRequest) returns (ListGroupEssenceResponse);
   rpc ListGroupFiles(ListGroupFilesRequest) returns (ListGroupFilesResponse);
+  // 群相册：相册列表、某个相册里的照片 / 视频（按上传批次分页，图片链接是 QQ 的公开链接）。
+  rpc ListGroupAlbums(ListGroupAlbumsRequest) returns (ListGroupAlbumsResponse);
+  rpc ListGroupAlbumMedia(ListGroupAlbumMediaRequest) returns (ListGroupAlbumMediaResponse);
   // 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
   rpc FetchGroupFile(FetchGroupFileRequest) returns (FetchGroupFileResponse);
   // 删除好友（同时从 QQ 删除，对方的好友列表里也会没有你）。
@@ -164,6 +167,10 @@ message GroupNotice {
   // 需要群成员确认。
   bool confirm_required = 7;
   uint32 read_count = 8;
+  // 自己已读 / 已确认。
+  bool read_by_me = 9;
+  // 置顶。
+  bool pinned = 10;
 }
 
 message ListGroupNoticesResponse {
@@ -237,4 +244,54 @@ message FetchGroupFileResponse {
   string sha256 = 1;
   uint64 size = 2;
   string mime = 3;
+}
+
+message ListGroupAlbumsRequest {
+  int64 group_id = 1;
+}
+
+message GroupAlbum {
+  string id = 1;
+  string name = 2;
+  string desc = 3;
+  string cover_url = 4;
+  uint32 count = 5;
+  int64 creator_id = 6;
+  string creator_name = 7;
+  // unix 秒。
+  int64 updated_at = 8;
+}
+
+message ListGroupAlbumsResponse {
+  repeated GroupAlbum albums = 1;
+}
+
+message ListGroupAlbumMediaRequest {
+  int64 group_id = 1;
+  string album_id = 2;
+  // 翻页：上一页返回的 next_cursor（空 = 从最新开始）。
+  string cursor = 3;
+}
+
+message GroupAlbumMedia {
+  string id = 1;
+  // 列表里显示的小图（约 400px）和看大图用的原图。
+  string thumb_url = 2;
+  string url = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+  bool is_video = 6;
+  string video_url = 7;
+  int64 uploader_id = 8;
+  string uploader_name = 9;
+  // unix 秒。
+  int64 time = 10;
+  string batch_id = 11;
+}
+
+message ListGroupAlbumMediaResponse {
+  repeated GroupAlbumMedia media = 1;
+  string next_cursor = 2;
+  bool has_more = 3;
+  string album_name = 4;
 }

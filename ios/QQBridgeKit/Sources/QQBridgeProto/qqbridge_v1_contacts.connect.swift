@@ -49,6 +49,13 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `listGroupFiles`(request: Qqbridge_V1_ListGroupFilesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupFilesResponse>
 
+    /// 群相册：相册列表、某个相册里的照片 / 视频（按上传批次分页，图片链接是 QQ 的公开链接）。
+    @available(iOS 13, *)
+    func `listGroupAlbums`(request: Qqbridge_V1_ListGroupAlbumsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupAlbumsResponse>
+
+    @available(iOS 13, *)
+    func `listGroupAlbumMedia`(request: Qqbridge_V1_ListGroupAlbumMediaRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupAlbumMediaResponse>
+
     /// 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
     @available(iOS 13, *)
     func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse>
@@ -117,6 +124,16 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
     }
 
     @available(iOS 13, *)
+    public func `listGroupAlbums`(request: Qqbridge_V1_ListGroupAlbumsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListGroupAlbumsResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/ListGroupAlbums", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `listGroupAlbumMedia`(request: Qqbridge_V1_ListGroupAlbumMediaRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListGroupAlbumMediaResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/ListGroupAlbumMedia", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse> {
         return await self.client.unary(path: "/qqbridge.v1.ContactService/FetchGroupFile", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -138,6 +155,8 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let listGroupNotices = Connect.MethodSpec(name: "ListGroupNotices", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupEssence = Connect.MethodSpec(name: "ListGroupEssence", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupFiles = Connect.MethodSpec(name: "ListGroupFiles", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let listGroupAlbums = Connect.MethodSpec(name: "ListGroupAlbums", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let listGroupAlbumMedia = Connect.MethodSpec(name: "ListGroupAlbumMedia", service: "qqbridge.v1.ContactService", type: .unary)
             public static let fetchGroupFile = Connect.MethodSpec(name: "FetchGroupFile", service: "qqbridge.v1.ContactService", type: .unary)
             public static let deleteFriend = Connect.MethodSpec(name: "DeleteFriend", service: "qqbridge.v1.ContactService", type: .unary)
         }

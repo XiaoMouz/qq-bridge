@@ -40,6 +40,8 @@ struct ChatScreen: View {
   @State private var actions = ChatActions()
   @State private var sendError: String?
   @State private var profileUser: ProfileTarget?
+  /// 点开的群相册（群相册卡片）。
+  @State private var albumTarget: AlbumRef?
   /// 点了消息里的号码：查 QQ 用户 / 拨打 / 复制。
   @State private var tappedNumber: String?
   @State private var mediaTarget: MediaTarget?
@@ -404,6 +406,21 @@ struct ChatScreen: View {
       Button("撤回", role: .destructive) { recall(m) }
     }
     .modifier(NumberActions(number: $tappedNumber, onProfile: { profileUser = ProfileTarget(userId: $0) }, onCopied: { show("已复制") }))
+    .modifier(MessageJumpHandler(chatId: chatId) { seq in
+      // 从详情页的查找、共享媒体跳回来：先收起详情页，再定位。
+      showInfo = false
+      profileUser = nil
+      Task {
+        try? await Task.sleep(for: .milliseconds(items.isEmpty ? 1200 : 500))
+        _ = await jump(to: seq)
+      }
+    })
+    .sheet(item: $albumTarget) { a in
+      NavigationStack {
+        AlbumMediaView(session: session, groupId: a.groupId, albumId: a.albumId, title: a.title)
+          .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { albumTarget = nil } } }
+      }
+    }
     .alert("发送失败", isPresented: .constant(sendError != nil), presenting: sendError) { _ in
       Button("好") { sendError = nil }
     } message: { Text($0) }
@@ -857,6 +874,7 @@ struct ChatScreen: View {
     }
     actions.showProfile = { profileUser = ProfileTarget(userId: $0) }
     actions.openNumber = { tappedNumber = $0 }
+    actions.openAlbum = { albumTarget = $0 }
     actions.botButton = { button, botId in pressBotButton(button, botId: botId) }
     actions.react = { m, emoji in
       Task {
@@ -1299,4 +1317,12 @@ struct NumberActions: ViewModifier {
       }
     }
   }
+}
+
+/// 群相册卡片指向的相册。
+struct AlbumRef: Identifiable, Hashable {
+  let groupId: Int64
+  let albumId: String
+  let title: String
+  var id: String { "\(groupId):\(albumId)" }
 }

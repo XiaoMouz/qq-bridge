@@ -371,6 +371,8 @@ enum Format {
   }
 
   private static func content(_ m: Qqbridge_V1_Message) -> String {
+    // 卡片：用卡片自己的标题（以前的数据里 text 是「[卡片] com.tencent.xxx」）。
+    for seg in m.segments { if case .lightApp(let a) = seg.kind { return CardText.from(json: a.json, app: a.appName) } }
     if !m.text.isEmpty { return m.text }
     for seg in m.segments {
       switch seg.kind {
