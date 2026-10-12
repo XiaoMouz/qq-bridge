@@ -281,7 +281,7 @@ struct DialogRow: View {
     let selfUin = (try? session?.store.selfUin(qqAccountId: item.dialog.qqAccountID)) ?? 0
     if m.senderID == selfUin { return "我" }
     guard item.isGroup else { return nil }
-    if !m.senderName.isEmpty { return m.senderName }
+    if !m.senderName.isEmpty, !MemberName.isBogus(m.senderName) { return m.senderName }
     return (try? session?.store.userName(qqAccountId: item.dialog.qqAccountID, userId: m.senderID)) ?? String(m.senderID)
   }
 

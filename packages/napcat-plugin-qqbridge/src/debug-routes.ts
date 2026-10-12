@@ -40,8 +40,17 @@ export function registerDebugRoutes(server: ControlServer, ctx: NapCatPluginCont
         const params = JSON.parse(req.url.searchParams.get('params') ?? '{}');
         return shallow(await callAction(ctx, name, params), 0, 5);
       }
+      case 'history': {
+        // 看某个群某段的原始消息（灰条等 OneBot 不转发的元素）：?kind=history&group=1&seq=100&count=10
+        const peer = { chatType: 2, peerUid: req.url.searchParams.get('group') ?? '', guildId: '' };
+        const res = await apis.MsgApi.getMsgsBySeqAndCount(peer, req.url.searchParams.get('seq') ?? '0', Number(req.url.searchParams.get('count') ?? 10), true, true);
+        return (res?.msgList ?? []).map((m: any) => ({
+          msgSeq: m.msgSeq, msgType: m.msgType, subMsgType: m.subMsgType, senderUin: m.senderUin, sendMemberName: m.sendMemberName, msgTime: m.msgTime,
+          elements: (m.elements ?? []).filter((e: any) => e.elementType !== 1 && e.elementType !== 2).map((e: any) => shallow(e, 0, 6)),
+        }));
+      }
       default:
-        return { kinds: ['recent', 'groups', 'fav', 'ob11'], apis: Object.keys(apis) };
+        return { kinds: ['recent', 'groups', 'fav', 'ob11', 'history'], apis: Object.keys(apis) };
     }
   });
 }

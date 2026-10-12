@@ -165,7 +165,16 @@ final class GroupMembers {
   /// 群里显示的名字：群名片 > 昵称。
   func displayName(_ userId: Int64) -> String? {
     guard let m = byId[userId] else { return nil }
-    return !m.card.isEmpty ? m.card : (!m.nickname.isEmpty ? m.nickname : nil)
+    return !m.card.isEmpty && !MemberName.isBogus(m.card) ? m.card : (!m.nickname.isEmpty ? m.nickname : nil)
+  }
+}
+
+/// QQ 有时把灰条（「A邀请B进入群聊，点击欢迎...」「A邀请您参加…」）或消息摘要（「A：[图片]…」）塞进群名片 / 发送者名字，
+/// 这些不是真名字（和服务端 upstream/napcat/names.ts 的规则一致）。
+enum MemberName {
+  static func isBogus(_ name: String) -> Bool {
+    if name.range(of: #"邀请.*([进加]入了?群聊|参加)"#, options: .regularExpression) != nil { return true }
+    return name.contains("：") && name.range(of: #"\[(图片|动画表情|表情|语音|视频|文件)\]|(…|\.\.\.)$"#, options: .regularExpression) != nil
   }
 }
 

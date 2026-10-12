@@ -84,7 +84,7 @@ struct MessageRow: View {
       }
       switch item {
       case .event(let e):
-        Notice(text: EventText.describe(e, context: context))
+        Notice(text: EventText.describe(e, context: context), people: EventText.people(e, context: context)) { context.actions.showProfile($0) }
       case .message(let m):
         if context.selection.active {
           // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
@@ -153,14 +153,36 @@ struct MessageRow: View {
 
 struct Notice: View {
   let text: String
+  /// 文字里出现的人（QQ 号 → 显示名）：名字点一下打开资料卡。
+  var people: [(id: Int64, name: String)] = []
+  var onPerson: (Int64) -> Void = { _ in }
+
   var body: some View {
-    Text(text)
+    Text(attributed)
+      .environment(\.openURL, OpenURLAction { url in
+        guard url.scheme == "qqbridge-user", let id = Int64(url.host() ?? "") else { return .systemAction }
+        onPerson(id)
+        return .handled
+      })
       .font(.caption)
       .foregroundStyle(.secondary)
       .multilineTextAlignment(.center)
       .padding(.horizontal, 10)
       .padding(.vertical, 4)
       .background(.quaternary.opacity(0.5), in: Capsule())
+  }
+
+  /// 把人名标成链接（同一个名字出现两次时按顺序各标一次）。
+  private var attributed: AttributedString {
+    var out = AttributedString(text)
+    var searchFrom = out.startIndex
+    for p in people where !p.name.isEmpty {
+      guard let range = out[searchFrom...].range(of: p.name) else { continue }
+      out[range].link = URL(string: "qqbridge-user://\(p.id)")
+      out[range].foregroundColor = .accentColor
+      searchFrom = range.upperBound
+    }
+    return out
   }
 }
 
@@ -402,7 +424,9 @@ enum Block {
       case .mention(let m):
         // 真正的 @（带了 QQ 号的）显示成徽章 + 头像；手打的 "@某某" 只是普通文字。
         cut()
-        runs.append(.mention(m.userID, name: m.name.isEmpty ? context.name(of: m.userID) : m.name, avatar: context.avatarImage(m.userID)))
+        // 消息里带的名字可能是被灰条占掉的假名片（「某某邀请您参加…」）：那就用群里的名字。
+        let name = m.name.isEmpty || MemberName.isBogus(m.name) ? context.name(of: m.userID) : m.name
+        runs.append(.mention(m.userID, name: name, avatar: context.avatarImage(m.userID)))
       case .mentionAll:
         var a = AttributedString("@全体成员 ")
         a.font = .body.bold()
@@ -948,13 +972,39 @@ enum CardText {
 
 /// 服务事件的一句话描述。
 enum EventText {
+  /// 灰条文字里按出现顺序会提到的人（用来把名字标成可点的链接）。
+  @MainActor static func people(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> [(id: Int64, name: String)] {
+    let actor = e.actorID == 0 ? nil : (id: e.actorID, name: context.name(of: e.actorID))
+    let target = e.targetID == 0 ? nil : (id: e.targetID, name: context.name(of: e.targetID))
+    let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
+    // 文字里目标在前的几种（「B 被 A 禁言」「B 被 A 移出了群聊」）。
+    let targetFirst = (e.kind == "mute" || e.kind == "unmute") || (e.kind == "member_leave" && ["kick", "kick_me"].contains(data["how"] as? String ?? ""))
+    let ordered = targetFirst ? [target, actor] : [actor, target]
+    return ordered.compactMap { $0 }
+  }
+
+  /// QQ 把灰条 / 消息摘要塞进名片缓存造成的假「修改了群名片」（新版服务端已不记，旧数据在这里藏掉）。
+  static func isBogusCardChange(_ e: Qqbridge_V1_ChatEvent) -> Bool {
+    guard e.kind == "card_change" else { return false }
+    let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
+    return MemberName.isBogus(data["cardNew"] as? String ?? "") || MemberName.isBogus(data["cardOld"] as? String ?? "")
+  }
+
   @MainActor static func describe(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> String {
     let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
     let actor = e.actorID == 0 ? "" : context.name(of: e.actorID)
     let target = e.targetID == 0 ? "" : context.name(of: e.targetID)
     switch e.kind {
-    case "member_join": return "\(target.isEmpty ? actor : target) 加入了群聊"
-    case "member_leave": return "\(target.isEmpty ? actor : target) 离开了群聊"
+    case "member_join":
+      // 邀请进群：带上邀请人（actor 是邀请人；同意申请进群时 actor 是同意的管理员，不写）。
+      if (data["via"] as? String) == "invite", !actor.isEmpty, !target.isEmpty, e.actorID != e.targetID {
+        return "\(actor) 邀请 \(target) 加入了群聊"
+      }
+      return "\(target.isEmpty ? actor : target) 加入了群聊"
+    case "member_leave":
+      let how = data["how"] as? String
+      if how == "kick" || how == "kick_me", !actor.isEmpty, !target.isEmpty { return "\(target) 被 \(actor) 移出了群聊" }
+      return "\(target.isEmpty ? actor : target) 离开了群聊"
     case "admin_set": return "\(target) 成为管理员"
     case "admin_unset": return "\(target) 不再是管理员"
     case "mute":

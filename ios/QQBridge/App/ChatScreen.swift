@@ -346,8 +346,8 @@ struct ChatScreen: View {
           selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
         }
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
-          // 旧数据里 NapCat 误报的"自己修改了群名片"（其实是群里的邀请灰条）：不显示。
-          items = list.filter { if case .event(let e) = $0 { !(e.kind == "card_change" && e.targetID == selfUin) } else { true } }
+          // 旧数据里的假「修改了群名片」（QQ 把邀请灰条塞进了名片缓存）：不显示。
+          items = list.filter { if case .event(let e) = $0 { !EventText.isBogusCardChange(e) } else { true } }
           lookup.update(items)
           itemsVersion += 1
           noteNewMessages()

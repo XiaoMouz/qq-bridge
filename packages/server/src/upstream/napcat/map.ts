@@ -14,6 +14,7 @@ import type {
   Segment,
 } from '@qqbridge/domain';
 import { NtChatType, NtElementType, type NapcatEvent, type NtElement, type NtRawMessage, type Ob11Segment } from './types.ts';
+import { isBogusMemberName, realMemberName } from './names.ts';
 
 export type UpstreamAction =
   | { type: 'message'; message: IncomingMessage; peers: PeerProfile[] }
@@ -90,9 +91,9 @@ function mapNotice(event: NapcatEvent, selfUin: number): UpstreamAction {
       return group(lift ? 'unmute' : 'mute', compactEvent({ actorId: opt(operatorId), targetId: opt(userId), data: { duration: int(event.duration), all: !userId } }));
     }
     case 'group_card':
-      // NapCat 会把群里「某某邀请某某进群，点击欢迎…」这类灰条误报成自己的群名片变化（新旧名片一个是空、一个是灰条文字）；
-      // 自己改群名片本来就知道，不记。
-      if (userId === selfUin) return ignore('own group card change');
+      // QQ 会把「某某邀请某某进入群聊，点击欢迎…」这条灰条的文字临时塞进某个成员（常常是自己）的群名片缓存，过一会儿再清掉，
+      // NapCat 两次都当成改名片上报。新旧名片里有这种文字的不是真改名片，不记（真正的邀请入群另有 group_increase 通知）。
+      if (isBogusMemberName(String(event.card_new ?? '')) || isBogusMemberName(String(event.card_old ?? ''))) return ignore('invite tip leaked into group card');
       if ((event.card_new ?? '') === (event.card_old ?? '')) return ignore('group card unchanged');
       return group('card_change', compactEvent({ targetId: opt(userId), data: { cardNew: event.card_new ?? '', cardOld: event.card_old ?? '' } }));
     case 'group_upload': {
@@ -395,7 +396,7 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
     peerId,
     seq,
     senderId,
-    ...((raw.sendMemberName || raw.sendNickName) ? { senderName: raw.sendMemberName || raw.sendNickName } : {}),
+    ...((realMemberName(raw.sendMemberName) || raw.sendNickName) ? { senderName: realMemberName(raw.sendMemberName) || raw.sendNickName } : {}),
     time,
     ...(raw.msgId ? { qqMsgId: raw.msgId } : {}),
     ...(int(raw.msgRandom) ? { random: int(raw.msgRandom) } : {}),

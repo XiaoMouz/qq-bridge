@@ -13,6 +13,7 @@ import type { MediaProcessor } from '../media/processing.ts';
 import type { MediaService } from '../media/service.ts';
 import { PEER_COLUMNS, toPeer, type PeerRow } from '../sync/rows.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
+import { realMemberName } from '../upstream/napcat/names.ts';
 
 export interface ContactOptions {
   /** 打开资料页时，缓存超过这么久才当场刷新。 */
@@ -554,7 +555,7 @@ export class ContactService {
                   values ${sql.join(
                     chunk.map(
                       (m) =>
-                        sql`(${qqAccountId}, ${groupId}, ${num(m.user_id)!}, ${str(m.nickname) ?? null}, ${str(m.card) ?? null},
+                        sql`(${qqAccountId}, ${groupId}, ${num(m.user_id)!}, ${str(m.nickname) ?? null}, ${realMemberName(m.card) ?? null},
                              ${m.role === 'owner' || m.role === 'admin' ? m.role : 'member'}, ${str(m.title) ?? null},
                              ${m.level === undefined || m.level === null ? null : String(m.level)},
                              ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)})`,
@@ -652,3 +653,4 @@ function muteState(info: Ob11, self: Ob11 | null): { muteAll: boolean; selfMuted
   }
   return out;
 }
+
