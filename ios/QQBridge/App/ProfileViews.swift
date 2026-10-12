@@ -9,7 +9,7 @@ struct UserProfileView: View {
   let userId: Int64
   let groupMember: Qqbridge_V1_GroupMember?
   var onMention: (() -> Void)? = nil
-  /// 从联系人点开：显示发消息、消息提醒、删除好友。
+  /// 旧参数（以前只有从联系人点开才显示消息设置、删除好友）：现在都按是不是好友决定，留着兼容调用处。
   var contactActions = false
   var onDeleted: (() -> Void)? = nil
   /// 从群里点开的资料卡：所在的群（发起私聊时对方不是好友就走群临时会话）。
@@ -27,11 +27,12 @@ struct UserProfileView: View {
     List {
       Section {
         HStack(spacing: 16) {
-          AvatarView(sha256: peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }, title: displayName, seed: userId, size: 72)
+          AvatarView(sha256: peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }, title: qqName, seed: userId, size: 72)
           VStack(alignment: .leading, spacing: 4) {
-            Text(displayName).font(.title3.bold())
-            if let p = peer, !p.remark.isEmpty, !p.name.isEmpty, p.remark != p.name {
-              Text("昵称：\(p.name)").font(.subheadline).foregroundStyle(.secondary)
+            // 顶部：备注 > QQ 昵称（群名片在下面「群内」里单独显示）。
+            Text(qqName).font(.title3.bold())
+            if let remark = peer?.remark, !remark.isEmpty, !nickname.isEmpty, remark != nickname {
+              Text("昵称：\(nickname)").font(.subheadline).foregroundStyle(.secondary)
             }
             Text("QQ \(String(userId))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).textSelection(.enabled)
           }
@@ -62,21 +63,18 @@ struct UserProfileView: View {
       if let onMention {
         Section { Button("@\(displayName)", systemImage: "at", action: onMention) }
       }
-      // 群成员资料卡：发消息（不是好友时走群临时会话）、加好友。
-      if !contactActions, userId != model.qqAccount?.uin {
+      // 不管从哪里点开都一样：发消息（不是好友、从群里点开时走群临时会话）；好友才有消息设置和删除好友，不是好友显示加好友。
+      if !isSelf {
         Section {
           Button("发消息", systemImage: "message") { Task { await openChat() } }
-          if !(peer?.isFriend ?? false) {
+          if !isFriend {
             Button("加好友", systemImage: "person.badge.plus") {
-              actionError = "QQ 的接口不支持主动加好友，请在手机 QQ 里添加 \(displayName)（QQ \(String(userId))）"
+              actionError = "QQ 的接口不支持主动加好友，请在手机 QQ 里添加 \(qqName)（QQ \(String(userId))）"
             }
           }
         }
       }
-      if contactActions {
-        Section {
-          Button("发消息", systemImage: "message") { Task { await openChat() } }
-        }
+      if !isSelf, isFriend {
         Section("消息设置") {
           Picker("消息提醒", selection: Binding(get: { dialog?.isMuted == true ? "muted" : "all" }, set: { p in Task { await setPolicy(p) } })) {
             Text("接收并提醒").tag("all")
@@ -91,14 +89,12 @@ struct UserProfileView: View {
             }))
           }
         }
-        if peer?.isFriend ?? true {
-          Section {
-            Button("删除好友", role: .destructive) { confirmDelete = true }
-              // 挂在按钮上：确认框从按钮弹出（挂在整个列表上会从屏幕中间 / 顶上冒出来，和按钮对不上）。
-              .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
-              }
-          }
+        Section {
+          Button("删除好友", role: .destructive) { confirmDelete = true }
+            // 挂在按钮上：确认框从按钮弹出（挂在整个列表上会从屏幕中间 / 顶上冒出来，和按钮对不上）。
+            .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
+              Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
+            }
         }
       }
     }
@@ -110,7 +106,6 @@ struct UserProfileView: View {
       Button("好") { actionError = nil }
     } message: { Text($0) }
     .task {
-      guard contactActions else { return }
       do {
         for try await list in session.store.observeDialogs(limit: 5000) {
           dialog = list.first { !$0.isGroup && $0.dialog.peerID == userId }
@@ -158,14 +153,28 @@ struct UserProfileView: View {
 
   private var peer: Qqbridge_V1_Peer? { profile?.peer ?? cached }
 
+  private var isSelf: Bool { userId == model.qqAccount?.uin }
+
+  /// 好友：资料里的 is_friend；还没拉到资料时看本地会话列表里有没有这个私聊。
+  private var isFriend: Bool { peer?.isFriend ?? (dialog != nil) }
+
+  /// QQ 昵称（不是群名片）。
+  private var nickname: String {
+    if let n = peer?.name, !n.isEmpty { return n }
+    if let n = groupMember?.nickname, !n.isEmpty { return n }
+    return ""
+  }
+
+  /// 顶部显示的名字：备注 > QQ 昵称 > 号码。
+  private var qqName: String {
+    if let r = peer?.remark, !r.isEmpty { return r }
+    return nickname.isEmpty ? String(userId) : nickname
+  }
+
+  /// @ 按钮、提示里用的名字：群里用群名片。
   private var displayName: String {
     if let m = groupMember, !m.card.isEmpty { return m.card }
-    if let p = peer {
-      if !p.remark.isEmpty { return p.remark }
-      if !p.name.isEmpty { return p.name }
-    }
-    if let m = groupMember, !m.nickname.isEmpty { return m.nickname }
-    return String(userId)
+    return qqName
   }
 }
 

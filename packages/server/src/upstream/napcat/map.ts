@@ -22,6 +22,8 @@ export type UpstreamAction =
   | { type: 'reaction'; scene: Scene; peerId: number; seq: number; change: ReactionChange }
   | { type: 'typing'; scene: Scene; peerId: number; userId: number; text: string }
   | { type: 'call'; state: PluginCallState }
+  /** 群员资料可能变了（群名片等）：去 QQ 重新拉这个人的资料。 */
+  | { type: 'memberChanged'; groupId: number; userId: number }
   | { type: 'ignore'; reason: string };
 
 /** 收件箱里的事件分类，便于排查和以后按类型重新处理。 */
@@ -90,8 +92,10 @@ function mapNotice(event: NapcatEvent, selfUin: number): UpstreamAction {
       return group(lift ? 'unmute' : 'mute', compactEvent({ actorId: opt(operatorId), targetId: opt(userId), data: { duration: int(event.duration), all: !userId } }));
     }
     case 'group_card':
-      if ((event.card_new ?? '') === (event.card_old ?? '')) return ignore('group card unchanged');
-      return group('card_change', compactEvent({ targetId: opt(userId), data: { cardNew: event.card_new ?? '', cardOld: event.card_old ?? '' } }));
+      // 不进时间线：NapCat 是拿每条消息带的发送者名片和缓存比出来的，有的消息不带名片（包括自己发的），
+      // 名片没改也会报「改成空」再「改回来」。只当作"这个人的资料可能变了"，去 QQ 重新拉一次。
+      if (!groupId || !userId) return ignore('group_card without group_id / user_id');
+      return { type: 'memberChanged', groupId, userId };
     case 'group_upload': {
       // 文件本身随群里的文件消息正常存档；这里只记"谁上传了什么"。
       const file = (event.file ?? {}) as { id?: string; name?: string; size?: number; busid?: number };

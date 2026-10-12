@@ -19,6 +19,8 @@ export interface InboxOptions {
   onMediaQueued?: () => void;
   /** 通话桥状态变化（CallService.onPluginState）；没配置通话时为空，事件记为 ignored。 */
   onCall?: (qqAccountId: number, state: PluginCallState) => Promise<boolean>;
+  /** 群员资料可能变了（ContactService.refreshMember）。 */
+  onMemberChanged?: (qqAccountId: number, groupId: number, userId: number) => void;
 }
 
 export type Outcome = { state: 'done' } | { state: 'ignored'; reason: string } | { state: 'failed'; error: string };
@@ -175,6 +177,10 @@ export class InboxProcessor {
           const handled = await this.opts.onCall(qqAccountId, action.state);
           return handled ? { state: 'done' } : { state: 'ignored', reason: 'idle or incomplete call state' };
         }
+        case 'memberChanged':
+          if (!this.opts.onMemberChanged) return { state: 'ignored', reason: 'member refresh is not configured' };
+          this.opts.onMemberChanged(qqAccountId, action.groupId, action.userId);
+          return { state: 'done' };
         case 'typing': {
           const pushed = await this.ingest.typing(qqAccountId, action.scene, action.peerId, action.userId, action.text);
           return pushed ? { state: 'done' } : { state: 'ignored', reason: 'typing in a chat that is not archived' };

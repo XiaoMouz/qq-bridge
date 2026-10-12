@@ -247,8 +247,11 @@ describe('NapCat mapping', () => {
     expect(ev({ notice_type: 'group_ban', sub_type: 'lift_ban', user_id: 20002, operator_id: 30003, duration: 0 })).toMatchObject({
       event: { kind: 'unmute', targetId: 20002 },
     });
-    expect(ev({ notice_type: 'group_card', user_id: 20002, card_new: '新名片', card_old: '旧名片' })).toMatchObject({
-      event: { kind: 'card_change', data: { cardNew: '新名片', cardOld: '旧名片' } },
+    // 群名片变化不进时间线，只触发重新拉这个人的资料。
+    expect(mapNapcatEvent({ post_type: 'notice', notice_type: 'group_card', group_id: 123456, user_id: 20002, card_new: '新名片', card_old: '旧名片' }, SELF)).toEqual({
+      type: 'memberChanged',
+      groupId: 123456,
+      userId: 20002,
     });
     expect(ev({ notice_type: 'group_upload', user_id: 20002, file: { id: 'enc', name: 'a.pdf', size: 1234, busid: 102 } })).toMatchObject({
       event: { kind: 'group_file', actorId: 20002, data: { name: 'a.pdf', size: 1234, fileId: 'enc', busid: 102 } },

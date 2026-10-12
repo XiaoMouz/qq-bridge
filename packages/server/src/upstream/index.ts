@@ -27,6 +27,7 @@ export function createUpstream(
     onMediaQueued?: () => void;
     activeChats?: Pick<ActiveChats, 'chatIds'>;
     onCall?: InboxOptions['onCall'];
+    onMemberChanged?: InboxOptions['onMemberChanged'];
   } = {},
 ) {
   const log = logger.child({ component: 'upstream' });
@@ -35,6 +36,7 @@ export function createUpstream(
     logger: log,
     ...(hooks.onMediaQueued ? { onMediaQueued: hooks.onMediaQueued } : {}),
     ...(hooks.onCall ? { onCall: hooks.onCall } : {}),
+    ...(hooks.onMemberChanged ? { onMemberChanged: hooks.onMemberChanged } : {}),
   });
   const history = new HoleFiller(db, hub, inbox, hooks.activeChats ?? null, {
     requestIntervalMs: config.backfillIntervalMs,

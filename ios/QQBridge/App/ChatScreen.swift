@@ -346,7 +346,8 @@ struct ChatScreen: View {
           selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
         }
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
-          items = list
+          // 群名片变化不显示（旧数据里存过的也藏掉）。
+          items = list.filter { if case .event(let e) = $0 { e.kind != "card_change" } else { true } }
           lookup.update(items)
           itemsVersion += 1
           noteNewMessages()

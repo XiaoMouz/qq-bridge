@@ -518,6 +518,45 @@ export class ContactService {
   }
 
   private readonly muteCheckedAt = new Map<string, number>();
+  private readonly memberRefreshAt = new Map<string, number>();
+
+  /**
+   * 群员资料可能变了（收到群名片变化）：去 QQ 拉这个人的群名片、身份、头衔、QQ 昵称写回（后台进行）。
+   * NapCat 常常连着报两次（改成空、再改回来），同一个人 30 秒内只拉一次，并且晚 3 秒再拉，等第二次也到了。
+   */
+  refreshMember(qqAccountId: number, groupId: number, userId: number): void {
+    const key = `${qqAccountId}:${groupId}:${userId}`;
+    if (Date.now() - (this.memberRefreshAt.get(key) ?? 0) < 30_000) return;
+    this.memberRefreshAt.set(key, Date.now());
+    if (this.memberRefreshAt.size > 5000) this.memberRefreshAt.delete(this.memberRefreshAt.keys().next().value!);
+    setTimeout(() => {
+      void (async () => {
+        const m = await this.ob11<Ob11>(qqAccountId, 'get_group_member_info', { group_id: String(groupId), user_id: String(userId), no_cache: true });
+        if (!m || !num(m.user_id)) return;
+        await this.db.execute(
+          sql`insert into group_members (qq_account_id, group_id, user_id, nickname, card, role, title, level, joined_at, last_sent_at)
+              values (${qqAccountId}, ${groupId}, ${userId}, ${str(m.nickname) ?? null}, ${str(m.card) ?? null},
+                      ${m.role === 'owner' || m.role === 'admin' ? m.role : 'member'}, ${str(m.title) ?? null},
+                      ${m.level === undefined || m.level === null ? null : String(m.level)}, ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)})
+              on conflict (qq_account_id, group_id, user_id) do update
+                 set nickname = excluded.nickname, card = excluded.card, role = excluded.role, title = excluded.title,
+                     level = excluded.level, joined_at = excluded.joined_at, last_sent_at = excluded.last_sent_at, updated_at = now()`,
+        );
+        if (str(m.nickname)) await this.ingest.upsertPeer(qqAccountId, { kind: 'user', peerId: userId, name: str(m.nickname)! });
+        // 自己：顺带更新禁言、身份。
+        const self = await maybeOne<{ uin: number }>(this.db, sql`select uin from qq_accounts where id = ${qqAccountId}`);
+        if (self && Number(self.uin) === userId) {
+          const until = Number(m.shut_up_timestamp ?? 0) || 0;
+          await this.ingest.upsertPeer(qqAccountId, {
+            kind: 'group',
+            peerId: groupId,
+            selfMutedUntil: until > Date.now() / 1000 ? until : 0,
+            ...(m.role === 'owner' || m.role === 'admin' || m.role === 'member' ? { selfRole: m.role } : {}),
+          });
+        }
+      })().catch((error: unknown) => this.o.logger?.debug({ err: error, groupId, userId }, 'member refresh failed'));
+    }, 3000);
+  }
 
   /** 自己在群里的成员资料（身份、禁言到期时间）。 */
   private async selfMember(qqAccountId: number, groupId: number): Promise<Ob11 | null> {

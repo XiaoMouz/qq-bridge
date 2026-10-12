@@ -137,6 +137,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
           onMediaQueued: () => fetcher?.poke(),
           activeChats: deps.activeChats,
           onCall: (qqAccountId, state) => deps.calls.onPluginState(qqAccountId, state),
+          onMemberChanged: (qqAccountId, groupId, userId) => deps.contacts.refreshMember(qqAccountId, groupId, userId),
         },
       )
     : null;
