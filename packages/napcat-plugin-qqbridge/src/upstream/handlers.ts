@@ -22,6 +22,8 @@ export interface MediaLocator {
   file10MMd5?: string;
   originImageUrl?: string;
   md5HexStr?: string;
+  /** 视频：只要封面（QQ 自带的首帧图），不下视频。 */
+  thumb?: boolean;
 }
 
 const ElementType = { PIC: 2, FILE: 3, PTT: 4, VIDEO: 5 } as const;
@@ -290,6 +292,7 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
           return { url: nonEmpty(url) };
         }
         case ElementType.VIDEO: {
+          if (locator.thumb) return { url: await videoCover(ctx, locator) };
           try {
             const urls = await api.getVideoUrl?.({ chatType: locator.chatType, peerUid, guildId: '0' }, locator.msgId, locator.elementId);
             const found = Array.isArray(urls) ? urls.find((u: any) => u?.url) : null;
@@ -355,4 +358,42 @@ async function packetUrl(fn: () => Promise<unknown>): Promise<string | null> {
 
 function nonEmpty(url: unknown): string | null {
   return typeof url === 'string' && url.length > 0 ? url : null;
+}
+
+/**
+ * 视频封面：让 QQ 只下载封面（downloadRichMedia 的 downloadType = 2，视频本身不下），读出来作为 data: 链接返回。
+ * QQ 收到消息时多半已经自动下好了封面，这时直接读本地文件。拿不到返回 null。
+ */
+async function videoCover(ctx: NapCatPluginContext, locator: MediaLocator): Promise<string | null> {
+  const core = ctx.core as any;
+  const [, done] = await core.eventWrapper.callNormalEventV2(
+    'NodeIKernelMsgService/downloadRichMedia',
+    'NodeIKernelMsgListener/onRichMediaDownloadComplete',
+    [
+      {
+        fileModelId: '0',
+        downSourceType: 0,
+        downloadSourceType: 0,
+        triggerType: 1,
+        msgId: locator.msgId,
+        chatType: locator.chatType,
+        peerUid: String(locator.peerUid ?? ''),
+        elementId: locator.elementId,
+        thumbSize: 0,
+        downloadType: 2,
+        filePath: '',
+      },
+    ],
+    () => true,
+    (l: any) => l.msgElementId === locator.elementId && l.msgId === locator.msgId,
+    1,
+    30_000,
+  );
+  const path = typeof done?.filePath === 'string' ? done.filePath : '';
+  if (!path) return null;
+  const fs = await import('node:fs/promises');
+  const data = await fs.readFile(path).catch(() => null);
+  if (!data || data.length === 0 || data.length > 5 * 1024 * 1024) return null;
+  const mime = data[0] === 0x89 ? 'image/png' : data[0] === 0xff ? 'image/jpeg' : 'application/octet-stream';
+  return `data:${mime};base64,${data.toString('base64')}`;
 }

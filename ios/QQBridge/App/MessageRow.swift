@@ -527,7 +527,8 @@ struct BlockView: View {
         .contentShape(Rectangle())
         .onTapGesture { context.actions.playVoice(r) }
     case .video(let v):
-      MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId)
+      // 没有封面时向服务端要 QQ 自带的封面（几十 KB，不下视频本身）。
+      MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId, onNeedThumb: { requestMedia(v.media) }, isVideo: true)
         .onTapGesture {
           // 按需的视频：点一下开始下载，下好后再点播放。
           if v.media.state == .onDemand { requestMedia(v.media) } else { context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
@@ -617,14 +618,16 @@ struct MediaThumb: View {
   let chatId: Int64
   /// 没有缩略图时调用（向服务端要 QQ 缩略图）。
   var onNeedThumb: (() -> Void)? = nil
+  /// 视频：没有封面时不拿视频原件当缩略图（那是视频文件）。
+  var isVideo = false
   @Environment(\.session) private var session
   @State private var localOriginal = false
 
   /// 显示哪张：手机上已有原图就显示原图（缩小解码），否则 QQ 缩略图；都没有时服务端有原图就下原图。
   private var displaySha: String? {
-    if localOriginal { return media.sha256 }
+    if localOriginal, !isVideo { return media.sha256 }
     if !media.thumbSha256.isEmpty { return media.thumbSha256 }
-    if media.state == .stored, !media.sha256.isEmpty { return media.sha256 }
+    if !isVideo, media.state == .stored, !media.sha256.isEmpty { return media.sha256 }
     return nil
   }
 
@@ -651,7 +654,7 @@ struct MediaThumb: View {
       guard !media.sha256.isEmpty, let session else { return }
       localOriginal = (try? await session.media.cachedFile(media.sha256)) != nil
     }
-    .onAppear { if media.thumbSha256.isEmpty, media.state != .stored { onNeedThumb?() } }
+    .onAppear { if media.thumbSha256.isEmpty, isVideo || media.state != .stored { onNeedThumb?() } }
   }
 }
 
@@ -771,10 +774,10 @@ struct ReplyQuote: View {
     return CGSize(width: min(80, max(16, w)), height: h)
   }
 
-  /// 还没有缩略图：请服务端下载，然后隔一会儿看本地这条消息有没有更新（最多等 20 秒）。
+  /// 还没有缩略图（视频是封面）：请服务端下载，然后隔一会儿看本地这条消息有没有更新（最多等 1 分钟）。
   private func waitForThumbnail(_ m: Qqbridge_V1_Message, _ media: QuotedMedia) async {
     context.requester.want(chatId: context.chatId, seq: m.seq, ord: media.info.ord, session: context.session)
-    for _ in 0..<20 {
+    for _ in 0..<60 {
       try? await Task.sleep(for: .seconds(1))
       if Task.isCancelled { return }
       if let fresh = try? context.store.message(chatId: context.chatId, seq: seq), let fm = Self.media(fresh), Self.thumbnail(fm) != nil {
@@ -806,7 +809,9 @@ struct ReplyQuote: View {
   /// 缩略图：QQ 缩略图 / 预览图 / 已下载的原图。
   static func thumbnail(_ m: QuotedMedia) -> String? {
     let media = m.info
-    for sha in [media.thumbSha256, media.previewSha256, media.state == .stored ? media.sha256 : ""] where !sha.isEmpty { return sha }
+    // 视频的原件是视频文件，不能当图片：只用封面。
+    let original = m.kind == .image && media.state == .stored ? media.sha256 : ""
+    for sha in [media.thumbSha256, media.previewSha256, original] where !sha.isEmpty { return sha }
     return nil
   }
 

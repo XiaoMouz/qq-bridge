@@ -403,6 +403,7 @@ struct SharedMediaTile: View {
   private var displaySha: String? {
     guard let m = media else { return nil }
     for sha in [m.thumbSha256, m.previewSha256, m.state == .stored && item.kind == .image ? m.sha256 : ""] where !sha.isEmpty { return sha }
+    // 视频没有封面：不拿视频文件当图片。
     return nil
   }
 
@@ -415,9 +416,6 @@ struct SharedMediaTile: View {
             Rectangle().fill(.quaternary)
             if media?.state == .expired || media?.state == .failed {
               Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
-            } else if item.kind == .video {
-              // 没有封面的视频：不为了封面去下整个视频。
-              Image(systemName: "film").font(.title3).foregroundStyle(.secondary)
             } else {
               ProgressView().controlSize(.small)
             }
@@ -443,7 +441,8 @@ struct SharedMediaTile: View {
   }
 
   private func fetchThumbIfNeeded() async {
-    guard item.kind == .image, displaySha == nil, let m = media, m.state != .expired, m.state != .failed else { return }
+    // 视频要的是 QQ 自带的封面（不下视频本身），图片要 QQ 缩略图。
+    guard displaySha == nil, let m = media, item.kind == .video || (m.state != .expired && m.state != .failed) else { return }
     requester.want(chatId: chatId, seq: item.seq, ord: m.ord, session: session)
     for _ in 0..<15 {
       try? await Task.sleep(for: .seconds(2))
@@ -455,7 +454,7 @@ struct SharedMediaTile: View {
         case .video(let v): v.media
         default: nil
         }
-        if let info, info.ord == m.ord, !info.thumbSha256.isEmpty || info.state == .stored {
+        if let info, info.ord == m.ord, !info.thumbSha256.isEmpty || (item.kind == .image && info.state == .stored) {
           fresh = info
           return
         }

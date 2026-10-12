@@ -633,7 +633,8 @@ export class IngestService {
                order by m.id limit 1`,
         );
         if (!original) continue;
-        if (what === 'thumb' && original.kind === 'image' && original.role !== 'sticker') {
+        // 缩略图：图片是 QQ 的 spec=720 缩略图；视频是 QQ 自带的封面（首帧，几十 KB，只下封面、不碰视频本身）。
+        if (what === 'thumb' && ((original.kind === 'image' && original.role !== 'sticker') || original.kind === 'video')) {
           const thumb = await maybeOne<{ id: number }>(
             w.tx,
             // 按需的、以前失败或过期的都重新要（链接换新后多半能拿到）。
@@ -651,6 +652,18 @@ export class IngestService {
             sql`select 1 as x from media_refs where chat_id = ${r.chatId} and message_seq = ${r.seq} and ordinal = ${r.ord} and role = ${QQ_THUMB_ROLE}`,
           );
           if (existing || !original.locator) continue;
+          if (original.kind === 'video') {
+            // 视频封面：不带视频的链接和 md5（封面由插件按定位信息单独下载）。
+            const cover = await one<{ id: number }>(
+              w.tx,
+              sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, fetch_state, locator, sender_uin, time, requested_at)
+                  select chat_id, message_seq, ordinal, ${QQ_THUMB_ROLE}, 'image', 'pending', locator, sender_uin, time, now()
+                    from media_refs where id = ${original.id}
+               returning id`,
+            );
+            queued.push(cover.id);
+            continue;
+          }
           // 以前入库的图片没有 QQ 缩略图引用：照原件那条补一条。
           const added = await one<{ id: number }>(
             w.tx,

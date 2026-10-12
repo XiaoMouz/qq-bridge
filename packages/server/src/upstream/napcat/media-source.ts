@@ -6,6 +6,9 @@ import { maybeOne, type Db } from '../../db/client.ts';
 import type { FetchTarget, MediaSource, PendingRef } from '../../media/source.ts';
 import { UpstreamOfflineError, type UpstreamHub } from '../hub.ts';
 
+/** NT 消息元素类型：视频。 */
+const VIDEO_ELEMENT = 5;
+
 export class NapcatMediaSource implements MediaSource {
   private readonly accountOfChat = new Map<number, number>();
 
@@ -15,6 +18,13 @@ export class NapcatMediaSource implements MediaSource {
   ) {}
 
   async resolve(ref: PendingRef, forceRefresh: boolean): Promise<FetchTarget | null> {
+    // 视频封面：插件只下封面（data: 链接直接带回内容）。
+    if (ref.role === 'qq_thumb' && ref.locator && Number(ref.locator.elementType) === VIDEO_ELEMENT) {
+      const qqAccountId = await this.qqAccountOf(ref.chatId);
+      if (!this.hub.isConnected(qqAccountId)) throw new UpstreamOfflineError(qqAccountId);
+      const res = await this.hub.call<{ url?: string | null }>(qqAccountId, 'x.media_url', { ...ref.locator, thumb: true }, 40_000);
+      return res?.url ? { url: res.url } : null;
+    }
     const fresh = ref.url && (!ref.urlExpiresAt || ref.urlExpiresAt.getTime() > Date.now());
     if (!forceRefresh && fresh) return { url: ref.url! };
     if (!ref.locator) {

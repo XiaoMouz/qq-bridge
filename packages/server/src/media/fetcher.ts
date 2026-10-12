@@ -330,7 +330,7 @@ export class MediaFetcher {
   /** 下载地址：QQ 缩略图引用把原图链接换成缩略图档。 */
   private async target(ref: PendingRef, forceRefresh: boolean): Promise<FetchTarget | null> {
     const t = await this.source.resolve(ref, forceRefresh);
-    if (!t || ref.role !== QQ_THUMB_ROLE) return t;
+    if (!t || ref.role !== QQ_THUMB_ROLE || t.url.startsWith('data:')) return t;
     const url = qqThumbUrl(t.url);
     return url ? { ...t, url } : null;
   }
