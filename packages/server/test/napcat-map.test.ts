@@ -250,9 +250,6 @@ describe('NapCat mapping', () => {
     expect(ev({ notice_type: 'group_card', user_id: 20002, card_new: '新名片', card_old: '旧名片' })).toMatchObject({
       event: { kind: 'card_change', data: { cardNew: '新名片', cardOld: '旧名片' } },
     });
-    // QQ 把邀请入群灰条塞进名片缓存：不是真改名片。
-    expect(ev({ notice_type: 'group_card', user_id: SELF, card_new: '', card_old: '青空Isaac邀请冬麦yoki进入了群聊，点击欢迎...' })).toMatchObject({ type: 'ignore' });
-    expect(ev({ notice_type: 'group_card', user_id: 20002, card_new: '某某邀请了“小季”加入群聊点击欢迎', card_old: '' })).toMatchObject({ type: 'ignore' });
     expect(ev({ notice_type: 'group_upload', user_id: 20002, file: { id: 'enc', name: 'a.pdf', size: 1234, busid: 102 } })).toMatchObject({
       event: { kind: 'group_file', actorId: 20002, data: { name: 'a.pdf', size: 1234, fileId: 'enc', busid: 102 } },
     });

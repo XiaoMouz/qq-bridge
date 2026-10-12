@@ -424,9 +424,7 @@ enum Block {
       case .mention(let m):
         // 真正的 @（带了 QQ 号的）显示成徽章 + 头像；手打的 "@某某" 只是普通文字。
         cut()
-        // 消息里带的名字可能是被灰条占掉的假名片（「某某邀请您参加…」）：那就用群里的名字。
-        let name = m.name.isEmpty || MemberName.isBogus(m.name) ? context.name(of: m.userID) : m.name
-        runs.append(.mention(m.userID, name: name, avatar: context.avatarImage(m.userID)))
+        runs.append(.mention(m.userID, name: m.name.isEmpty ? context.name(of: m.userID) : m.name, avatar: context.avatarImage(m.userID)))
       case .mentionAll:
         var a = AttributedString("@全体成员 ")
         a.font = .body.bold()
@@ -983,12 +981,6 @@ enum EventText {
     return ordered.compactMap { $0 }
   }
 
-  /// QQ 把灰条 / 消息摘要塞进名片缓存造成的假「修改了群名片」（新版服务端已不记，旧数据在这里藏掉）。
-  static func isBogusCardChange(_ e: Qqbridge_V1_ChatEvent) -> Bool {
-    guard e.kind == "card_change" else { return false }
-    let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
-    return MemberName.isBogus(data["cardNew"] as? String ?? "") || MemberName.isBogus(data["cardOld"] as? String ?? "")
-  }
 
   @MainActor static func describe(_ e: Qqbridge_V1_ChatEvent, context: MessageContext) -> String {
     let data = (try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any]) ?? [:]
@@ -1013,7 +1005,9 @@ enum EventText {
       let by = actor.isEmpty ? "被" : "被 \(actor) "
       return secs > 0 ? "\(target) \(by)禁言 \(Format.remaining(secs))" : "\(target) 被禁言"
     case "unmute": return target.isEmpty ? "\(actor) 关闭了全员禁言" : "\(target) 被\(actor.isEmpty ? "" : " \(actor) ")解除禁言"
-    case "card_change": return "\(target) 修改了群名片"
+    case "card_change":
+      let new = data["cardNew"] as? String ?? ""
+      return new.isEmpty ? "\(target) 清空了群名片" : "\(target) 修改群名片为「\(new)」"
     case "title": return "\(target) 获得了头衔 \(data["title"] as? String ?? "")"
     case "group_name": return "\(actor) 修改群名为 \(data["name"] as? String ?? "")"
     case "essence_add": return "\(actor) 设置了一条精华消息"
