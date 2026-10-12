@@ -49,6 +49,7 @@ export interface GroupMemberRow {
   level: string;
   joinedAt: Date | null;
   lastSentAt: Date | null;
+  isRobot: boolean;
 }
 
 export interface FriendCategory {
@@ -378,9 +379,10 @@ export class ContactService {
       level: string | null;
       joined_at: Date | string | null;
       last_sent_at: Date | string | null;
+      is_robot: boolean;
     }>(
       this.db,
-      sql`select user_id, nickname, card, role, title, level, joined_at, last_sent_at from group_members
+      sql`select user_id, nickname, card, role, title, level, joined_at, last_sent_at, is_robot from group_members
            where qq_account_id = ${qq} and group_id = ${groupId}
            order by case role when 'owner' then 0 when 'admin' then 1 else 2 end, last_sent_at desc nulls last, user_id
            offset ${opts.offset} limit ${opts.limit}`,
@@ -399,6 +401,7 @@ export class ContactService {
         level: m.level ?? '',
         joinedAt: m.joined_at ? new Date(m.joined_at) : null,
         lastSentAt: m.last_sent_at ? new Date(m.last_sent_at) : null,
+        isRobot: Boolean(m.is_robot),
       })),
       total: total?.n ?? 0,
       stale,
@@ -534,13 +537,14 @@ export class ContactService {
         const m = await this.ob11<Ob11>(qqAccountId, 'get_group_member_info', { group_id: String(groupId), user_id: String(userId), no_cache: true });
         if (!m || !num(m.user_id)) return;
         await this.db.execute(
-          sql`insert into group_members (qq_account_id, group_id, user_id, nickname, card, role, title, level, joined_at, last_sent_at)
+          sql`insert into group_members (qq_account_id, group_id, user_id, nickname, card, role, title, level, joined_at, last_sent_at, is_robot)
               values (${qqAccountId}, ${groupId}, ${userId}, ${str(m.nickname) ?? null}, ${str(m.card) ?? null},
                       ${m.role === 'owner' || m.role === 'admin' ? m.role : 'member'}, ${str(m.title) ?? null},
-                      ${m.level === undefined || m.level === null ? null : String(m.level)}, ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)})
+                      ${m.level === undefined || m.level === null ? null : String(m.level)}, ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)}, ${m.is_robot === true})
               on conflict (qq_account_id, group_id, user_id) do update
                  set nickname = excluded.nickname, card = excluded.card, role = excluded.role, title = excluded.title,
-                     level = excluded.level, joined_at = excluded.joined_at, last_sent_at = excluded.last_sent_at, updated_at = now()`,
+                     level = excluded.level, joined_at = excluded.joined_at, last_sent_at = excluded.last_sent_at,
+                     is_robot = excluded.is_robot, updated_at = now()`,
         );
         if (str(m.nickname)) await this.ingest.upsertPeer(qqAccountId, { kind: 'user', peerId: userId, name: str(m.nickname)! });
         // 自己：顺带更新禁言、身份。
@@ -589,14 +593,14 @@ export class ContactService {
             const chunk = members.slice(i, i + 500).filter((m) => num(m.user_id));
             if (chunk.length === 0) continue;
             await tx.execute(
-              sql`insert into group_members (qq_account_id, group_id, user_id, nickname, card, role, title, level, joined_at, last_sent_at)
+              sql`insert into group_members (qq_account_id, group_id, user_id, nickname, card, role, title, level, joined_at, last_sent_at, is_robot)
                   values ${sql.join(
                     chunk.map(
                       (m) =>
                         sql`(${qqAccountId}, ${groupId}, ${num(m.user_id)!}, ${str(m.nickname) ?? null}, ${str(m.card) ?? null},
                              ${m.role === 'owner' || m.role === 'admin' ? m.role : 'member'}, ${str(m.title) ?? null},
                              ${m.level === undefined || m.level === null ? null : String(m.level)},
-                             ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)})`,
+                             ${unixDate(m.join_time)}, ${unixDate(m.last_sent_time)}, ${m.is_robot === true})`,
                     ),
                     sql`, `,
                   )}

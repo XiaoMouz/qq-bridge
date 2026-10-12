@@ -223,6 +223,7 @@ struct MessageBubbleRow: View {
             Text(context.name(of: message.senderID)).font(.caption).foregroundStyle(.secondary)
             if let m = context.members.byId[message.senderID] {
               if m.role == "owner" { RoleTag(text: "群主", color: .orange) } else if m.role == "admin" { RoleTag(text: "管理员", color: .green) }
+              if m.isRobot { RoleTag(text: "机器人", color: .blue) }
               if !m.title.isEmpty { RoleTag(text: m.title, color: .purple) }
             }
           }
@@ -382,6 +383,12 @@ enum Block {
   case file(Qqbridge_V1_FileSegment)
   case forward(Qqbridge_V1_ForwardSegment)
   case card(String)
+  /// 小程序 / 分享卡片（哔哩哔哩、新闻、音乐……）：能打开的点开用浏览器。
+  case app(AppCard)
+  /// 机器人发的 markdown（带图片）。
+  case markdown(String)
+  /// 机器人消息下面的按钮。
+  case keyboard([[BotButton]])
 
   var isBare: Bool {
     switch self {
@@ -420,7 +427,16 @@ enum Block {
       if !runs.isEmpty { out.append(.text(runs)) }
       runs = []
     }
+    // 机器人的 markdown 消息后面常跟一份纯文字版（给不支持 markdown 的客户端看）：有 markdown 时不再显示文字和 @。
+    var keyboard: [[BotButton]]?
+    let hasMarkdown = segments.contains { if case .markdown = $0.kind { true } else { false } }
     for seg in segments {
+      if hasMarkdown {
+        switch seg.kind {
+        case .text, .mention, .mentionAll: continue
+        default: break
+        }
+      }
       switch seg.kind {
       case .text(let t): text += Linkify.attributed(t.text)
       case .mention(let m):
@@ -447,12 +463,17 @@ enum Block {
         } else {
           out.append(.text([.text(AttributedString(f.summary.isEmpty ? "[表情]" : f.summary))]))
         }
-      case .lightApp(let a): flush(); out.append(.card(CardText.from(json: a.json, app: a.appName)))
+      case .lightApp(let a):
+        flush()
+        if let card = AppCard.parse(json: a.json, app: a.appName) { out.append(.app(card)) } else { out.append(.card(CardText.from(json: a.json, app: a.appName))) }
       case .xml: flush(); out.append(.card("[卡片消息]"))
-      case .markdown(let m): text += (try? AttributedString(markdown: m.content)) ?? AttributedString(m.content)
+      case .markdown(let m): flush(); out.append(.markdown(m.content))
       case .unknown(let u):
         switch u.original {
-        case "keyboard": break  // 机器人按钮：只能在 QQ 里点
+        case "keyboard":
+          // 机器人按钮：放在消息最下面。
+          let rows = BotButton.parse(u.dataJson)
+          if !rows.isEmpty { keyboard = rows }
         case "dice": text += AttributedString("[骰子]")
         case "rps": text += AttributedString("[猜拳]")
         default: text += AttributedString("[暂不支持的消息]")
@@ -461,6 +482,7 @@ enum Block {
       }
     }
     flush()
+    if let keyboard { out.append(.keyboard(keyboard)) }
     return out
   }
 }
@@ -545,6 +567,14 @@ struct BlockView: View {
       .onTapGesture { if let m = message { context.actions.openForward(m) } }
     case .card(let text):
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
+    case .app(let card):
+      AppCardView(card: card, outgoing: outgoing)
+    case .markdown(let content):
+      MarkdownBlock(content: content, outgoing: outgoing)
+    case .keyboard(let rows):
+      BotKeyboard(rows: rows, outgoing: outgoing) { button in
+        if let message { context.actions.botButton(button, message.senderID) }
+      }
     }
   }
 
@@ -1349,5 +1379,202 @@ final class MentionPress {
       try? await Task.sleep(for: .milliseconds(300))
       if self.seq == seq { self.seq = nil }
     }
+  }
+}
+
+// MARK: - 小程序卡片
+
+/// 小程序 / 分享卡片里能用的东西：来源、标题、简介、封面、能用浏览器打开的链接。
+struct AppCard {
+  let source: String
+  let icon: URL?
+  let title: String
+  let desc: String
+  let preview: URL?
+  let url: URL?
+
+  static func parse(json: String, app: String) -> AppCard? {
+    guard let data = json.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let meta = obj["meta"] as? [String: Any], let detail = meta.values.compactMap({ $0 as? [String: Any] }).first
+    else { return nil }
+    func str(_ keys: String...) -> String {
+      for k in keys { if let v = detail[k] as? String, !v.isEmpty { return v } }
+      return ""
+    }
+    func link(_ s: String) -> URL? {
+      guard !s.isEmpty else { return nil }
+      let full = s.hasPrefix("http") ? s : "https://\(s)"
+      guard let u = URL(string: full), u.host() != nil else { return nil }
+      return u
+    }
+    // 小程序：qqdocurl 是网页版（哔哩哔哩是 b23.tv 短链）；分享卡片：jumpUrl。m.q.qq.com 的小程序链接浏览器打不开，不用。
+    let candidates = [str("qqdocurl"), str("jumpUrl", "jumpurl"), str("url")].compactMap(link).filter { $0.host() != "m.q.qq.com" }
+    let title = str("title")
+    let desc = str("desc", "summary")
+    guard !title.isEmpty || !desc.isEmpty else { return nil }
+    // 小程序的 title 是小程序名（哔哩哔哩），desc 才是内容标题。
+    let isMini = detail["appid"] != nil
+    return AppCard(
+      source: isMini ? title : (str("tag").isEmpty ? (obj["prompt"] as? String ?? app) : str("tag")),
+      icon: link(str("icon", "source_icon")),
+      title: isMini ? desc : title,
+      desc: isMini ? "" : desc,
+      preview: link(str("preview")),
+      url: candidates.first
+    )
+  }
+}
+
+struct AppCardView: View {
+  let card: AppCard
+  let outgoing: Bool
+  @Environment(\.openURL) private var openURL
+
+  var body: some View {
+    Button {
+      if let url = card.url { openURL(url) }
+    } label: { content }
+    .buttonStyle(.plain)
+    .disabled(card.url == nil)
+  }
+
+  private var content: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 6) {
+        if let icon = card.icon {
+          AsyncImage(url: icon) { $0.resizable() } placeholder: { Color.secondary.opacity(0.2) }
+            .frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        Text(card.source).font(.caption).opacity(0.75).lineLimit(1)
+      }
+      Text(card.title).font(.subheadline.weight(.medium)).lineLimit(3)
+      if !card.desc.isEmpty { Text(card.desc).font(.caption).opacity(0.75).lineLimit(2) }
+      if let preview = card.preview {
+        AsyncImage(url: preview) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.secondary.opacity(0.15) }
+          .frame(width: 236, height: 133)
+          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+      }
+      if card.url != nil {
+        Label("在浏览器中打开", systemImage: "safari").font(.caption2).opacity(0.7)
+      }
+    }
+    .frame(width: 236, alignment: .leading)
+    .contentShape(Rectangle())
+  }
+}
+
+// MARK: - 机器人 markdown、按钮
+
+/// 机器人的 markdown：图片单独成块（按 alt 里的 #宽px #高px 定比例），其余按行内 markdown 显示；
+/// @（mqqapi://markdown/mention）换成粗体的 @名字。
+struct MarkdownBlock: View {
+  let content: String
+  let outgoing: Bool
+
+  enum Part {
+    case text(AttributedString)
+    case image(URL, CGFloat?)
+  }
+
+  static func parts(_ content: String) -> [Part] {
+    var out: [Part] = []
+    var buffer = ""
+    func flushText() {
+      let t = buffer.trimmingCharacters(in: .newlines)
+      buffer = ""
+      guard !t.isEmpty else { return }
+      var md = t.replacingOccurrences(of: #"\[(@[^\]]+)\]\(mqqapi://[^)]*\)"#, with: "**$1**", options: .regularExpression)
+      // 标题：显示成粗体。
+      md = md.replacingOccurrences(of: #"(?m)^#{1,6}\s*(.+)$"#, with: "**$1**", options: .regularExpression)
+      let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+      out.append(.text((try? AttributedString(markdown: md, options: opts)) ?? AttributedString(t)))
+    }
+    let image = try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\((\S+?)\)"#)
+    let ns = content as NSString
+    var cursor = 0
+    for m in image?.matches(in: content, range: NSRange(location: 0, length: ns.length)) ?? [] {
+      buffer += ns.substring(with: NSRange(location: cursor, length: m.range.location - cursor))
+      flushText()
+      let alt = ns.substring(with: m.range(at: 1))
+      let nums = alt.matches(of: /#(\d+)px/).compactMap { Double($0.1) }
+      let ratio = nums.count >= 2 && nums[0] > 0 ? CGFloat(nums[1] / nums[0]) : nil
+      if let url = URL(string: ns.substring(with: m.range(at: 2))) { out.append(.image(url, ratio)) }
+      cursor = m.range.location + m.range.length
+    }
+    buffer += ns.substring(from: cursor)
+    flushText()
+    return out
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      ForEach(Array(Self.parts(content).enumerated()), id: \.offset) { _, part in
+        switch part {
+        case .text(let a):
+          Text(a).tint(outgoing ? .white : .accentColor).textSelection(.enabled)
+        case .image(let url, let ratio):
+          AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: { RippleCanvas() }
+            .frame(width: 240, height: ratio.map { min(240 * $0, 520) } ?? 180)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+      }
+    }
+  }
+}
+
+/// 机器人消息下面的一个按钮。type：0 跳链接、1 回调（只能在 QQ 里点）、2 指令（发一句话给机器人）。
+struct BotButton: Identifiable {
+  let id: String
+  let label: String
+  let data: String
+  let type: Int
+  /// 指令按钮：true = 点了直接发送，false = 填进输入框。
+  let enter: Bool
+
+  static func parse(_ json: String) -> [[BotButton]] {
+    guard let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+      let kb = obj["inlineKeyboardElement"] as? [String: Any], let rows = kb["rows"] as? [[String: Any]]
+    else { return [] }
+    return rows.enumerated().compactMap { r, row in
+      let buttons = (row["buttons"] as? [[String: Any]] ?? []).enumerated().map { i, b in
+        BotButton(
+          id: "\(r).\(i)",
+          label: b["label"] as? String ?? "",
+          data: b["data"] as? String ?? "",
+          type: (b["type"] as? Int) ?? Int(b["type"] as? String ?? "") ?? 2,
+          enter: b["enter"] as? Bool ?? false
+        )
+      }.filter { !$0.label.isEmpty }
+      return buttons.isEmpty ? nil : buttons
+    }
+  }
+}
+
+struct BotKeyboard: View {
+  let rows: [[BotButton]]
+  let outgoing: Bool
+  let onTap: (BotButton) -> Void
+
+  var body: some View {
+    VStack(spacing: 6) {
+      ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+        HStack(spacing: 6) {
+          ForEach(row) { b in
+            Button { onTap(b) } label: {
+              HStack(spacing: 4) {
+                if b.type == 0 { Image(systemName: "link").font(.caption2) }
+                Text(b.label).font(.footnote.weight(.medium)).lineLimit(1)
+              }
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 7)
+              .background(RoundedRectangle(cornerRadius: 8).strokeBorder(outgoing ? Color.white.opacity(0.6) : Color.accentColor.opacity(0.6)))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(outgoing ? Color.white : Color.accentColor)
+          }
+        }
+      }
+    }
+    .frame(minWidth: 220)
   }
 }

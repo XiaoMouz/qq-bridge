@@ -340,6 +340,13 @@ struct ChatScreen: View {
       model.openChatId = chatId
     }
     #if DEBUG
+    // 调试：启动参数 -debugJump <chatId>:<seq>，打开这个会话后跳到那条消息。
+    .task {
+      guard let spec = UserDefaults.standard.string(forKey: "debugJump"), case let parts = spec.split(separator: ":"), parts.count == 2,
+        Int64(parts[0]) == chatId, let seq = Int64(parts[1]) else { return }
+      try? await Task.sleep(for: .seconds(2))
+      _ = await jump(to: seq)
+    }
     .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
     #endif
     .task(id: limit) {
@@ -850,6 +857,7 @@ struct ChatScreen: View {
     }
     actions.showProfile = { profileUser = ProfileTarget(userId: $0) }
     actions.openNumber = { tappedNumber = $0 }
+    actions.botButton = { button, botId in pressBotButton(button, botId: botId) }
     actions.react = { m, emoji in
       Task {
         var req = Qqbridge_V1_ReactRequest()
@@ -894,6 +902,42 @@ struct ChatScreen: View {
     actions.openForward = { forwardMessage = $0 }
   }
 
+  /// 机器人按钮：链接用浏览器打开；指令按钮在群里要 @ 机器人（官方机器人只收 @ 它的消息），enter 的直接发，否则填进输入框；回调按钮只能在 QQ 里点。
+  private func pressBotButton(_ b: BotButton, botId: Int64) {
+    switch b.type {
+    case 0:
+      if let url = URL(string: b.data), url.scheme?.hasPrefix("http") == true { UIApplication.shared.open(url) } else { show("这个链接打不开") }
+    case 2:
+      if b.enter {
+        var segs: [Qqbridge_V1_OutgoingSegment] = []
+        if isGroup {
+          var at = Qqbridge_V1_OutgoingSegment()
+          at.mentionUserID = botId
+          segs.append(at)
+        }
+        var text = Qqbridge_V1_OutgoingSegment()
+        text.text = (isGroup ? " " : "") + b.data
+        segs.append(text)
+        scrollToBottomAfterSend()
+        Task {
+          do { try await session.sender.send(chatId: chatId, segments: segs) } catch { sendError = "\(error)" }
+        }
+      } else {
+        if isGroup { composer.insertMention(userId: botId, name: name(of: botId)) }
+        composer.text += b.data
+        inputFocused = true
+      }
+    default:
+      show("这个按钮只能在 QQ 里使用")
+    }
+  }
+
+  /// 自己发了消息：回到最底下看到它（往上翻着看历史时也一样）。
+  private func scrollToBottomAfterSend() {
+    bottomMark = items.lastMessageSeq ?? bottomMark
+    scrollRequest = ChatScrollRequest(target: .bottom)
+  }
+
   private func name(of userId: Int64) -> String {
     if userId == selfUin { return "我" }
     return members.displayName(userId) ?? (try? session.store.userName(qqAccountId: dialog?.qqAccountID ?? 0, userId: userId)) ?? String(userId)
@@ -920,6 +964,7 @@ struct ChatScreen: View {
       return
     }
     guard let (url, duration) = recorder.finish() else { return }
+    scrollToBottomAfterSend()
     Task {
       defer { try? FileManager.default.removeItem(at: url) }
       do {
@@ -944,6 +989,7 @@ struct ChatScreen: View {
     }
     var reply = composer.replyTo?.seq
     let hasWords = !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    scrollToBottomAfterSend()
     Task {
       for a in pending {
         if await send(a, replyTo: reply) { reply = nil }
@@ -999,6 +1045,7 @@ struct ChatScreen: View {
   private func sendText() {
     let segments = composer.segments()
     guard !segments.isEmpty else { return }
+    scrollToBottomAfterSend()
     let reply = composer.replyTo?.seq
     let sentText = composer.text
     composer.reset()
@@ -1094,6 +1141,7 @@ struct ChatScreen: View {
     seg.image.sha256 = sticker.sha256
     seg.image.sticker = true
     seg.image.summary = sticker.desc.isEmpty ? "[动画表情]" : sticker.desc
+    scrollToBottomAfterSend()
     Task {
       do { try await session.sender.send(chatId: chatId, segments: [seg]) } catch { sendError = "\(error)" }
     }

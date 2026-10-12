@@ -281,6 +281,9 @@ public nonisolated struct Qqbridge_V1_GroupMember: Sendable {
 
   public var lastSentAt: Int64 = 0
 
+  /// QQ 机器人（官方机器人，消息带按钮 / markdown）。
+  public var isRobot: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1180,7 +1183,7 @@ nonisolated extension Qqbridge_V1_GetGroupProfileResponse: SwiftProtobuf.Message
 
 nonisolated extension Qqbridge_V1_GroupMember: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".GroupMember"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{1}nickname\0\u{1}card\0\u{1}role\0\u{1}title\0\u{1}level\0\u{3}joined_at\0\u{3}last_sent_at\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{1}nickname\0\u{1}card\0\u{1}role\0\u{1}title\0\u{1}level\0\u{3}joined_at\0\u{3}last_sent_at\0\u{3}is_robot\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1196,6 +1199,7 @@ nonisolated extension Qqbridge_V1_GroupMember: SwiftProtobuf.Message, SwiftProto
       case 6: try { try decoder.decodeSingularStringField(value: &self.level) }()
       case 7: try { try decoder.decodeSingularInt64Field(value: &self.joinedAt) }()
       case 8: try { try decoder.decodeSingularInt64Field(value: &self.lastSentAt) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.isRobot) }()
       default: break
       }
     }
@@ -1226,6 +1230,9 @@ nonisolated extension Qqbridge_V1_GroupMember: SwiftProtobuf.Message, SwiftProto
     if self.lastSentAt != 0 {
       try visitor.visitSingularInt64Field(value: self.lastSentAt, fieldNumber: 8)
     }
+    if self.isRobot != false {
+      try visitor.visitSingularBoolField(value: self.isRobot, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1238,6 +1245,7 @@ nonisolated extension Qqbridge_V1_GroupMember: SwiftProtobuf.Message, SwiftProto
     if lhs.level != rhs.level {return false}
     if lhs.joinedAt != rhs.joinedAt {return false}
     if lhs.lastSentAt != rhs.lastSentAt {return false}
+    if lhs.isRobot != rhs.isRobot {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

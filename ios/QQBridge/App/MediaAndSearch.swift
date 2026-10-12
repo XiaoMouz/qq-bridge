@@ -60,7 +60,9 @@ struct MediaViewer: View {
           } else {
             VStack(spacing: 10) {
               ProgressView().tint(.white)
-              if fetching { Text("正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8)) }
+              if fetching {
+                Text(target.forward != nil ? "视频正在下载，下好后自动播放…" : "正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8))
+              }
             }
           }
         }
@@ -85,7 +87,16 @@ struct MediaViewer: View {
   /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
   private func loadVideo() async {
     var media = target.media
-    if media.state != .stored && media.state != .purged {
+    if media.state != .stored && media.state != .purged, let f = target.forward {
+      // 聊天记录里的视频：服务端正在下载，等它下好（每 2 秒看一次，最多 10 分钟）。
+      fetching = true
+      defer { fetching = false }
+      guard let ready = await waitForwardMedia(f, ord: media.ord) else {
+        videoMessage = "视频下载失败，QQ 上可能已经过期了"
+        return
+      }
+      media = ready
+    } else if media.state != .stored && media.state != .purged {
       guard target.seq > 0 else {
         videoMessage = "视频还没下载好"
         return
@@ -121,6 +132,29 @@ struct MediaViewer: View {
     } else {
       videoMessage = "视频打不开"
     }
+  }
+
+  /// 聊天记录里某个节点的媒体下好了没有：下好了返回它，失败或等太久返回 nil。
+  private func waitForwardMedia(_ f: ForwardRef, ord: UInt32) async -> Qqbridge_V1_MediaInfo? {
+    var req = Qqbridge_V1_GetForwardRequest()
+    req.chatID = target.chatId
+    req.seq = f.seq
+    req.path = f.path
+    for _ in 0..<300 {
+      if Task.isCancelled { return nil }
+      if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get(), f.node < res.nodes.count {
+        for seg in res.nodes[f.node].segments {
+          guard case .video(let v) = seg.kind, v.media.ord == ord else { continue }
+          switch v.media.state {
+          case .stored, .purged: return v.media
+          case .failed, .expired: return nil
+          default: break
+          }
+        }
+      }
+      try? await Task.sleep(for: .seconds(2))
+    }
+    return nil
   }
 
   private var videoAspect: CGSize? {
@@ -182,8 +216,8 @@ struct ForwardView: View {
       req.chatID = chatId
       req.seq = seq
       req.path = path
-      // 里面的图片 / 表情还在下载时每 2 秒再拉一次（最多 1 分钟），下好就显示。
-      for round in 0..<30 {
+      // 里面的图片 / 表情 / 视频还在下载时每 2 秒再拉一次（最多 10 分钟），下好就显示。
+      for round in 0..<300 {
         if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get() {
           nodes = res.nodes
           unavailable = res.unavailable
@@ -224,8 +258,26 @@ struct ForwardSegmentView: View {
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId)
-        .overlay { Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white) }
-        .onTapGesture { media = MediaTarget(kind: .video, media: v.media) }
+        .overlay {
+          if v.media.state == .pending || v.media.state == .onDemand {
+            // 服务端还在下载：转圈 + 大小，点开会等下好再播。
+            VStack(spacing: 6) {
+              ProgressView().tint(.white)
+              Text(v.media.size > 0 ? "下载中 · \(Bytes.text(Int64(v.media.size)))" : "下载中").font(.caption2).foregroundStyle(.white)
+            }
+            .padding(10)
+            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+          } else if v.media.state == .failed || v.media.state == .expired {
+            Label("视频已过期", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.white)
+              .padding(8).background(.black.opacity(0.45), in: Capsule())
+          } else {
+            Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white)
+          }
+        }
+        .onTapGesture {
+          let node = Int(path.last ?? 0)
+          media = MediaTarget(kind: .video, media: v.media, chatId: chatId, forward: ForwardRef(seq: seq, path: Array(path.dropLast()), node: node))
+        }
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .forward(let f):
       NavigationLink { ForwardView(session: session, chatId: chatId, seq: seq, path: path) } label: {

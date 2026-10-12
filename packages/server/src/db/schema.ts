@@ -583,6 +583,8 @@ export const groupMembers = pgTable(
     level: text('level'),
     joinedAt: ts('joined_at'),
     lastSentAt: ts('last_sent_at'),
+    /** QQ 机器人。 */
+    isRobot: boolean('is_robot').notNull().default(false),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.qqAccountId, t.groupId, t.userId] })],

@@ -169,6 +169,13 @@
       "when": 1791775403250,
       "tag": "0023_group_mute",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791794431344,
+      "tag": "0024_member_robot",
+      "breakpoints": true
     }
   ]
 }
