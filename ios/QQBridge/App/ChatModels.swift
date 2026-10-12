@@ -123,6 +123,8 @@ final class ChatActions {
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
   /// 复制图片 / 表情到剪贴板。
   var copyMedia: (Qqbridge_V1_MediaInfo, Bool) -> Void = { _, _ in }
+  /// 点了消息里的号码（5 位以上）。
+  var openNumber: (String) -> Void = { _ in }
   /// 跳到这条消息（点回复引用）；返回是否跳到了。
   var jumpTo: (Int64) async -> Bool = { _ in false }
   /// 把这张图片 / 表情加到"我的表情"（seq：所在消息，原图没下载时要用）。

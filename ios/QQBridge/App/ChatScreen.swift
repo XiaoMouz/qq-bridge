@@ -40,6 +40,8 @@ struct ChatScreen: View {
   @State private var actions = ChatActions()
   @State private var sendError: String?
   @State private var profileUser: ProfileTarget?
+  /// 点了消息里的号码：查 QQ 用户 / 拨打 / 复制。
+  @State private var tappedNumber: String?
   @State private var mediaTarget: MediaTarget?
   @State private var fileURL: URL?
   @State private var forwardMessage: Qqbridge_V1_Message?
@@ -394,6 +396,7 @@ struct ChatScreen: View {
     ) { m in
       Button("撤回", role: .destructive) { recall(m) }
     }
+    .modifier(NumberActions(number: $tappedNumber, onProfile: { profileUser = ProfileTarget(userId: $0) }, onCopied: { show("已复制") }))
     .alert("发送失败", isPresented: .constant(sendError != nil), presenting: sendError) { _ in
       Button("好") { sendError = nil }
     } message: { Text($0) }
@@ -846,6 +849,7 @@ struct ChatScreen: View {
       inputFocused = true
     }
     actions.showProfile = { profileUser = ProfileTarget(userId: $0) }
+    actions.openNumber = { tappedNumber = $0 }
     actions.react = { m, emoji in
       Task {
         var req = Qqbridge_V1_ReactRequest()
@@ -1220,4 +1224,31 @@ struct DroppedItem: Transferable {
 /// 弹窗、资料页关掉后输入框重新获得焦点、换个会话时都不会再冒出来。
 @MainActor enum PasteHint {
   static var offered: Int?
+}
+
+/// 点了消息里的号码：查看 QQ 用户、拨打手机号、复制。
+struct NumberActions: ViewModifier {
+  @Binding var number: String?
+  let onProfile: (Int64) -> Void
+  let onCopied: () -> Void
+
+  func body(content: Content) -> some View {
+    content.confirmationDialog(
+      number ?? "",
+      isPresented: Binding(get: { number != nil }, set: { if !$0 { number = nil } }),
+      titleVisibility: .visible,
+      presenting: number
+    ) { n in
+      if Linkify.isQQ(n), let id = Int64(n) {
+        Button("查看 QQ 用户", systemImage: "person.crop.circle") { onProfile(id) }
+      }
+      if Linkify.isPhone(n), let tel = URL(string: "tel://\(n)") {
+        Button("拨打电话", systemImage: "phone") { UIApplication.shared.open(tel) }
+      }
+      Button("复制", systemImage: "doc.on.doc") {
+        UIPasteboard.general.string = n
+        onCopied()
+      }
+    }
+  }
 }

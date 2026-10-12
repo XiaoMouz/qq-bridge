@@ -420,7 +420,7 @@ enum Block {
     }
     for seg in segments {
       switch seg.kind {
-      case .text(let t): text += AttributedString(t.text)
+      case .text(let t): text += Linkify.attributed(t.text)
       case .mention(let m):
         // 真正的 @（带了 QQ 号的）显示成徽章 + 头像；手打的 "@某某" 只是普通文字。
         cut()
@@ -479,7 +479,15 @@ struct BlockView: View {
           ForEach(faces.indices, id: \.self) { i in QQFace.inline(faces[i].id, name: faces[i].name, size: size) }
         }
       } else {
-        Inline.compose(runs, outgoing: outgoing).textSelection(.enabled)
+        Inline.compose(runs, outgoing: outgoing)
+          .tint(outgoing ? .white : .accentColor)
+          .textSelection(.enabled)
+          // 链接用系统打开；号码（5 位以上）交给聊天页：查 QQ 用户、拨打、复制。
+          .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == Linkify.numberScheme, let number = url.host() else { return .systemAction }
+            context.actions.openNumber(number)
+            return .handled
+          })
       }
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
@@ -1136,4 +1144,38 @@ enum MentionBadgeRenderer {
     cache[key] = result
     return result
   }
+}
+
+/// 消息文字里的链接、号码标成可点的链接。
+enum Linkify {
+  static let numberScheme = "qqbridge-number"
+  private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+  private static let number = try? NSRegularExpression(pattern: #"(?<![0-9A-Za-z])\d{5,}(?![0-9A-Za-z])"#)
+
+  static func attributed(_ string: String) -> AttributedString {
+    var out = AttributedString(string)
+    let ns = string as NSString
+    let all = NSRange(location: 0, length: ns.length)
+    var taken: [NSRange] = []
+    for m in detector?.matches(in: string, range: all) ?? [] {
+      guard let url = m.url, let r = Range(m.range, in: out) else { continue }
+      // 邮箱、电话之类的 link 也算；只有纯数字的不当链接（交给下面的号码）。
+      if ns.substring(with: m.range).allSatisfy(\.isNumber) { continue }
+      out[r].link = url.scheme == nil ? URL(string: "https://\(ns.substring(with: m.range))") : url
+      out[r].underlineStyle = .single
+      taken.append(m.range)
+    }
+    for m in number?.matches(in: string, range: all) ?? [] {
+      guard !taken.contains(where: { NSIntersectionRange($0, m.range).length > 0 }), let r = Range(m.range, in: out) else { continue }
+      out[r].link = URL(string: "\(numberScheme)://\(ns.substring(with: m.range))")
+      out[r].underlineStyle = .single
+    }
+    return out
+  }
+
+  /// 像手机号（中国大陆 11 位，1 开头）。
+  static func isPhone(_ n: String) -> Bool { n.count == 11 && n.hasPrefix("1") }
+
+  /// 可能是 QQ 号（5–11 位，不以 0 开头）。
+  static func isQQ(_ n: String) -> Bool { (5...11).contains(n.count) && !n.hasPrefix("0") }
 }
