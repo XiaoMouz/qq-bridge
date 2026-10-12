@@ -94,6 +94,10 @@ struct UserProfileView: View {
         if peer?.isFriend ?? true {
           Section {
             Button("删除好友", role: .destructive) { confirmDelete = true }
+              // 挂在按钮上：确认框从按钮弹出（挂在整个列表上会从屏幕中间 / 顶上冒出来，和按钮对不上）。
+              .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
+              }
           }
         }
       }
@@ -102,9 +106,6 @@ struct UserProfileView: View {
     .navigationBarTitleDisplayMode(.inline)
     .overlay { if loading && profile == nil && cached == nil { ProgressView() } }
     .onAppear { if cached == nil { cached = try? session.store.peer(kind: .user, peerId: userId) } }
-    .confirmationDialog("删除好友后，对方的好友列表里也不会再有你。聊天记录会保留。", isPresented: $confirmDelete, titleVisibility: .visible) {
-      Button("删除好友", role: .destructive) { Task { await deleteFriend() } }
-    }
     .alert("操作失败", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } }), presenting: actionError) { _ in
       Button("好") { actionError = nil }
     } message: { Text($0) }

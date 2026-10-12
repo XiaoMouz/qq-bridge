@@ -106,4 +106,10 @@ export interface PeerProfile {
   /** 个性签名（好友）/ 群简介。 */
   sign?: string;
   avatarSha256?: string;
+  /** 群：全员禁言中。 */
+  muteAll?: boolean;
+  /** 群：自己被禁言到（unix 秒，0 = 没被禁言）。 */
+  selfMutedUntil?: number;
+  /** 群：自己的身份 owner / admin / member。 */
+  selfRole?: string;
 }

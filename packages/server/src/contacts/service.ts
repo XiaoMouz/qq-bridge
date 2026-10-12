@@ -147,6 +147,7 @@ export class ContactService {
              where c.id = ${chatId}`,
       );
       if (!chat || (chat.scene !== 'friend' && chat.scene !== 'group')) return;
+      if (chat.scene === 'group') void this.refreshMuteState(Number(chat.qq_account_id), Number(chat.peer_id));
       if (chat.checked && Date.now() - Number(chat.checked) < this.o.avatarMaxAgeMs) return;
       const kind = chat.scene === 'group' ? 'group' : 'user';
       const key = `${chat.qq_account_id}:${kind}:${chat.peer_id}`;
@@ -497,13 +498,43 @@ export class ContactService {
   }
 
   /** 刷新群资料、头像，withMembers 时连同成员列表（大群一次请求可能要几秒）。 */
+  /**
+   * 打开群聊时：向 QQ 要一次全员禁言和自己的禁言、身份（两次很轻的调用；同一个群 30 秒内只要一次）。
+   * 禁言事件实时更新这些状态，这里是兜底（App 没在线时的变化、禁言到期）。
+   */
+  async refreshMuteState(qqAccountId: number, groupId: number): Promise<void> {
+    const key = `${qqAccountId}:${groupId}`;
+    const last = this.muteCheckedAt.get(key) ?? 0;
+    if (Date.now() - last < 30_000) return;
+    this.muteCheckedAt.set(key, Date.now());
+    try {
+      const info = await this.ob11<Ob11>(qqAccountId, 'get_group_info', { group_id: String(groupId), no_cache: true });
+      if (!info) return;
+      const self = await this.selfMember(qqAccountId, groupId);
+      await this.ingest.upsertPeer(qqAccountId, { kind: 'group', peerId: groupId, ...muteState(info, self) });
+    } catch (error) {
+      this.o.logger?.debug({ err: error, groupId }, 'mute state refresh failed');
+    }
+  }
+
+  private readonly muteCheckedAt = new Map<string, number>();
+
+  /** 自己在群里的成员资料（身份、禁言到期时间）。 */
+  private async selfMember(qqAccountId: number, groupId: number): Promise<Ob11 | null> {
+    const row = await maybeOne<{ uin: number }>(this.db, sql`select uin from qq_accounts where id = ${qqAccountId}`);
+    if (!row) return null;
+    return (await this.ob11<Ob11>(qqAccountId, 'get_group_member_info', { group_id: String(groupId), user_id: String(row.uin), no_cache: true })) ?? null;
+  }
+
   async refreshGroup(qqAccountId: number, groupId: number, withMembers: boolean): Promise<void> {
     const info = await this.ob11<Ob11>(qqAccountId, 'get_group_info', { group_id: String(groupId), no_cache: true });
     if (!info) throw new Error(`no info for group ${groupId}`);
     const avatar = await this.avatar(avatarUrl('group', groupId));
+    const self = await this.selfMember(qqAccountId, groupId).catch(() => null);
     await this.ingest.upsertPeer(qqAccountId, {
       kind: 'group',
       peerId: groupId,
+      ...muteState(info, self),
       ...(str(info.group_name) ? { name: str(info.group_name)! } : {}),
       ...(num(info.member_count) ? { memberCount: num(info.member_count)! } : {}),
       ...(typeof info.group_memo === 'string' ? { sign: info.group_memo } : {}),
@@ -609,4 +640,15 @@ async function defaultFetchAvatar(url: string): Promise<Buffer | null> {
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: 'follow' });
   if (!res.ok) return null;
   return Buffer.from(await res.arrayBuffer());
+}
+
+/** QQ 返回的群资料 + 自己的成员资料 → 禁言状态（group_all_shut 非 0 = 全员禁言；shut_up_timestamp 是禁言到期时间）。 */
+function muteState(info: Ob11, self: Ob11 | null): { muteAll: boolean; selfMutedUntil?: number; selfRole?: string } {
+  const out: { muteAll: boolean; selfMutedUntil?: number; selfRole?: string } = { muteAll: Number(info.group_all_shut ?? 0) !== 0 };
+  if (self) {
+    const until = Number(self.shut_up_timestamp ?? 0) || 0;
+    out.selfMutedUntil = until > Date.now() / 1000 ? until : 0;
+    if (self.role === 'owner' || self.role === 'admin' || self.role === 'member') out.selfRole = self.role;
+  }
+  return out;
 }

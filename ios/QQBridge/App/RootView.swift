@@ -55,14 +55,29 @@ struct RootView: View {
       }
     }
     .animation(.spring(duration: 0.35), value: model.banner)
-    .sheet(item: Binding(get: { model.quickReplyChat.map(ChatRef.init) }, set: { model.quickReplyChat = $0?.id })) { ref in
-      QuickReplyView(session: session, chatId: ref.id) {
-        model.quickReplyChat = nil
-        // 等浮层收起再跳（收起动画中改导航会被忽略）。
-        Task {
-          try? await Task.sleep(for: .milliseconds(400))
-          model.pendingChat = ref.id
+    // 底部提示：转发成功等，点"查看"打开目标会话。
+    .overlay(alignment: .bottom) {
+      if let toast = model.toast {
+        AppToastView(toast: toast) {
+          model.dismissToast()
+          model.quickReplyChat = nil
+          model.pendingChat = toast.chatId
         }
+        .padding(.bottom, 90)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .animation(.spring(duration: 0.35), value: model.toast)
+    .sheet(item: Binding(get: { model.quickReplyChat.map(ChatRef.init) }, set: { model.quickReplyChat = $0?.id })) { ref in
+      NavigationStack {
+        ChatScreen(session: session, chatId: ref.id, onExpand: {
+          model.quickReplyChat = nil
+          // 等浮层收起再跳（收起动画中改导航会被忽略）。
+          Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            model.pendingChat = ref.id
+          }
+        })
       }
       .presentationDetents([.medium, .large])
     }

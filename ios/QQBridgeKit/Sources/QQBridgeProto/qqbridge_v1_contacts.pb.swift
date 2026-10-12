@@ -124,35 +124,47 @@ public nonisolated struct Qqbridge_V1_GetUserProfileRequest: Sendable {
   public init() {}
 }
 
-public nonisolated struct Qqbridge_V1_UserProfile: Sendable {
+public nonisolated struct Qqbridge_V1_UserProfile: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var peer: Qqbridge_V1_Peer {
-    get {_peer ?? Qqbridge_V1_Peer()}
-    set {_peer = newValue}
+    get {_storage._peer ?? Qqbridge_V1_Peer()}
+    set {_uniqueStorage()._peer = newValue}
   }
   /// Returns true if `peer` has been explicitly set.
-  public var hasPeer: Bool {self._peer != nil}
+  public var hasPeer: Bool {_storage._peer != nil}
   /// Clears the value of `peer`. Subsequent reads from it will return its default value.
-  public mutating func clearPeer() {self._peer = nil}
+  public mutating func clearPeer() {_uniqueStorage()._peer = nil}
 
   /// unknown / male / female。
-  public var sex: String = String()
+  public var sex: String {
+    get {_storage._sex}
+    set {_uniqueStorage()._sex = newValue}
+  }
 
-  public var age: UInt32 = 0
+  public var age: UInt32 {
+    get {_storage._age}
+    set {_uniqueStorage()._age = newValue}
+  }
 
-  public var level: UInt32 = 0
+  public var level: UInt32 {
+    get {_storage._level}
+    set {_uniqueStorage()._level = newValue}
+  }
 
   /// 上次从 QQ 刷新的时间（unix 秒，0 = 从没刷新过）。
-  public var refreshedAt: Int64 = 0
+  public var refreshedAt: Int64 {
+    get {_storage._refreshedAt}
+    set {_uniqueStorage()._refreshedAt = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _peer: Qqbridge_V1_Peer? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Qqbridge_V1_GetUserProfileResponse: Sendable {
@@ -220,27 +232,30 @@ public nonisolated struct Qqbridge_V1_GroupProfile: Sendable {
   fileprivate var _peer: Qqbridge_V1_Peer? = nil
 }
 
-public nonisolated struct Qqbridge_V1_GetGroupProfileResponse: Sendable {
+public nonisolated struct Qqbridge_V1_GetGroupProfileResponse: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var profile: Qqbridge_V1_GroupProfile {
-    get {_profile ?? Qqbridge_V1_GroupProfile()}
-    set {_profile = newValue}
+    get {_storage._profile ?? Qqbridge_V1_GroupProfile()}
+    set {_uniqueStorage()._profile = newValue}
   }
   /// Returns true if `profile` has been explicitly set.
-  public var hasProfile: Bool {self._profile != nil}
+  public var hasProfile: Bool {_storage._profile != nil}
   /// Clears the value of `profile`. Subsequent reads from it will return its default value.
-  public mutating func clearProfile() {self._profile = nil}
+  public mutating func clearProfile() {_uniqueStorage()._profile = nil}
 
-  public var stale: Bool = false
+  public var stale: Bool {
+    get {_storage._stale}
+    set {_uniqueStorage()._stale = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _profile: Qqbridge_V1_GroupProfile? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 public nonisolated struct Qqbridge_V1_GroupMember: Sendable {
@@ -869,51 +884,95 @@ nonisolated extension Qqbridge_V1_UserProfile: SwiftProtobuf.Message, SwiftProto
   public static let protoMessageName: String = _protobuf_package + ".UserProfile"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}peer\0\u{1}sex\0\u{1}age\0\u{1}level\0\u{3}refreshed_at\0")
 
+  fileprivate class _StorageClass {
+    var _peer: Qqbridge_V1_Peer? = nil
+    var _sex: String = String()
+    var _age: UInt32 = 0
+    var _level: UInt32 = 0
+    var _refreshedAt: Int64 = 0
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _peer = source._peer
+      _sex = source._sex
+      _age = source._age
+      _level = source._level
+      _refreshedAt = source._refreshedAt
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._peer) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.sex) }()
-      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.age) }()
-      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.level) }()
-      case 5: try { try decoder.decodeSingularInt64Field(value: &self.refreshedAt) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._peer) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._sex) }()
+        case 3: try { try decoder.decodeSingularUInt32Field(value: &_storage._age) }()
+        case 4: try { try decoder.decodeSingularUInt32Field(value: &_storage._level) }()
+        case 5: try { try decoder.decodeSingularInt64Field(value: &_storage._refreshedAt) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._peer {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.sex.isEmpty {
-      try visitor.visitSingularStringField(value: self.sex, fieldNumber: 2)
-    }
-    if self.age != 0 {
-      try visitor.visitSingularUInt32Field(value: self.age, fieldNumber: 3)
-    }
-    if self.level != 0 {
-      try visitor.visitSingularUInt32Field(value: self.level, fieldNumber: 4)
-    }
-    if self.refreshedAt != 0 {
-      try visitor.visitSingularInt64Field(value: self.refreshedAt, fieldNumber: 5)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._peer {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      if !_storage._sex.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sex, fieldNumber: 2)
+      }
+      if _storage._age != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._age, fieldNumber: 3)
+      }
+      if _storage._level != 0 {
+        try visitor.visitSingularUInt32Field(value: _storage._level, fieldNumber: 4)
+      }
+      if _storage._refreshedAt != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._refreshedAt, fieldNumber: 5)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_UserProfile, rhs: Qqbridge_V1_UserProfile) -> Bool {
-    if lhs._peer != rhs._peer {return false}
-    if lhs.sex != rhs.sex {return false}
-    if lhs.age != rhs.age {return false}
-    if lhs.level != rhs.level {return false}
-    if lhs.refreshedAt != rhs.refreshedAt {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._peer != rhs_storage._peer {return false}
+        if _storage._sex != rhs_storage._sex {return false}
+        if _storage._age != rhs_storage._age {return false}
+        if _storage._level != rhs_storage._level {return false}
+        if _storage._refreshedAt != rhs_storage._refreshedAt {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1046,36 +1105,74 @@ nonisolated extension Qqbridge_V1_GetGroupProfileResponse: SwiftProtobuf.Message
   public static let protoMessageName: String = _protobuf_package + ".GetGroupProfileResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}profile\0\u{1}stale\0")
 
+  fileprivate class _StorageClass {
+    var _profile: Qqbridge_V1_GroupProfile? = nil
+    var _stale: Bool = false
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _profile = source._profile
+      _stale = source._stale
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._profile) }()
-      case 2: try { try decoder.decodeSingularBoolField(value: &self.stale) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._profile) }()
+        case 2: try { try decoder.decodeSingularBoolField(value: &_storage._stale) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._profile {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if self.stale != false {
-      try visitor.visitSingularBoolField(value: self.stale, fieldNumber: 2)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._profile {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      if _storage._stale != false {
+        try visitor.visitSingularBoolField(value: _storage._stale, fieldNumber: 2)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_GetGroupProfileResponse, rhs: Qqbridge_V1_GetGroupProfileResponse) -> Bool {
-    if lhs._profile != rhs._profile {return false}
-    if lhs.stale != rhs.stale {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._profile != rhs_storage._profile {return false}
+        if _storage._stale != rhs_storage._stale {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

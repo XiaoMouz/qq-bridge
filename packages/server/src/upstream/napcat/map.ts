@@ -90,6 +90,10 @@ function mapNotice(event: NapcatEvent, selfUin: number): UpstreamAction {
       return group(lift ? 'unmute' : 'mute', compactEvent({ actorId: opt(operatorId), targetId: opt(userId), data: { duration: int(event.duration), all: !userId } }));
     }
     case 'group_card':
+      // NapCat 会把群里「某某邀请某某进群，点击欢迎…」这类灰条误报成自己的群名片变化（新旧名片一个是空、一个是灰条文字）；
+      // 自己改群名片本来就知道，不记。
+      if (userId === selfUin) return ignore('own group card change');
+      if ((event.card_new ?? '') === (event.card_old ?? '')) return ignore('group card unchanged');
       return group('card_change', compactEvent({ targetId: opt(userId), data: { cardNew: event.card_new ?? '', cardOld: event.card_old ?? '' } }));
     case 'group_upload': {
       // 文件本身随群里的文件消息正常存档；这里只记"谁上传了什么"。

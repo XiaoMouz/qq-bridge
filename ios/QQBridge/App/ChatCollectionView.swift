@@ -73,6 +73,8 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var pendingRequest: ChatScrollRequest?
   /// 正在执行的跳转：滚动结束后再按真实高度校正一次。
   private var jumpTarget: String?
+  /// 正在执行的滚动动画（回到底部 / 跳到某条）：期间不按锚点校正位置（直接设偏移量会把动画打断，停在半路）。
+  private var animatingTo: ChatScrollRequest.Target?
 
   private static let flip = CGAffineTransform(scaleX: 1, y: -1)
 
@@ -233,22 +235,37 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     let old = Set(oldIds)
     snapshot.reconfigureItems(Array(Set(changed + previousChanged).filter { old.contains($0) && byId[$0] != nil }))
 
-    // 不在底部时，底下来了新消息：保持正在看的内容不动（倒过来的列表里新消息插在最前面，会把内容往上推）。
-    let atBottom = isAtBottom
-    let newAtBottom = !oldIds.isEmpty && ids.first != oldIds.first
-    let heightBefore = collectionView.contentSize.height
-    let offsetBefore = collectionView.contentOffset.y
+    // 不在底部时（往上翻着看历史）：不管底下来了新消息、顶上收掉了旧消息，还是中间的消息高度变了，
+    // 都以屏幕上一条正在看的消息为锚点，提交后把它放回原来的屏幕位置，正在看的内容不跳。
+    let keep = !oldIds.isEmpty && animatingTo == nil && (!isAtBottom || selecting)
+    let anchor = keep ? visibleAnchor() : nil
 
     dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
       guard let self else { return }
-      if newAtBottom, !atBottom || self.selecting {
-        self.collectionView.layoutIfNeeded()
-        let grew = self.collectionView.contentSize.height - heightBefore
-        if grew > 0 { self.collectionView.contentOffset.y = offsetBefore + grew }
-      }
+      if let anchor { self.restore(anchor) }
       self.performPendingRequest()
       self.reportPosition()
     }
+  }
+
+  /// 锚点：屏幕中间那条可见消息的 id，以及它的顶边相对可见区域的位置。
+  private func visibleAnchor() -> (id: String, offset: CGFloat)? {
+    let mid = collectionView.contentOffset.y + collectionView.bounds.height / 2
+    let visible = collectionView.indexPathsForVisibleItems.compactMap { ip -> (String, CGRect)? in
+      guard let id = dataSource.itemIdentifier(for: ip), let attrs = collectionView.layoutAttributesForItem(at: ip) else { return nil }
+      return (id, attrs.frame)
+    }
+    guard let best = visible.min(by: { abs($0.1.midY - mid) < abs($1.1.midY - mid) }) else { return nil }
+    return (best.0, best.1.minY - collectionView.contentOffset.y)
+  }
+
+  private func restore(_ anchor: (id: String, offset: CGFloat)) {
+    guard let indexPath = dataSource.indexPath(for: anchor.id) else { return }
+    collectionView.layoutIfNeeded()
+    guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+    let target = attrs.frame.minY - anchor.offset
+    // 差不到半个点就不动（直接设 contentOffset 会打断正在进行的惯性滚动）。
+    if abs(collectionView.contentOffset.y - target) > 0.5 { collectionView.contentOffset.y = target }
   }
 
   private var selecting: Bool { messageContext?.selection.active ?? false }
@@ -267,11 +284,13 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     switch r.target {
     case .bottom:
       pendingRequest = nil
+      animatingTo = .bottom
       scrollToBottom(animated: true)
     case .item(let id):
       guard let indexPath = dataSource.indexPath(for: id) else { return }
       pendingRequest = nil
       jumpTarget = id
+      animatingTo = r.target
       collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
     }
   }
@@ -333,6 +352,11 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     onScrollDate?(item.time)
   }
 
+  /// 用户自己拖了：程序发起的滚动动画作废。
+  func scrollViewWillBeginDragging(_: UIScrollView) {
+    animatingTo = nil
+  }
+
   func scrollViewDidEndDecelerating(_: UIScrollView) {
     onScrollDate?(nil)
   }
@@ -342,6 +366,9 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   }
 
   func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
+    // 动画途中底下又来了消息、高度变了：落到真正的最底部。
+    if animatingTo == .bottom { scrollToBottom(animated: false) }
+    animatingTo = nil
     finishJump()
     reportPosition()
   }

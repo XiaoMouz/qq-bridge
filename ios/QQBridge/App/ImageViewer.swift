@@ -14,6 +14,7 @@ struct ImageViewer: View {
   /// 同一会话里可以左右翻的图片（含 target）；空 = 只看这一张。
   var gallery: [MediaTarget] = []
   @Environment(\.dismiss) private var dismiss
+  @Environment(AppModel.self) private var model
   @State private var current: String = ""
   @State private var pages: [String: ImagePage] = [:]
   @State private var chrome = true
@@ -199,7 +200,7 @@ struct ImageViewer: View {
       seg.image.sha256 = sha
       do {
         try await session.sender.send(chatId: chat, segments: [seg])
-        show("已转发")
+        forwarded(to: chat)
       } catch {
         show("转发失败：\(error.localizedDescription)")
       }
@@ -215,7 +216,7 @@ struct ImageViewer: View {
       var seg = Qqbridge_V1_OutgoingSegment()
       seg.image.sha256 = uploaded.sha256
       try await session.sender.send(chatId: chat, segments: [seg])
-      show(chat == chatId ? "已发送" : "已转发")
+      if chat == chatId { show("已发送") } else { forwarded(to: chat) }
     } catch {
       show("发送失败：\(error.localizedDescription)")
     }
@@ -227,6 +228,13 @@ struct ImageViewer: View {
     let dest = FileManager.default.temporaryDirectory.appendingPathComponent("qqbridge-\(file.lastPathComponent).\(ext)")
     if !FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.copyItem(at: file, to: dest) }
     return dest
+  }
+
+  /// 转发成功：这里提示一句，App 底部也留一条可以点开目标会话的提示（关掉查看器后还在）。
+  private func forwarded(to chat: Int64) {
+    let name = (try? session.store.dialogItems(limit: 5000))?.first { $0.id == chat }?.title ?? "会话"
+    show("已转发到「\(name)」")
+    model.showToast(AppToast(text: "已转发到「\(name)」", chatId: chat))
   }
 
   private func show(_ text: String) {

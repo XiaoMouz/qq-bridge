@@ -328,6 +328,9 @@ export class IngestService {
         memberCount: profile.memberCount ?? prev?.memberCount ?? null,
         sign: profile.sign ?? prev?.sign ?? null,
         avatarSha256: profile.avatarSha256 ?? prev?.avatarSha256 ?? null,
+        muteAll: profile.muteAll ?? prev?.muteAll ?? false,
+        selfMutedUntil: profile.selfMutedUntil ?? prev?.selfMutedUntil ?? 0,
+        selfRole: profile.selfRole ?? prev?.selfRole ?? null,
       };
       if (
         prev &&
@@ -337,7 +340,10 @@ export class IngestService {
         prev.isFriend === next.isFriend &&
         prev.memberCount === next.memberCount &&
         prev.sign === next.sign &&
-        prev.avatarSha256 === next.avatarSha256
+        prev.avatarSha256 === next.avatarSha256 &&
+        prev.muteAll === next.muteAll &&
+        prev.selfMutedUntil === next.selfMutedUntil &&
+        prev.selfRole === next.selfRole
       ) {
         return false;
       }
@@ -345,12 +351,15 @@ export class IngestService {
       const peer = toPeer(
         await one(
           w.tx,
-          sql`insert into peers (qq_account_id, kind, peer_id, uid, name, remark, is_friend, member_count, sign, avatar_sha256, pts)
+          sql`insert into peers (qq_account_id, kind, peer_id, uid, name, remark, is_friend, member_count, sign, avatar_sha256,
+                                 mute_all, self_muted_until, self_role, pts)
               values (${qqAccountId}, ${profile.kind}, ${profile.peerId}, ${next.uid}, ${next.name}, ${next.remark},
-                      ${next.isFriend}, ${next.memberCount}, ${next.sign}, ${next.avatarSha256}, ${pts})
+                      ${next.isFriend}, ${next.memberCount}, ${next.sign}, ${next.avatarSha256}, ${next.muteAll},
+                      ${next.selfMutedUntil > 0 ? new Date(next.selfMutedUntil * 1000).toISOString() : null}, ${next.selfRole}, ${pts})
               on conflict (qq_account_id, kind, peer_id) do update
                  set uid = excluded.uid, name = excluded.name, remark = excluded.remark, is_friend = excluded.is_friend,
                      member_count = excluded.member_count, sign = excluded.sign, avatar_sha256 = excluded.avatar_sha256,
+                     mute_all = excluded.mute_all, self_muted_until = excluded.self_muted_until, self_role = excluded.self_role,
                      pts = excluded.pts, updated_at = now()
               returning ${PEER_COLUMNS}`,
         ),
@@ -471,7 +480,11 @@ export class IngestService {
       w.emit({ type: 'chatEvent', chatId: chat.id, chatPts, event: row });
       return { inserted: true, chatId: chat.id };
     });
-    if (result.inserted) for (const peer of event.peers ?? []) await this.upsertPeer(qqAccountId, peer);
+    if (result.inserted) {
+      for (const peer of event.peers ?? []) await this.upsertPeer(qqAccountId, peer);
+      const mute = muteChange(event, qq.uin);
+      if (mute) await this.upsertPeer(qqAccountId, { kind: 'group', peerId: event.peerId, ...mute });
+    }
     return result;
   }
 
@@ -892,4 +905,25 @@ export async function applyOnDemandPolicy(w: WriteContext, chatId: number, befor
      returning chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, role`,
   );
   for (const ref of queued) if (ref.role !== QQ_THUMB_ROLE) await updateMessageMedia(w, ref, { state: 'pending' });
+}
+
+/**
+ * 禁言 / 管理员变化里和自己相关的部分：全员禁言开关、自己被禁言（到期时间）、自己成为 / 不再是管理员。
+ * 只在事件比现在新时才改（补历史时收到的旧事件不该覆盖当前状态）。
+ */
+function muteChange(event: IncomingChatEvent, selfUin: number): Pick<PeerProfile, 'muteAll' | 'selfMutedUntil' | 'selfRole'> | null {
+  if (event.scene !== 'group' || Date.now() / 1000 - event.time > 600) return null;
+  const data = (event.data ?? {}) as { all?: boolean; duration?: number };
+  switch (event.kind) {
+    case 'mute':
+    case 'unmute':
+      if (data.all || !event.targetId) return { muteAll: event.kind === 'mute' };
+      if (event.targetId !== selfUin) return null;
+      return { selfMutedUntil: event.kind === 'mute' && (data.duration ?? 0) > 0 ? event.time + (data.duration ?? 0) : 0 };
+    case 'admin_set':
+    case 'admin_unset':
+      return event.targetId === selfUin ? { selfRole: event.kind === 'admin_set' ? 'admin' : 'member' } : null;
+    default:
+      return null;
+  }
 }

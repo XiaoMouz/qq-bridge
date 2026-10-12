@@ -290,6 +290,12 @@ message Peer {
   int64 pts = 9;
   // 个性签名（好友）/ 群简介。
   string sign = 10;
+  // 群：全员禁言中（群主、管理员仍可发言）。
+  bool mute_all = 11;
+  // 群：自己被禁言到（unix 秒，0 = 没被禁言）。
+  int64 self_muted_until = 12;
+  // 群：自己的身份 owner / admin / member（空 = 还不知道）。
+  string self_role = 13;
 }
 
 // 墓碑：告诉客户端某一行已经被删除。

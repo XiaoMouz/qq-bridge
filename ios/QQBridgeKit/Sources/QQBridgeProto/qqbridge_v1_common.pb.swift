@@ -1136,6 +1136,15 @@ public nonisolated struct Qqbridge_V1_Peer: Sendable {
   /// 个性签名（好友）/ 群简介。
   public var sign: String = String()
 
+  /// 群：全员禁言中（群主、管理员仍可发言）。
+  public var muteAll: Bool = false
+
+  /// 群：自己被禁言到（unix 秒，0 = 没被禁言）。
+  public var selfMutedUntil: Int64 = 0
+
+  /// 群：自己的身份 owner / admin / member（空 = 还不知道）。
+  public var selfRole: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2838,7 +2847,7 @@ nonisolated extension Qqbridge_V1_Draft: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension Qqbridge_V1_Peer: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Peer"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}qq_account_id\0\u{1}kind\0\u{3}peer_id\0\u{1}name\0\u{1}remark\0\u{3}is_friend\0\u{3}member_count\0\u{3}avatar_sha256\0\u{1}pts\0\u{1}sign\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}qq_account_id\0\u{1}kind\0\u{3}peer_id\0\u{1}name\0\u{1}remark\0\u{3}is_friend\0\u{3}member_count\0\u{3}avatar_sha256\0\u{1}pts\0\u{1}sign\0\u{3}mute_all\0\u{3}self_muted_until\0\u{3}self_role\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2856,6 +2865,9 @@ nonisolated extension Qqbridge_V1_Peer: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 8: try { try decoder.decodeSingularStringField(value: &self.avatarSha256) }()
       case 9: try { try decoder.decodeSingularInt64Field(value: &self.pts) }()
       case 10: try { try decoder.decodeSingularStringField(value: &self.sign) }()
+      case 11: try { try decoder.decodeSingularBoolField(value: &self.muteAll) }()
+      case 12: try { try decoder.decodeSingularInt64Field(value: &self.selfMutedUntil) }()
+      case 13: try { try decoder.decodeSingularStringField(value: &self.selfRole) }()
       default: break
       }
     }
@@ -2892,6 +2904,15 @@ nonisolated extension Qqbridge_V1_Peer: SwiftProtobuf.Message, SwiftProtobuf._Me
     if !self.sign.isEmpty {
       try visitor.visitSingularStringField(value: self.sign, fieldNumber: 10)
     }
+    if self.muteAll != false {
+      try visitor.visitSingularBoolField(value: self.muteAll, fieldNumber: 11)
+    }
+    if self.selfMutedUntil != 0 {
+      try visitor.visitSingularInt64Field(value: self.selfMutedUntil, fieldNumber: 12)
+    }
+    if !self.selfRole.isEmpty {
+      try visitor.visitSingularStringField(value: self.selfRole, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2906,6 +2927,9 @@ nonisolated extension Qqbridge_V1_Peer: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.avatarSha256 != rhs.avatarSha256 {return false}
     if lhs.pts != rhs.pts {return false}
     if lhs.sign != rhs.sign {return false}
+    if lhs.muteAll != rhs.muteAll {return false}
+    if lhs.selfMutedUntil != rhs.selfMutedUntil {return false}
+    if lhs.selfRole != rhs.selfRole {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

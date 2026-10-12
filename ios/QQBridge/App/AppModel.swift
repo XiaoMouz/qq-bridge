@@ -42,6 +42,18 @@ final class AppModel {
   var banner: InAppBanner?
   /// 点了横幅：快速回复的浮层。
   var quickReplyChat: Int64?
+  /// 底部的一行提示（例如转发成功），带会话的点一下打开那个会话。
+  private(set) var toast: AppToast?
+
+  func showToast(_ t: AppToast) {
+    toast = t
+    Task {
+      try? await Task.sleep(for: .seconds(t.chatId == nil ? 3 : 6))
+      if toast?.id == t.id { toast = nil }
+    }
+  }
+
+  func dismissToast() { toast = nil }
   private var statusTask: Task<Void, Never>?
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。

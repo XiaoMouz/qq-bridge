@@ -95,6 +95,12 @@ export const peers = pgTable(
     avatarSha256: text('avatar_sha256'),
     /** 个性签名（好友）/ 群简介。 */
     sign: text('sign'),
+    /** 群：全员禁言中。 */
+    muteAll: boolean('mute_all').notNull().default(false),
+    /** 群：自己被禁言到什么时候（空 = 没被禁言）。 */
+    selfMutedUntil: ts('self_muted_until'),
+    /** 群：自己的身份 owner / admin / member（不知道时为空）。 */
+    selfRole: text('self_role'),
     /** 其他资料（性别、等级、群主等），按 QQ 返回的原样挑选保存。 */
     extra: jsonb('extra').notNull().default({}),
     /** 最后一次从 QQ 刷新资料、检查头像的时间。 */

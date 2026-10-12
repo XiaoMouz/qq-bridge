@@ -139,11 +139,17 @@ export interface PeerRow {
   memberCount: number | null;
   avatarSha256: string | null;
   sign: string | null;
+  /** 群：全员禁言中。 */
+  muteAll: boolean;
+  /** 群：自己被禁言到（unix 秒，0 = 没被禁言）。 */
+  selfMutedUntil: number;
+  /** 群：自己的身份（不知道时为空）。 */
+  selfRole: string | null;
   pts: number;
 }
 
 export const PEER_COLUMNS = sql.raw(
-  'qq_account_id, kind, peer_id, uid, name, remark, is_friend, member_count, avatar_sha256, sign, pts',
+  'qq_account_id, kind, peer_id, uid, name, remark, is_friend, member_count, avatar_sha256, sign, mute_all, self_muted_until, self_role, pts',
 );
 
 export function toPeer(r: DbRow): PeerRow {
@@ -158,6 +164,9 @@ export function toPeer(r: DbRow): PeerRow {
     memberCount: r.member_count ?? null,
     avatarSha256: r.avatar_sha256 ?? null,
     sign: r.sign ?? null,
+    muteAll: Boolean(r.mute_all),
+    selfMutedUntil: r.self_muted_until ? Math.floor(new Date(r.self_muted_until).getTime() / 1000) : 0,
+    selfRole: r.self_role ?? null,
     pts: r.pts,
   };
 }

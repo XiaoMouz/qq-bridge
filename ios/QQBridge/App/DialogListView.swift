@@ -187,6 +187,8 @@ enum DialogActions {
 /// 群助手：折叠起来的那一行。
 struct ArchiveRow: View {
   let items: [DialogItem]
+  /// 和普通会话行一样大（三行预览时头像也跟着变大）。
+  @AppStorage(DialogRow.linesKey) private var lines = 2
 
   var body: some View {
     let latest = items.max { $0.dialog.topTime < $1.dialog.topTime }
@@ -194,9 +196,9 @@ struct ArchiveRow: View {
     HStack(spacing: 12) {
       ZStack {
         Circle().fill(Color.gray.gradient)
-        Image(systemName: "archivebox.fill").font(.title3).foregroundStyle(.white)
+        Image(systemName: "archivebox.fill").font(lines == 3 ? .title2 : .title3).foregroundStyle(.white)
       }
-      .frame(width: 48, height: 48)
+      .frame(width: lines == 3 ? 56 : 48, height: lines == 3 ? 56 : 48)
       VStack(alignment: .leading, spacing: 4) {
         HStack {
           Text("群助手").font(.body.weight(.semibold))

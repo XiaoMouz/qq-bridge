@@ -284,6 +284,9 @@ export function peerToProto(p: PeerRow): Peer {
     memberCount: p.memberCount ?? 0,
     avatarSha256: p.avatarSha256 ?? '',
     sign: p.sign ?? '',
+    muteAll: p.muteAll,
+    selfMutedUntil: big(p.selfMutedUntil),
+    selfRole: p.selfRole ?? '',
     pts: big(p.pts),
   });
 }

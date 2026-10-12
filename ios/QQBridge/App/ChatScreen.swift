@@ -10,7 +10,12 @@ import SwiftUI
 struct ChatScreen: View {
   let session: Session
   let chatId: Int64
+  /// 作为快速回复浮层打开（App 内横幅点进来）：左上角关闭，右上角多一个"打开完整会话"。
+  var onExpand: (() -> Void)? = nil
   @Environment(AppModel.self) private var model
+  @Environment(\.dismiss) private var dismiss
+  /// 打开前正在看的会话（快速回复浮层盖在另一个会话上时）：关掉后还给它。
+  @State private var previousOpenChat: Int64?
   @State private var items: [ChatItem] = []
   @State private var limit = 60
   @State private var dialog: Qqbridge_V1_Dialog?
@@ -66,6 +71,9 @@ struct ChatScreen: View {
   @State private var notice: String?
   /// 剪贴板里有图片：输入框获得焦点时显示"粘贴图片"。
   @State private var canPaste = false
+  @State private var pasteHintTimer: Task<Void, Never>?
+  /// 在这之前获得的焦点是关掉弹窗后系统自动还回来的：不提示粘贴。
+  @State private var pasteQuietUntil = Date.distantPast
   /// 有东西拖到聊天页上方：显示"松手发送"。
   @State private var dropTargeted = false
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
@@ -154,6 +162,22 @@ struct ChatScreen: View {
       }
     }
     .animation(.snappy, value: notice)
+    // 快速回复浮层盖住了 App 底部的提示：在浮层里自己显示一份。
+    .overlay(alignment: .bottom) {
+      if onExpand != nil, let toast = model.toast {
+        AppToastView(toast: toast) {
+          model.dismissToast()
+          model.quickReplyChat = nil
+          Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            model.pendingChat = toast.chatId
+          }
+        }
+        .padding(.bottom, 8)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .animation(.spring(duration: 0.35), value: model.toast)
     // 两个按钮的位置是固定的：回到底部按钮不显示时也留着它的位置，"有人@我"不会因为它出现而被顶上去。
     .overlay(alignment: .bottomTrailing) {
       VStack(spacing: 12) {
@@ -195,9 +219,28 @@ struct ChatScreen: View {
     .overlay { if dropTargeted { DropHint().transition(.opacity) } }
     .animation(.easeOut(duration: 0.15), value: dropTargeted)
     .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
-    .onChange(of: inputFocused) { _, focused in if focused { checkPasteboard() } }
+    .onChange(of: inputFocused) { _, focused in
+      // 弹窗、资料卡、下一级页面关掉回来时，系统会把焦点自动还给输入框：这种不算"要输入了"，不提示粘贴。
+      if focused, Date() > pasteQuietUntil { checkPasteboard() } else if !focused { retirePasteHint() }
+    }
+    .onChange(of: profileUser?.userId) { _, id in quietPasteHint(opening: id != nil) }
+    .onChange(of: showStickers) { _, on in quietPasteHint(opening: on) }
+    .onChange(of: showInfo) { _, on in quietPasteHint(opening: on) }
+    .onChange(of: composer.pickingMention) { _, on in quietPasteHint(opening: on) }
+    .onChange(of: sendError) { _, e in quietPasteHint(opening: e != nil) }
     .safeAreaBar(edge: .bottom) {
-      if selection.active { selectionBar } else { inputArea }
+      if selection.active {
+        selectionBar
+      } else if (peer?.selfMutedUntil ?? 0) > 0 {
+        // 自己被禁言：每秒刷新剩余时间，到期自动换回输入框。
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+          if let block = muteBlock(at: ctx.date) { mutedBar(block, now: ctx.date) } else { inputArea }
+        }
+      } else if let block = muteBlock(at: .now) {
+        mutedBar(block, now: .now)
+      } else {
+        inputArea
+      }
     }
     .sheet(item: $pendingForward) { pending in
       ChatPicker(session: session) { target in
@@ -208,6 +251,11 @@ struct ChatScreen: View {
     .toolbar(.hidden, for: .tabBar)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      if onExpand != nil {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("关闭", systemImage: "xmark") { dismiss() }
+        }
+      }
       ToolbarItem(placement: .principal) {
         Button { showInfo = true } label: {
           VStack(spacing: 0) {
@@ -233,6 +281,11 @@ struct ChatScreen: View {
             }
             .accessibilityLabel(isGroup ? "群资料" : "资料")
           }
+        }
+      }
+      if let onExpand, !selection.active {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("打开完整会话", systemImage: "arrow.up.left.and.arrow.down.right", action: onExpand)
         }
       }
     }
@@ -278,15 +331,24 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .task { await open() }
-    .onAppear { model.openChatId = chatId }
+    .onAppear {
+      // 从下一级页面（群资料、个人资料）返回：焦点是系统还回来的。
+      pasteQuietUntil = Date().addingTimeInterval(1.2)
+      if model.openChatId != chatId { previousOpenChat = model.openChatId }
+      model.openChatId = chatId
+    }
     #if DEBUG
     .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
     #endif
     .task(id: limit) {
       do {
+        if selfUin == 0, let d = try? session.store.dialog(chatId: chatId) {
+          selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
+        }
         for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
-          items = list
-          lookup.update(list)
+          // 旧数据里 NapCat 误报的"自己修改了群名片"（其实是群里的邀请灰条）：不显示。
+          items = list.filter { if case .event(let e) = $0 { !(e.kind == "card_change" && e.targetID == selfUin) } else { true } }
+          lookup.update(items)
           itemsVersion += 1
           noteNewMessages()
           markReadIfNeeded()
@@ -318,9 +380,11 @@ struct ChatScreen: View {
       Task { for item in items { if let a = await AttachmentLoader.load(item) { composer.attachments.append(a) } } }
     }
     .onDisappear {
-      if model.openChatId == chatId { model.openChatId = nil }
+      retirePasteHint()
+      if model.openChatId == chatId { model.openChatId = previousOpenChat }
       voice.stop()
-      Task { await setActive(false) }
+      let previous = previousOpenChat
+      Task { await setActive(false, restoring: previous) }
     }
     .confirmationDialog(
       "以群管理身份撤回这条消息？群里所有人都会看到它被撤回。",
@@ -371,15 +435,60 @@ struct ChatScreen: View {
       let res = try await session.api.messages.forwardMessages(request: req, headers: session.api.headers).get()
       for entry in res.entries { try? session.store.upsertLocalOutbox(entry) }
       selection.end()
+      let name = (try? session.store.dialogItems(limit: 5000))?.first { $0.id == target }?.title ?? "会话"
+      let what = pending.bundle ? "合并转发" : pending.seqs.count > 1 ? "\(pending.seqs.count) 条消息" : "消息"
+      model.showToast(AppToast(text: "已把\(what)转发到「\(name)」", chatId: target == chatId ? nil : target))
     } catch {
       sendError = "转发失败：\(error)"
     }
+  }
+
+  // MARK: 禁言
+
+  private enum MuteBlock {
+    case me(until: Int64)
+    case all
+  }
+
+  /// 发不了言的原因：自己被禁言；全员禁言且自己不是群主、管理员。
+  private func muteBlock(at date: Date) -> MuteBlock? {
+    guard isGroup, let p = peer else { return nil }
+    if p.selfMutedUntil > Int64(date.timeIntervalSince1970) { return .me(until: p.selfMutedUntil) }
+    if p.muteAll, p.selfRole != "owner", p.selfRole != "admin" { return .all }
+    return nil
+  }
+
+  private func mutedBar(_ block: MuteBlock, now: Date) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: "speaker.slash.fill")
+      switch block {
+      case .me(let until):
+        Text("你已被禁言，还剩 \(Format.remaining(Double(until) - now.timeIntervalSince1970))").monospacedDigit()
+      case .all:
+        Text("全员禁言中，只有群主和管理员可以发言")
+      }
+    }
+    .font(.subheadline)
+    .foregroundStyle(.secondary)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 12)
+    .glassEffect(.regular, in: Capsule())
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
   }
 
   // MARK: 输入区
 
   private var inputArea: some View {
     VStack(spacing: 6) {
+      // 全员禁言中、自己是群主 / 管理员：照常能发，提示一下。
+      if isGroup, let p = peer, p.muteAll, p.selfRole == "owner" || p.selfRole == "admin" {
+        Label("全员禁言中，你是\(p.selfRole == "owner" ? "群主" : "管理员")，仍可发言", systemImage: "speaker.slash")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 10).padding(.vertical, 4)
+          .glassEffect(.regular, in: Capsule())
+      }
       if let up = uploading {
         HStack(spacing: 8) {
           ProgressView(value: up.progress).frame(width: 80)
@@ -394,6 +503,7 @@ struct ChatScreen: View {
       if canPaste, inputFocused, composer.attachments.isEmpty {
         Button {
           if let a = AttachmentLoader.fromPasteboard() { composer.attachments.append(a) }
+          PasteHint.offered = UIPasteboard.general.changeCount
           canPaste = false
         } label: {
           Label("粘贴图片", systemImage: "doc.on.clipboard").font(.footnote)
@@ -528,6 +638,9 @@ struct ChatScreen: View {
         return MentionTarget(seq: m.seq, flags: m.flags, includeAll: includeAll)
       }
       mentions = (fresh + mentions).sorted { $0.seq > $1.seq }
+      // 在往上翻着看历史：窗口跟着放大，最上面正在看的旧消息不会因为底下来了新的被挤出列表。
+      let arrived = items.reduce(0) { n, item in if case .message(let m) = item, m.seq > newestSeen { n + 1 } else { n } }
+      if arrived > 0 { limit += arrived }
     } else {
       bottomMark = last
     }
@@ -559,10 +672,32 @@ struct ChatScreen: View {
     Task { _ = await session.api.messages.markMentionsSeen(request: req, headers: session.api.headers) }
   }
 
-  /// 只看剪贴板里有没有图片（不读内容，不会弹出"允许粘贴"）。
+  /// 只看剪贴板里有没有图片（不读内容，不会弹出"允许粘贴"）。同一份剪贴板内容只提示一次，6 秒后自己收起。
   private func checkPasteboard() {
     let pb = UIPasteboard.general
+    guard pb.changeCount != PasteHint.offered else {
+      canPaste = false
+      return
+    }
     canPaste = pb.hasImages || pb.contains(pasteboardTypes: [MediaPasteboard.type])
+    guard canPaste else { return }
+    pasteHintTimer?.cancel()
+    pasteHintTimer = Task {
+      try? await Task.sleep(for: .seconds(6))
+      if !Task.isCancelled { retirePasteHint() }
+    }
+  }
+
+  /// 打开弹窗 / 资料卡时收起提示；关掉时接下来一小会儿里自动还回来的焦点不提示。
+  private func quietPasteHint(opening: Bool) {
+    if opening { retirePasteHint() } else { pasteQuietUntil = Date().addingTimeInterval(1.2) }
+  }
+
+  /// 这份剪贴板内容不再提示。
+  private func retirePasteHint() {
+    guard canPaste else { return }
+    PasteHint.offered = UIPasteboard.general.changeCount
+    canPaste = false
   }
 
   private func galleryImages() -> [MediaTarget] {
@@ -660,7 +795,9 @@ struct ChatScreen: View {
     if !loaded() {
       searchingFor = seq
       defer { searchingFor = nil }
-      while !loaded(), !reachedStart {
+      // 不看之前记下的"已到最早"：翻页出过错、或这条是单独拉回来的，都值得再往上找一次。
+      var exhausted = false
+      while !loaded(), !exhausted {
         if Task.isCancelled { return false }
         let window = try? session.store.loadedWindow(chatId: chatId)
         let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
@@ -670,7 +807,7 @@ struct ChatScreen: View {
         } else {
           do {
             let got = try await session.sync.loadOlder(chatId, limit: 500)
-            if got == 0 { reachedStart = true }
+            if got == 0 { reachedStart = true; exhausted = true }
             limit += got
           } catch {
             show("加载更早的消息失败，稍后再点一次")
@@ -731,7 +868,7 @@ struct ChatScreen: View {
       if t.kind == .image { t.gallery = galleryImages() }
       mediaTarget = t
     }
-    actions.jumpTo = { seq in Task { await jump(to: seq) } }
+    actions.jumpTo = { seq in await jump(to: seq) }
     actions.copyMedia = { media, sticker in Task { await copyMedia(media, sticker: sticker) } }
     actions.addSticker = { media, seq in Task { await addSticker(media, seq: seq) } }
     actions.forward = { m in pendingForward = PendingForward(seqs: [m.seq], bundle: false) }
@@ -989,9 +1126,9 @@ struct ChatScreen: View {
   }
 
   /// 告诉服务端正在看哪个会话：它的媒体优先下载，头像按需刷新。
-  private func setActive(_ active: Bool) async {
+  private func setActive(_ active: Bool, restoring previous: Int64? = nil) async {
     var req = Qqbridge_V1_SetActiveChatRequest()
-    req.chatID = active ? chatId : 0
+    req.chatID = active ? chatId : (previous ?? 0)
     _ = await session.api.dialogs.setActiveChat(request: req, headers: session.api.headers)
   }
 }
@@ -1077,4 +1214,10 @@ struct DroppedItem: Transferable {
       return DroppedItem(url: dest)
     }
   }
+}
+
+/// 已经提示过（或用掉了）的剪贴板内容（UIPasteboard.changeCount）：整个 App 里同一份内容只提示一次，
+/// 弹窗、资料页关掉后输入框重新获得焦点、换个会话时都不会再冒出来。
+@MainActor enum PasteHint {
+  static var offered: Int?
 }

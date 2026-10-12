@@ -628,6 +628,8 @@ struct ReplyQuote: View {
   @Environment(\.session) private var session
   @State private var original: Qqbridge_V1_Message?
   @State private var missing = false
+  /// 点了之后正在拉原消息 / 往上翻找它。
+  @State private var jumping = false
 
   init(seq: Int64, context: MessageContext, outgoing: Bool) {
     self.seq = seq
@@ -637,44 +639,91 @@ struct ReplyQuote: View {
     _original = State(initialValue: context.lookup.message(seq))
   }
 
+  /// 列表里有就用列表里的（缩略图下好后会更新），否则用单独拉回来的。
+  private var shown: Qqbridge_V1_Message? { context.lookup.message(seq) ?? original }
+
   var body: some View {
     HStack(spacing: 6) {
       Rectangle().frame(width: 3).opacity(0.6)
-      // 被回复的是图片、表情、视频：带个小缩略图（还没下载的先显示图标，并向服务端要缩略图）。
-      if let original, let media = Self.media(original) {
-        CachedImage(sha256: Self.thumbnail(media), chatId: context.chatId, maxPixel: 120) {
+      // 被回复的是图片、表情、视频：按缩略图的比例缩小显示（还没有缩略图的先显示图标，并向服务端要）。
+      if let shown, let media = Self.media(shown) {
+        let size = Self.thumbSize(media.info)
+        CachedImage(sha256: Self.thumbnail(media), chatId: context.chatId, maxPixel: 160) {
           ZStack {
             RoundedRectangle(cornerRadius: 4).fill(.quaternary)
             Image(systemName: media.kind == .video ? "video" : "photo").font(.caption).foregroundStyle(.secondary)
           }
         }
         .aspectRatio(contentMode: .fill)
-        .frame(width: 34, height: 34)
+        .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .onAppear {
-          if Self.thumbnail(media) == nil { context.requester.want(chatId: context.chatId, seq: original.seq, ord: media.info.ord, session: context.session) }
+        .overlay {
+          if media.kind == .video { Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(.white).shadow(radius: 2) }
+        }
+        .task(id: "\(shown.seq):\(Self.thumbnail(media) ?? "")") {
+          guard Self.thumbnail(media) == nil else { return }
+          await waitForThumbnail(shown, media)
         }
       }
       VStack(alignment: .leading, spacing: 1) {
-        if let original {
+        if let shown {
           HStack(spacing: 6) {
-            Text(context.name(of: original.senderID)).font(.caption.bold()).lineLimit(1)
-            Text(Format.messageTime(original.time)).font(.caption2).opacity(0.7)
+            Text(context.name(of: shown.senderID)).font(.caption.bold()).lineLimit(1)
+            Text(Format.messageTime(shown.time)).font(.caption2).opacity(0.7)
           }
-          Text(Format.preview(original)).font(.caption).lineLimit(2)
+          Text(Format.preview(shown)).font(.caption).lineLimit(2)
+        } else if jumping {
+          Text("正在拉取原消息…").font(.caption)
         } else {
-          Text(missing ? "原消息已无法找到" : "…").font(.caption)
+          Text(missing ? "原消息暂时拿不到，点一下重试" : "…").font(.caption)
         }
       }
       .opacity(0.85)
+      if jumping {
+        Spacer(minLength: 0)
+        ProgressView().controlSize(.mini)
+      }
     }
     .fixedSize(horizontal: false, vertical: true)
     .contentShape(Rectangle())
-    // 点引用跳到原消息。
-    .onTapGesture { if !missing { context.actions.jumpTo(seq) } }
+    // 点引用跳到原消息：本地没有就先拉回来，再往上翻到它；期间显示加载中。
+    .onTapGesture {
+      guard !jumping else { return }
+      jumping = true
+      Task {
+        defer { jumping = false }
+        if shown == nil {
+          missing = false
+          await load()
+          if shown == nil { return }
+        }
+        _ = await context.actions.jumpTo(seq)
+      }
+    }
     .task(id: seq) {
       guard original == nil else { return }
       await load()
+    }
+  }
+
+  /// 缩略图大小：高 40，宽按比例（16…80）。不知道比例时是正方形。
+  static func thumbSize(_ media: Qqbridge_V1_MediaInfo) -> CGSize {
+    let h: CGFloat = 40
+    guard media.width > 0, media.height > 0 else { return CGSize(width: h, height: h) }
+    let w = h * CGFloat(media.width) / CGFloat(media.height)
+    return CGSize(width: min(80, max(16, w)), height: h)
+  }
+
+  /// 还没有缩略图：请服务端下载，然后隔一会儿看本地这条消息有没有更新（最多等 20 秒）。
+  private func waitForThumbnail(_ m: Qqbridge_V1_Message, _ media: QuotedMedia) async {
+    context.requester.want(chatId: context.chatId, seq: m.seq, ord: media.info.ord, session: context.session)
+    for _ in 0..<20 {
+      try? await Task.sleep(for: .seconds(1))
+      if Task.isCancelled { return }
+      if let fresh = try? context.store.message(chatId: context.chatId, seq: seq), let fm = Self.media(fresh), Self.thumbnail(fm) != nil {
+        original = fresh
+        return
+      }
     }
   }
 
@@ -908,8 +957,12 @@ enum EventText {
     case "member_leave": return "\(target.isEmpty ? actor : target) 离开了群聊"
     case "admin_set": return "\(target) 成为管理员"
     case "admin_unset": return "\(target) 不再是管理员"
-    case "mute": return target.isEmpty ? "\(actor) 开启了全员禁言" : "\(target) 被禁言"
-    case "unmute": return target.isEmpty ? "\(actor) 关闭了全员禁言" : "\(target) 被解除禁言"
+    case "mute":
+      if target.isEmpty { return "\(actor) 开启了全员禁言" }
+      let secs = data["duration"] as? Double ?? Double(data["duration"] as? Int ?? 0)
+      let by = actor.isEmpty ? "被" : "被 \(actor) "
+      return secs > 0 ? "\(target) \(by)禁言 \(Format.remaining(secs))" : "\(target) 被禁言"
+    case "unmute": return target.isEmpty ? "\(actor) 关闭了全员禁言" : "\(target) 被\(actor.isEmpty ? "" : " \(actor) ")解除禁言"
     case "card_change": return "\(target) 修改了群名片"
     case "title": return "\(target) 获得了头衔 \(data["title"] as? String ?? "")"
     case "group_name": return "\(actor) 修改群名为 \(data["name"] as? String ?? "")"
@@ -960,6 +1013,16 @@ extension Format {
 
   static func duration(_ seconds: Int) -> String {
     String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+
+  /// 禁言之类的时长：「29 天 23 小时」「2 小时 3 分」「5 分 12 秒」。
+  static func remaining(_ seconds: Double) -> String {
+    let t = max(0, Int(seconds.rounded(.up)))
+    let d = t / 86400, h = t % 86400 / 3600, m = t % 3600 / 60, sec = t % 60
+    if d > 0 { return h > 0 ? "\(d) 天 \(h) 小时" : "\(d) 天" }
+    if h > 0 { return m > 0 ? "\(h) 小时 \(m) 分" : "\(h) 小时" }
+    if m > 0 { return "\(m) 分 \(sec) 秒" }
+    return "\(sec) 秒"
   }
 }
 
