@@ -440,26 +440,34 @@ struct SharedMediaTile: View {
       .task(id: item.key) { await fetchThumbIfNeeded() }
   }
 
+  /// 没有缩略图（视频是封面）：请服务端下载，然后订阅本地库里这条消息，下好了自动换上。
+  /// 消息本地还没有的先向服务端拉一次（写进本地库后订阅就会推到）。
   private func fetchThumbIfNeeded() async {
-    // 视频要的是 QQ 自带的封面（不下视频本身），图片要 QQ 缩略图。
     guard displaySha == nil, let m = media, item.kind == .video || (m.state != .expired && m.state != .failed) else { return }
     requester.want(chatId: chatId, seq: item.seq, ord: m.ord, session: session)
-    for _ in 0..<15 {
-      try? await Task.sleep(for: .seconds(2))
-      if Task.isCancelled { return }
-      guard let msg = await session.sync.fetchMessage(chatId: chatId, seq: item.seq) else { continue }
-      for seg in msg.segments {
-        let info: Qqbridge_V1_MediaInfo? = switch seg.kind {
-        case .image(let i): i.media
-        case .video(let v): v.media
-        default: nil
+    var asked = false
+    do {
+      for try await msg in session.store.observeMessage(chatId: chatId, seq: item.seq) {
+        guard let msg else {
+          if !asked {
+            asked = true
+            _ = await session.sync.fetchMessage(chatId: chatId, seq: item.seq)
+          }
+          continue
         }
-        if let info, info.ord == m.ord, !info.thumbSha256.isEmpty || (item.kind == .image && info.state == .stored) {
-          fresh = info
-          return
+        for seg in msg.segments {
+          let info: Qqbridge_V1_MediaInfo? = switch seg.kind {
+          case .image(let i): i.media
+          case .video(let v): v.media
+          default: nil
+          }
+          if let info, info.ord == m.ord, !info.thumbSha256.isEmpty || (item.kind == .image && info.state == .stored) {
+            fresh = info
+            return
+          }
         }
       }
-    }
+    } catch {}
   }
 }
 

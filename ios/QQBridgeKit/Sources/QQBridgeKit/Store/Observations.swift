@@ -120,6 +120,16 @@ extension LocalStore {
     .values(in: db)
   }
 
+  /// 一条消息：本地库里这条有变化（例如缩略图、视频封面下好了）就推一次新的。本地还没有时推 nil。
+  public func observeMessage(chatId: Int64, seq: Int64) -> AsyncValueObservation<Qqbridge_V1_Message?> {
+    ValueObservation.tracking { db in
+      try Data.fetchOne(db, sql: "select data from message where chatId = ? and seq = ?", arguments: [chatId, seq])
+        .map { try Qqbridge_V1_Message(serializedBytes: $0) }
+    }
+    .removeDuplicates()
+    .values(in: db)
+  }
+
   /// 某个会话的对方资料（聊天页标题用）。
   public func observePeer(for dialog: Qqbridge_V1_Dialog) -> AsyncValueObservation<Qqbridge_V1_Peer?> {
     let kind: Qqbridge_V1_PeerKind = dialog.scene == .group ? .group : .user

@@ -699,8 +699,8 @@ struct ReplyQuote: View {
     _original = State(initialValue: context.lookup.message(seq))
   }
 
-  /// 列表里有就用列表里的（缩略图下好后会更新），否则用单独拉回来的。
-  private var shown: Qqbridge_V1_Message? { context.lookup.message(seq) ?? original }
+  /// 订阅到的本地这条消息（最新）；还没订阅到时先用列表里的。
+  private var shown: Qqbridge_V1_Message? { original ?? context.lookup.message(seq) }
 
   var body: some View {
     HStack(spacing: 6) {
@@ -720,9 +720,11 @@ struct ReplyQuote: View {
         .overlay {
           if media.kind == .video { Image(systemName: "play.fill").font(.system(size: 10)).foregroundStyle(.white).shadow(radius: 2) }
         }
-        .task(id: "\(shown.seq):\(Self.thumbnail(media) ?? "")") {
-          guard Self.thumbnail(media) == nil else { return }
-          await waitForThumbnail(shown, media)
+        .task(id: shown.seq) {
+          // 没有缩略图（视频是封面）：请服务端下载一次；下好后经同步写进本地库，下面的订阅会自动刷新。
+          if Self.thumbnail(media) == nil {
+            context.requester.want(chatId: context.chatId, seq: shown.seq, ord: media.info.ord, session: context.session)
+          }
         }
       }
       VStack(alignment: .leading, spacing: 1) {
@@ -761,8 +763,19 @@ struct ReplyQuote: View {
       }
     }
     .task(id: seq) {
-      guard original == nil else { return }
-      await load()
+      // 订阅本地库里的原消息：缩略图、封面下好了，撤回、回应变了都会推过来。本地没有时向服务端要一次（拉回来会写进本地库，订阅随即推到）。
+      var asked = false
+      do {
+        for try await m in context.store.observeMessage(chatId: context.chatId, seq: seq) {
+          if let m {
+            original = m
+            missing = false
+          } else if !asked {
+            asked = true
+            if await session?.sync.fetchMessage(chatId: context.chatId, seq: seq) == nil { missing = true }
+          }
+        }
+      } catch {}
     }
   }
 
@@ -772,19 +785,6 @@ struct ReplyQuote: View {
     guard media.width > 0, media.height > 0 else { return CGSize(width: h, height: h) }
     let w = h * CGFloat(media.width) / CGFloat(media.height)
     return CGSize(width: min(80, max(16, w)), height: h)
-  }
-
-  /// 还没有缩略图（视频是封面）：请服务端下载，然后隔一会儿看本地这条消息有没有更新（最多等 1 分钟）。
-  private func waitForThumbnail(_ m: Qqbridge_V1_Message, _ media: QuotedMedia) async {
-    context.requester.want(chatId: context.chatId, seq: m.seq, ord: media.info.ord, session: context.session)
-    for _ in 0..<60 {
-      try? await Task.sleep(for: .seconds(1))
-      if Task.isCancelled { return }
-      if let fresh = try? context.store.message(chatId: context.chatId, seq: seq), let fm = Self.media(fresh), Self.thumbnail(fm) != nil {
-        original = fresh
-        return
-      }
-    }
   }
 
   struct QuotedMedia {
