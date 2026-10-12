@@ -32,9 +32,10 @@ struct MessageContext {
     return lookup.userName(userId) ?? String(userId)
   }
 
-  /// @ 徽章里的小头像：内存里已经有这个人的头像才用（滚动时不去加载），没有就只显示名字。
+  /// @ 徽章里的小头像：内存里有就用；没有时先只显示名字，头像加载好后（imageTick 变了）重画。
   @MainActor
   func avatarImage(_ userId: Int64) -> UIImage? {
+    _ = avatars.imageTick
     guard let sha = avatars.sha256[userId] ?? lookup.avatar(userId), let full = ImageMemoryCache.shared.get(sha) else { return nil }
     return MentionAvatar.circle(full, key: sha)
   }
@@ -234,7 +235,8 @@ struct MessageBubbleRow: View {
             // 动图表情是 UIKit 视图、透明的地方不算点中：整块都算，长按才弹得出菜单。
             .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
             .contentShape(Rectangle())
-            .contextMenu { menu }
+            // 按在 @ 徽章上的长按归徽章（打开资料卡），这时气泡不弹菜单。
+            .contextMenu { if MentionPress.shared.seq != message.seq { menu } }
           if recalled, !outgoing { RecalledTag(text: recalledText) }
         }
         if !message.reactions.isEmpty { Reactions(message: message, context: context) }
@@ -479,15 +481,8 @@ struct BlockView: View {
           ForEach(faces.indices, id: \.self) { i in QQFace.inline(faces[i].id, name: faces[i].name, size: size) }
         }
       } else {
-        Inline.compose(runs, outgoing: outgoing)
-          .tint(outgoing ? .white : .accentColor)
-          .textSelection(.enabled)
-          // 链接用系统打开；号码（5 位以上）交给聊天页：查 QQ 用户、拨打、复制。
-          .environment(\.openURL, OpenURLAction { url in
-            guard url.scheme == Linkify.numberScheme, let number = url.host() else { return .systemAction }
-            context.actions.openNumber(number)
-            return .handled
-          })
+        MentionText(runs: runs, context: context, outgoing: outgoing, seq: message?.seq ?? 0)
+
       }
     case .reply(let seq):
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
@@ -497,10 +492,7 @@ struct BlockView: View {
     case .sticker(let media, let summary, let size):
       // 表情用原图（会动）；原图还没有时先显示以前的缩略图，不常用会话里显示到时才向服务端要原图。
       let sha = media.state == .stored && !media.sha256.isEmpty ? media.sha256 : (media.thumbSha256.isEmpty ? nil : media.thumbSha256)
-      CachedImage(sha256: sha, chatId: context.chatId, maxPixel: 420, animated: true) {
-        Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
-      }
-      .aspectRatio(contentMode: .fit)
+      StickerImage(sha256: sha, chatId: context.chatId, summary: summary)
       .frame(width: Block.stickerFrame(size).width, height: Block.stickerFrame(size).height)
       .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
@@ -900,16 +892,16 @@ enum Inline {
       switch run {
       case .text(let a): Text("\(acc)\(Text(a))")
       case .face(let id, let name, let large): Text("\(acc)\(QQFace.inline(id, name: name, size: large ? 64 : 20))")
-      case .mention(_, let name, let avatar): Text("\(acc)\(mentionBadge(name, avatar: avatar, outgoing: outgoing))")
+      case .mention(let userId, let name, let avatar): Text("\(acc)\(mentionBadge(name, avatar: avatar, outgoing: outgoing, userId: userId))")
       }
     }
   }
 
   /// @ 徽章：淡色底 + 小头像 + 名字（自己发的蓝色气泡里用白色）。
   /// @ 徽章：画成一张圆角胶囊图（小头像 + @名字）插进文字里，和正文基线对齐。
-  @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool) -> Text {
+  @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool, userId: Int64 = 0) -> Text {
     let badge = MentionBadgeRenderer.render(name: name, avatar: avatar, outgoing: outgoing)
-    return Text(Image(uiImage: badge.image)).baselineOffset(badge.baselineOffset) + Text(" ")
+    return Text(Image(uiImage: badge.image)).baselineOffset(badge.baselineOffset).customAttribute(MentionTag(userId: userId)) + Text(" ")
   }
 }
 
@@ -1178,4 +1170,184 @@ enum Linkify {
 
   /// 可能是 QQ 号（5–11 位，不以 0 开头）。
   static func isQQ(_ n: String) -> Bool { (5...11).contains(n.count) && !n.hasPrefix("0") }
+}
+
+/// 文字里 @ 徽章的标记（徽章是一张图，靠它找到图在哪、是谁）。
+struct MentionTag: TextAttribute {
+  let userId: Int64
+}
+
+/// 消息正文：链接、号码可点；@ 徽章单击在输入框里 @ 这个人，长按打开 TA 的资料卡。
+struct MentionText: View {
+  let runs: [Inline]
+  let context: MessageContext
+  let outgoing: Bool
+  var seq: Int64 = 0
+  @State private var badges: [MentionHit] = []
+  /// 正按着的徽章（-1 = 挪开了，不算点）。
+  @State private var pressing: Int64?
+  @State private var longFired = false
+  @State private var pressTimer: Task<Void, Never>?
+
+  private var mentioned: [Int64] {
+    runs.compactMap { if case .mention(let id, _, let avatar) = $0, avatar == nil { id } else { nil } }
+  }
+
+  var body: some View {
+    let text = Inline.compose(runs, outgoing: outgoing)
+      .tint(outgoing ? .white : .accentColor)
+      .textSelection(.enabled)
+      // 链接用系统打开；号码（5 位以上）交给聊天页：查 QQ 用户、拨打、复制。
+      .environment(\.openURL, OpenURLAction { url in
+        guard url.scheme == Linkify.numberScheme, let number = url.host() else { return .systemAction }
+        context.actions.openNumber(number)
+        return .handled
+      })
+    if runs.contains(where: { if case .mention = $0 { true } else { false } }) {
+      text
+        .textRenderer(MentionLocator { hits in if hits != badges { DispatchQueue.main.async { badges = hits } } })
+        .overlay(alignment: .topLeading) {
+          ForEach(badges) { hit in
+            Color.clear
+              .contentShape(Capsule())
+              .frame(width: hit.rect.width, height: hit.rect.height)
+              .offset(x: hit.rect.minX, y: hit.rect.minY)
+              // 自己判断单击 / 长按（系统的长按会被气泡的菜单抢走）：按下就记下，气泡据此不弹菜单；
+              // 按住 0.4 秒没挪开 = 长按（打开资料卡），之前松手 = 单击（在输入框里 @ TA）；挪开了算滚动，什么都不做。
+              .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                  .onChanged { v in
+                    if pressing == nil {
+                      MentionPress.shared.seq = seq
+                      pressing = hit.userId
+                      longFired = false
+                      pressTimer?.cancel()
+                      pressTimer = Task {
+                        try? await Task.sleep(for: .milliseconds(400))
+                        guard !Task.isCancelled, pressing == hit.userId else { return }
+                        longFired = true
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        context.actions.showProfile(hit.userId)
+                      }
+                    } else if hypot(v.translation.width, v.translation.height) > 10 {
+                      pressTimer?.cancel()
+                      pressing = -1
+                    }
+                  }
+                  .onEnded { v in
+                    pressTimer?.cancel()
+                    if pressing == hit.userId, !longFired, hypot(v.translation.width, v.translation.height) <= 10 {
+                      context.actions.mention(hit.userId)
+                    }
+                    pressing = nil
+                    MentionPress.shared.release(seq)
+                  }
+              )
+          }
+        }
+        .onAppear {
+          // 头像还没在内存里的：要来、读进内存，徽章随后重画出头像。
+          for id in mentioned { context.avatars.wantImage(id, knownSha: context.lookup.avatar(id), session: context.session) }
+        }
+    } else {
+      text
+    }
+  }
+}
+
+struct MentionHit: Identifiable, Equatable {
+  let id: Int
+  let userId: Int64
+  let rect: CGRect
+}
+
+/// 画文字时顺带记下每个 @ 徽章的位置（画法和默认一样）。
+struct MentionLocator: TextRenderer {
+  let report: @Sendable ([MentionHit]) -> Void
+
+  func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+    var hits: [MentionHit] = []
+    for line in layout {
+      for run in line {
+        if let tag = run[MentionTag.self] {
+          hits.append(MentionHit(id: hits.count, userId: tag.userId, rect: run.typographicBounds.rect))
+        }
+      }
+      ctx.draw(line)
+    }
+    report(hits)
+  }
+}
+
+/// 表情：加载时显示一块泛着波纹的点阵，加载好后从中间羽化地揭开；实在拿不到才显示文字。
+struct StickerImage: View {
+  let sha256: String?
+  let chatId: Int64
+  let summary: String
+  @State private var failed = false
+
+  var body: some View {
+    if failed {
+      Text(summary.isEmpty ? "[表情]" : summary).font(.caption).foregroundStyle(.secondary)
+    } else {
+      CachedImage(sha256: sha256, chatId: chatId, onFailure: { failed = true }, maxPixel: 420, animated: true, reveal: true) {
+        RippleCanvas()
+      }
+      .aspectRatio(contentMode: .fit)
+    }
+  }
+}
+
+/// 加载中：点阵从中心一圈圈泛起波纹，底下一层柔和的渐变慢慢流动。
+struct RippleCanvas: View {
+  var body: some View {
+    TimelineView(.animation) { timeline in
+      let t = timeline.date.timeIntervalSinceReferenceDate
+      Canvas { ctx, size in
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        // 底：两团慢慢绕圈的柔光。
+        for (i, color) in [Color.accentColor, Color.purple].enumerated() {
+          let a = t * 0.8 + Double(i) * .pi
+          let p = CGPoint(x: center.x + cos(a) * size.width * 0.18, y: center.y + sin(a) * size.height * 0.18)
+          let r = max(size.width, size.height) * 0.55
+          ctx.fill(
+            Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
+            with: .radialGradient(Gradient(colors: [color.opacity(0.18), .clear]), center: p, startRadius: 0, endRadius: r)
+          )
+        }
+        // 点阵：离中心越远相位越晚，形成往外扩的波纹。
+        let step: CGFloat = 9
+        var y = step / 2
+        while y < size.height {
+          var x = step / 2
+          while x < size.width {
+            let d = hypot(x - center.x, y - center.y)
+            let wave = (sin(d / 9 - t * 4) + 1) / 2
+            let r = 0.8 + wave * 1.3
+            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)), with: .color(.secondary.opacity(0.15 + wave * 0.45)))
+            x += step
+          }
+          y += step
+        }
+      }
+    }
+    .background(.quaternary.opacity(0.35))
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+  }
+}
+
+/// 正按在哪条消息的 @ 徽章上（那条消息的气泡暂时不弹长按菜单）。
+@MainActor
+@Observable
+final class MentionPress {
+  static let shared = MentionPress()
+  var seq: Int64?
+
+  /// 松手后稍等再放开（长按菜单是在松手前判断的）。
+  func release(_ seq: Int64) {
+    Task {
+      try? await Task.sleep(for: .milliseconds(300))
+      if self.seq == seq { self.seq = nil }
+    }
+  }
 }

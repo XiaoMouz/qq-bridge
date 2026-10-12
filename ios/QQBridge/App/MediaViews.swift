@@ -27,18 +27,34 @@ struct CachedImage<Placeholder: View>: View {
   var maxPixel: CGFloat? = nil
   /// 动图（GIF / APNG / 动态 WebP）按帧播放；单帧的照常显示。
   var animated = false
+  /// 刚加载出来时（不是内存里现成的）从中间羽化地揭开，占位图在下面慢慢被盖住。
+  var reveal = false
   @ViewBuilder var placeholder: () -> Placeholder
   @Environment(\.session) private var session
   @State private var image: UIImage?
+  @State private var revealed: CGFloat = 1
 
   var body: some View {
-    Group {
-      if let image, image.images != nil {
-        AnimatedImageView(image: image)
-      } else if let image {
-        Image(uiImage: image).resizable()
-      } else {
-        placeholder()
+    ZStack {
+      if image == nil || revealed < 1 { placeholder() }
+      if let image {
+        Group {
+          if image.images != nil { AnimatedImageView(image: image) } else { Image(uiImage: image).resizable() }
+        }
+        .mask {
+          if reveal {
+            GeometryReader { geo in
+              let side = hypot(geo.size.width, geo.size.height)
+              Circle()
+                .frame(width: side, height: side)
+                .scaleEffect(max(0.001, revealed * 1.3))
+                .blur(radius: side * 0.12 * (1 - revealed * 0.8))
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            }
+          } else {
+            Rectangle()
+          }
+        }
       }
     }
     .task(id: sha256) { await load() }
@@ -66,7 +82,13 @@ struct CachedImage<Placeholder: View>: View {
       }.value
       if let decoded {
         ImageMemoryCache.shared.set(key, decoded)
-        image = decoded
+        if reveal {
+          revealed = 0
+          image = decoded
+          withAnimation(.easeOut(duration: 0.7)) { revealed = 1 }
+        } else {
+          image = decoded
+        }
       }
     } catch {
       image = nil

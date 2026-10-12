@@ -182,6 +182,34 @@ final class AvatarBook {
   private var pending: Set<Int64> = []
   private var pendingGroups: Set<Int64> = []
   private var flushTask: Task<Void, Never>?
+  /// @ 徽章要用的头像图片：加载进内存后加一（徽章据此重画）。
+  private(set) var imageTick = 0
+  @ObservationIgnored private var imageWanted: Set<Int64> = []
+  @ObservationIgnored private var imageLoading: Set<String> = []
+
+  /// @ 徽章里要显示这个人的头像：还不知道头像就先要，知道了把图片读进内存。
+  func wantImage(_ userId: Int64, knownSha: String?, session: Session) {
+    guard userId > 0 else { return }
+    if let sha = sha256[userId] ?? knownSha {
+      loadImage(sha, session: session)
+    } else {
+      imageWanted.insert(userId)
+      want(userId, session: session)
+    }
+  }
+
+  private func loadImage(_ sha: String, session: Session) {
+    guard !sha.isEmpty, ImageMemoryCache.shared.get(sha) == nil, !imageLoading.contains(sha) else { return }
+    imageLoading.insert(sha)
+    Task {
+      defer { imageLoading.remove(sha) }
+      guard let file = try? await session.media.file(for: sha, chatId: nil) else { return }
+      let image = await Task.detached { ImageDecoder.downsampled(file, maxPixel: 96) }.value
+      guard let image else { return }
+      ImageMemoryCache.shared.set(sha, image)
+      imageTick += 1
+    }
+  }
 
   func want(_ userId: Int64, session: Session) {
     guard userId > 0, !requested.contains(userId) else { return }
@@ -216,7 +244,10 @@ final class AvatarBook {
       req.userIds = ids
       req.groupIds = groups
       if let res = try? await session.api.contacts.getAvatars(request: req, headers: session.api.headers).get() {
-        for a in res.avatars { sha256[a.userID] = a.sha256 }
+        for a in res.avatars {
+          sha256[a.userID] = a.sha256
+          if imageWanted.remove(a.userID) != nil { loadImage(a.sha256, session: session) }
+        }
         for a in res.groups { groupSha256[a.userID] = a.sha256 }
       } else {
         // 失败的下次再要。

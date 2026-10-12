@@ -1,14 +1,16 @@
 // 转发（MessageService.ForwardMessages）：把存档里的消息变成外发消息，逐条发，或打包成 QQ 的"聊天记录"（合并转发）。
 // 媒体用服务端已有的内容（按 sha256 引用，不重新上传）；原图还没下载的先当场从 QQ 拉，拉不到用缩略图，再不行换成文字。
 import { randomInt } from 'node:crypto';
-import { markdownText, type ForwardNode, type MediaInfo, type OutgoingSegment, type Segment } from '@qqbridge/domain';
+import { markdownText, MAX_FORWARD_DEPTH, type ForwardNode, type MediaInfo, type OutgoingSegment, type Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { maybeOne, rows, type Db } from '../db/client.ts';
 import type { IngestService } from '../ingest/service.ts';
 import type { OutboxService } from '../outbox/service.ts';
+import type { ForwardService } from './forwards.ts';
 import { sqlList, type OutboxRow } from '../sync/rows.ts';
 
 export const MAX_FORWARD_MESSAGES = 100;
+
 
 export class ForwardError extends Error {
   constructor(
@@ -32,6 +34,8 @@ export class MessageForwarder {
     private readonly outbox: OutboxService,
     /** 马上下载某个媒体引用（看大图那条路径）；没有下载器时为 null。 */
     private readonly fetchNow: () => ((refId: number) => Promise<void>) | null,
+    /** 展开消息里的聊天记录（转发聊天记录时要把节点重新打包）。 */
+    private readonly forwards: Pick<ForwardService, 'get'> | null = null,
   ) {}
 
   async forward(
@@ -151,9 +155,13 @@ export class MessageForwarder {
           else text(`[文件] ${seg.name}`);
           break;
         }
-        case 'forward':
-          text(`[聊天记录] ${seg.title ?? ''}`.trim());
+        case 'forward': {
+          // 聊天记录：展开原来的节点（含嵌套），重新打包成合并转发；拉不到才换成文字。
+          const nodes = await this.bundleNodes(accountId, chatId, msg.seq, [], 1);
+          if (nodes && nodes.length > 0) alone({ type: 'forward', nodes });
+          else text(`[聊天记录] ${seg.title ?? ''}`.trim());
           break;
+        }
         case 'light_app':
           text(`[卡片] ${seg.appName}`);
           break;
@@ -169,6 +177,96 @@ export class MessageForwarder {
     }
     if (current.length > 0) out.push(current);
     return out;
+  }
+
+  /** 一条消息里的聊天记录（path 指向嵌套的某一层）→ 外发用的合并转发节点；拉不到返回 null。 */
+  private async bundleNodes(accountId: number, chatId: number, seq: number, path: number[], depth: number): Promise<ForwardNode[] | null> {
+    if (!this.forwards || depth > MAX_FORWARD_DEPTH) return null;
+    let bundle;
+    try {
+      bundle = await this.forwards.get(accountId, chatId, seq, path);
+    } catch {
+      return null;
+    }
+    if (bundle.state !== 'ready') return null;
+    const nodes: ForwardNode[] = [];
+    for (const [i, node] of bundle.nodes.entries()) {
+      const segments: OutgoingSegment[] = [];
+      const nested: OutgoingSegment[] = [];
+      const text = (t: string) => {
+        if (!t) return;
+        const last = segments[segments.length - 1];
+        if (last?.type === 'text') last.text += t;
+        else segments.push({ type: 'text', text: t });
+      };
+      for (const seg of node.segments) {
+        switch (seg.type) {
+          case 'text':
+            text(seg.text);
+            break;
+          case 'mention':
+            text(`@${seg.name ?? seg.userId} `);
+            break;
+          case 'mention_all':
+            text('@全体成员 ');
+            break;
+          case 'face':
+            segments.push({ type: 'face', faceId: seg.faceId });
+            break;
+          case 'image':
+          case 'market_face': {
+            // 节点里的媒体：服务端已有原图用原图，没有就用缩略图，再没有换成文字。
+            const media = seg.media;
+            const sha = media ? await this.storedSha(media) : null;
+            const sticker = seg.type === 'market_face' || seg.subType === 'sticker';
+            if (sha) segments.push({ type: 'image', sha256: sha, ...(sticker ? { sticker: true } : {}), ...(seg.summary ? { summary: seg.summary } : {}) });
+            else text(seg.summary ?? (sticker ? '[动画表情]' : '[图片]'));
+            break;
+          }
+          case 'video': {
+            const sha = await this.storedSha(seg.media, false);
+            if (sha) segments.push({ type: 'video', sha256: sha });
+            else text('[视频]');
+            break;
+          }
+          case 'record':
+            text('[语音]');
+            break;
+          case 'file':
+            text(`[文件] ${seg.name}`);
+            break;
+          case 'forward': {
+            // 套着的聊天记录单独成一个节点（QQ 要求合并转发单独成条）。
+            const inner = await this.bundleNodes(accountId, chatId, seq, [...path, i], depth + 1);
+            if (inner && inner.length > 0) nested.push({ type: 'forward', nodes: inner });
+            else text(`[聊天记录] ${seg.title ?? ''}`.trim());
+            break;
+          }
+          case 'light_app':
+            text(`[卡片] ${seg.appName}`);
+            break;
+          case 'xml':
+            text('[卡片]');
+            break;
+          case 'markdown':
+            text(markdownText(seg.content));
+            break;
+          default:
+            break;
+        }
+      }
+      const who = { userId: node.senderId, nickname: node.senderName || String(node.senderId) };
+      if (segments.length > 0) nodes.push({ ...who, segments });
+      for (const f of nested) nodes.push({ ...who, segments: [f] });
+    }
+    return nodes;
+  }
+
+  /** 服务端已经存着的媒体（原件，或允许时退回缩略图 / 预览图）。 */
+  private async storedSha(media: MediaInfo, canUseThumb = true): Promise<string | null> {
+    if (media.sha256 && (await this.present(media.sha256))) return media.sha256;
+    if (canUseThumb) for (const sha of [media.previewSha256, media.thumbSha256]) if (sha && (await this.present(sha))) return sha;
+    return null;
   }
 
   /**

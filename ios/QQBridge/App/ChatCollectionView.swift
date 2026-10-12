@@ -75,6 +75,10 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var jumpTarget: String?
   /// 正在执行的滚动动画（回到底部 / 跳到某条）：期间不按锚点校正位置（直接设偏移量会把动画打断，停在半路）。
   private var animatingTo: ChatScrollRequest.Target?
+  /// 往上翻着看历史时正在看的那条（及它在屏幕上的位置）：内容高度一变（新消息插到底下、单元格算出真实高度）就把它放回原处。
+  private var keptAnchor: (id: String, offset: CGFloat)?
+  private var sizeObservation: NSKeyValueObservation?
+  private var restoring = false
 
   private static let flip = CGAffineTransform(scaleX: 1, y: -1)
 
@@ -97,6 +101,11 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     // 点状态栏回顶：翻转后会滚到最新的消息，不对，关掉。
     collectionView.scrollsToTop = false
     view.addSubview(collectionView)
+    // 内容高度变了：不在底部时按锚点把正在看的内容放回原处（同一次布局里完成，不会先画出跳动的一帧）。
+    sizeObservation = collectionView.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
+      guard change.oldValue != change.newValue else { return }
+      MainActor.assumeIsolated { self?.contentSizeChanged() }
+    }
 
     let cell = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
       guard let self, let item = self.byId[id], let context = self.messageContext else { return }
@@ -239,6 +248,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     // 都以屏幕上一条正在看的消息为锚点，提交后把它放回原来的屏幕位置，正在看的内容不跳。
     let keep = !oldIds.isEmpty && animatingTo == nil && (!isAtBottom || selecting)
     let anchor = keep ? visibleAnchor() : nil
+    if let anchor { keptAnchor = anchor }
 
     dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
       guard let self else { return }
@@ -246,6 +256,17 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
       self.performPendingRequest()
       self.reportPosition()
     }
+  }
+
+  private func contentSizeChanged() {
+    guard !restoring, animatingTo == nil, let anchor = keptAnchor, !isAtBottom || selecting else { return }
+    restore(anchor)
+  }
+
+  /// 记下正在看的位置（不在底部时）。
+  private func captureAnchor() {
+    guard !restoring, animatingTo == nil else { return }
+    keptAnchor = (!isAtBottom || selecting) ? visibleAnchor() : nil
   }
 
   /// 锚点：屏幕中间那条可见消息的 id，以及它的顶边相对可见区域的位置。
@@ -261,6 +282,8 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
   private func restore(_ anchor: (id: String, offset: CGFloat)) {
     guard let indexPath = dataSource.indexPath(for: anchor.id) else { return }
+    restoring = true
+    defer { restoring = false }
     collectionView.layoutIfNeeded()
     guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else { return }
     let target = attrs.frame.minY - anchor.offset
@@ -341,6 +364,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
     if scrollView.isTracking || scrollView.isDecelerating, remaining < 600 { onReachTop?() }
     reportPosition()
+    captureAnchor()
     if scrollView.isTracking || scrollView.isDecelerating, !isAtBottom { reportTopDate() }
   }
 
@@ -370,6 +394,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     if animatingTo == .bottom { scrollToBottom(animated: false) }
     animatingTo = nil
     finishJump()
+    captureAnchor()
     reportPosition()
   }
 

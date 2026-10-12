@@ -15,11 +15,12 @@ export type OutgoingSegment =
 export interface ForwardNode {
   userId: number;
   nickname: string;
-  /** 节点内容：不能再套合并转发，也不放语音 / 视频 / 文件以外的独立段限制。 */
+  /** 节点内容：可以再套一层合并转发（要单独成一个节点，最多套 MAX_FORWARD_DEPTH 层）。 */
   segments: OutgoingSegment[];
 }
 
 export const MAX_FORWARD_NODES = 100;
+export const MAX_FORWARD_DEPTH = 4;
 
 export interface OutgoingMessage {
   segments: OutgoingSegment[];
@@ -34,7 +35,7 @@ export const MAX_OUTGOING_TEXT = 5000;
 export const MAX_OUTGOING_SEGMENTS = 50;
 
 /** 校验一条外发消息；合法返回 null，否则返回原因。 */
-export function validateOutgoing(msg: OutgoingMessage): string | null {
+export function validateOutgoing(msg: OutgoingMessage, depth = 1): string | null {
   const { segments } = msg;
   if (segments.length === 0) return 'message is empty';
   if (segments.length > MAX_OUTGOING_SEGMENTS) return `too many segments (max ${MAX_OUTGOING_SEGMENTS})`;
@@ -64,10 +65,10 @@ export function validateOutgoing(msg: OutgoingMessage): string | null {
         break;
       case 'forward': {
         if (seg.nodes.length === 0 || seg.nodes.length > MAX_FORWARD_NODES) return `forward needs 1–${MAX_FORWARD_NODES} nodes`;
+        if (depth > MAX_FORWARD_DEPTH) return 'forward nested too deep';
         for (const node of seg.nodes) {
           if (!Number.isSafeInteger(node.userId) || node.userId <= 0) return 'invalid forward node sender';
-          if (node.segments.some((s) => s.type === 'forward')) return 'nested forward';
-          const inner = validateOutgoing({ segments: node.segments });
+          const inner = validateOutgoing({ segments: node.segments }, depth + 1);
           if (inner) return `forward node: ${inner}`;
         }
         break;
