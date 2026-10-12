@@ -14,8 +14,8 @@ struct ChatScreen: View {
   var onExpand: (() -> Void)? = nil
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
-  /// 打开前正在看的会话（快速回复浮层盖在另一个会话上时）：关掉后还给它。
-  @State private var previousOpenChat: Int64?
+  /// 这个聊天页在「正在看的会话」里的登记号（同一个会话可能同时有两页，例如快速回复浮层）。
+  @State private var visibleToken = UUID()
   @State private var items: [ChatItem] = []
   @State private var limit = 60
   @State private var dialog: Qqbridge_V1_Dialog?
@@ -338,8 +338,7 @@ struct ChatScreen: View {
     .onAppear {
       // 从下一级页面（群资料、个人资料）返回：焦点是系统还回来的。
       pasteQuietUntil = Date().addingTimeInterval(1.2)
-      if model.openChatId != chatId { previousOpenChat = model.openChatId }
-      model.openChatId = chatId
+      model.chatAppeared(visibleToken, chatId: chatId)
     }
     #if DEBUG
     // 调试：启动参数 -debugJump <chatId>:<seq>，打开这个会话后跳到那条消息。
@@ -392,9 +391,9 @@ struct ChatScreen: View {
     }
     .onDisappear {
       retirePasteHint()
-      if model.openChatId == chatId { model.openChatId = previousOpenChat }
+      model.chatDisappeared(visibleToken)
       voice.stop()
-      let previous = previousOpenChat
+      let previous = model.openChatId
       Task { await setActive(false, restoring: previous) }
     }
     .confirmationDialog(

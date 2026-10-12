@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
   func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    #if DEBUG
+      // 调试：启动参数 -debugCommNotify YES，3 秒后发一条本地的通讯通知（看头像、App 图标的效果；模拟器的推送不走通知扩展）。
+      if UserDefaults.standard.bool(forKey: "debugCommNotify") { Self.debugCommunicationNotification() }
+    #endif
     return true
   }
 
@@ -57,6 +61,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
   }
 
+  #if DEBUG
+    nonisolated private static func debugCommunicationNotification() {
+      let content = UNMutableNotificationContent()
+      content.title = "Something"
+      content.body = "通讯通知测试"
+      content.threadIdentifier = "chat-153"
+      let face = Bundle.main.url(forResource: "QQFaces/s14", withExtension: "png").flatMap { try? Data(contentsOf: $0) }
+      var sender: [String: Any] = ["id": NSNumber(value: 3889683447), "name": "鳅鳝的G7人-测试中"]
+      if let face { sender["avatar"] = face.base64EncodedString() }
+      content.userInfo = ["chatId": NSNumber(value: 153), "seq": NSNumber(value: 1), "sender": sender, "group": "Something"]
+      let final = CommunicationContent.make(content) ?? content
+      let request = UNNotificationRequest(identifier: UUID().uuidString, content: final, trigger: UNTimeIntervalNotificationTrigger(timeInterval: 3, repeats: false))
+      UNUserNotificationCenter.current().add(request)
+    }
+  #endif
+
   /// 冷启动时点的通知（model 还没接上）。
   var pendingChat: Int64?
 
@@ -98,10 +118,29 @@ extension AppModel {
   }
 
   /// 角标（图标和"消息"标签）：与服务端推送里的角标一致，见 DialogItem.badgeCount。
+  /// 顺带收掉已经读完的会话的系统通知（在这里看了、在 QQ 或别的设备上读了都算）。
   func updateBadge(_ dialogs: [DialogItem]) {
     let count = dialogs.reduce(0) { $0 + $1.badgeCount }
     if count != unreadBadge { unreadBadge = count }
     UNUserNotificationCenter.current().setBadgeCount(count)
+    let read = Set(dialogs.filter { $0.dialog.unreadCount == 0 }.map(\.id))
+    if !read.isEmpty { clearNotifications(where: { read.contains($0) }) }
+  }
+
+  /// 收掉某个会话已经显示的系统通知。
+  func clearNotifications(chatId: Int64) {
+    clearNotifications(where: { $0 == chatId })
+  }
+
+  nonisolated private func clearNotifications(where match: @escaping @Sendable (Int64) -> Bool) {
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { list in
+      let ids = list.compactMap { n -> String? in
+        guard let id = (n.request.content.userInfo["chatId"] as? NSNumber)?.int64Value, match(id) else { return nil }
+        return n.request.identifier
+      }
+      if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+    }
   }
 }
 
@@ -129,4 +168,10 @@ extension AppModel {
       if self.banner?.id == banner.id { self.banner = nil }
     }
   }
+}
+
+/// 屏幕上的一个聊天页。
+struct VisibleChat: Equatable {
+  let token: UUID
+  let chatId: Int64
 }

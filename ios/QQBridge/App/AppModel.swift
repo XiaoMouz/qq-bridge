@@ -37,7 +37,20 @@ final class AppModel {
   /// 再点一次"消息"标签：会话列表跳到下一个有未读的会话。
   var nextUnreadTick = 0
   /// 正在看的会话：前台收到它的推送时不弹横幅。
-  var openChatId: Int64?
+  /// 屏幕上的聊天页（按出现顺序）：最后一个是正在看的会话。按登记号增删，和页面出现 / 消失的先后无关
+  /// （以前直接记一个会话号，从通知进会话时旧页的「消失」晚于新页的「出现」，会把正在看的会话清掉，结果又弹了这个会话的横幅）。
+  private(set) var visibleChats: [VisibleChat] = []
+  var openChatId: Int64? { visibleChats.last?.chatId }
+
+  func chatAppeared(_ token: UUID, chatId: Int64) {
+    visibleChats.removeAll { $0.token == token }
+    visibleChats.append(VisibleChat(token: token, chatId: chatId))
+    clearNotifications(chatId: chatId)
+  }
+
+  func chatDisappeared(_ token: UUID) {
+    visibleChats.removeAll { $0.token == token }
+  }
   /// 顶部的 App 内横幅（前台收到别的会话的消息）。
   var banner: InAppBanner?
   /// 点了横幅：快速回复的浮层。

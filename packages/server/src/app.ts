@@ -162,7 +162,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
       topic: config.APNS_TOPIC,
       logger: deps.logger.child({ component: 'apns' }),
     });
-    const notifier = new PushNotifier(db, apns, { showPreview: config.APNS_PREVIEW, logger: deps.logger.child({ component: 'push' }) });
+    const notifier = new PushNotifier(db, apns, { showPreview: config.APNS_PREVIEW, logger: deps.logger.child({ component: 'push' }), media: deps.media });
     deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
   }
   const app = await buildServer(deps);

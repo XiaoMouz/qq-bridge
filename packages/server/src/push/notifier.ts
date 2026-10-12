@@ -10,6 +10,8 @@ import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { maybeOne, one, rows, type Db } from '../db/client.ts';
 import type { ApnsEnv, PushSender } from './apns.ts';
+import type { MediaService } from '../media/service.ts';
+import sharp from 'sharp';
 
 const { mentionsMe: MENTION_ME, mentionAll: MENTION_ALL, replyToMe: REPLY_TO_ME } = MessageFlag;
 const QUIET_POLICIES = ['muted', 'archived'];
@@ -45,6 +47,12 @@ export interface Notification {
   badge: number;
   chatId: number;
   seq: number;
+  /** 发送者：通知扩展据此做成「通讯通知」（显示发送者头像，右下角是 App 图标）。 */
+  senderId: number;
+  senderName: string;
+  /** 群聊的群名（私聊为空）。 */
+  groupName: string;
+  qqAccountId: number;
 }
 
 export class PushNotifier {
@@ -56,8 +64,39 @@ export class PushNotifier {
       showPreview?: boolean;
       logger?: Logger;
       now?: () => number;
+      /** 读头像原图（缩成小图放进推送里）；没有时通知不带头像。 */
+      media?: Pick<MediaService, 'getBlob' | 'openBlob'>;
     } = {},
   ) {}
+
+  private readonly avatarCache = new Map<string, string>();
+
+  /** 发送者头像缩成 64px 的 JPEG（base64，约 1–2 KB），通知扩展直接用，不用联网。拿不到返回 null。 */
+  private async avatarThumb(qqAccountId: number, userId: number): Promise<string | null> {
+    if (!this.opts.media) return null;
+    const row = await maybeOne<{ avatar_sha256: string | null }>(
+      this.db,
+      sql`select avatar_sha256 from peers where qq_account_id = ${qqAccountId} and kind = 'user' and peer_id = ${userId}`,
+    );
+    const sha = row?.avatar_sha256;
+    if (!sha) return null;
+    const hit = this.avatarCache.get(sha);
+    if (hit) return hit;
+    try {
+      const blob = await this.opts.media.getBlob(sha);
+      if (!blob || blob.state !== 'present') return null;
+      const chunks: Buffer[] = [];
+      for await (const c of await this.opts.media.openBlob(blob)) chunks.push(c as Buffer);
+      const jpeg = await sharp(Buffer.concat(chunks), { animated: false, failOn: 'none' }).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 60 }).toBuffer();
+      const b64 = jpeg.toString('base64');
+      if (b64.length > 2600) return null; // APNs 负载上限 4 KB
+      this.avatarCache.set(sha, b64);
+      if (this.avatarCache.size > 500) this.avatarCache.delete(this.avatarCache.keys().next().value!);
+      return b64;
+    } catch {
+      return null;
+    }
+  }
 
   /** 入库后调用；出错只记日志，不影响入库。 */
   onNewMessage(event: NewMessageEvent): void {
@@ -72,6 +111,7 @@ export class PushNotifier {
       sql`select id, apns_token, apns_env from devices
            where account_id = ${event.accountId} and revoked_at is null and apns_token is not null`,
     );
+    const avatar = devices.length > 0 ? await this.avatarThumb(n.qqAccountId, n.senderId) : null;
     let sent = 0;
     for (const d of devices) {
       const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
@@ -89,6 +129,8 @@ export class PushNotifier {
           },
           chatId: n.chatId,
           seq: n.seq,
+          sender: { id: n.senderId, name: n.senderName, ...(avatar ? { avatar } : {}) },
+          ...(n.groupName ? { group: n.groupName } : {}),
         },
       });
       if (result.ok) sent++;
@@ -131,7 +173,17 @@ export class PushNotifier {
     if (body.length > MAX_BODY) body = `${body.slice(0, MAX_BODY)}…`;
     if (sender) body = `${sender}: ${body}`;
     const tag = replyMe ? '[有人回复我] ' : mentionMe ? '[有人@我] ' : mentionAll ? '[@全体成员] ' : '';
-    return { title, body: tag + body, badge: await this.badge(event.accountId), chatId: event.chatId, seq: event.seq };
+    return {
+      title,
+      body: tag + body,
+      badge: await this.badge(event.accountId),
+      chatId: event.chatId,
+      seq: event.seq,
+      senderId: Number(m.sender_uin),
+      senderName: sender ?? title,
+      groupName: group ? title : '',
+      qqAccountId: Number(m.qq_account_id),
+    };
   }
 
   /** 群名片 > 消息里带的名字 > 昵称 > 号码。 */

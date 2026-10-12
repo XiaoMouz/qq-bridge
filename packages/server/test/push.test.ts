@@ -118,6 +118,8 @@ describe('PushNotifier', () => {
       aps: { alert: { title: '小明', body: '你好' }, sound: 'default', badge: 1, 'thread-id': `chat-${chatId}`, 'mutable-content': 1 },
       chatId,
       seq: s,
+      // 发送者：通知扩展据此显示头像（测试里没有头像）。
+      sender: { id: 400, name: '小明' },
     });
   });
 

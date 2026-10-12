@@ -20,6 +20,7 @@ targets:
     platform: iOS
     sources:
       - App
+      - Shared
       # QQ 自带的小黄脸静态图（sNNN.png），按文件夹原样打包。
       - path: Resources/Assets.xcassets
       - path: Resources/QQFaces
@@ -30,6 +31,8 @@ targets:
         product: QQBridgeKit
       - package: QQBridgeKit
         product: QQBridgeProto
+      # 通知扩展：通知显示发送者头像（通讯通知）。
+      - target: NotificationService
     info:
       path: App/Info.plist
       properties:
@@ -45,6 +48,8 @@ targets:
         UILaunchScreen: {}
         # 视频后台播放、画中画。
         UIBackgroundModes: [audio]
+        # 通讯通知（通知左边显示发送者头像）：通知扩展用发消息的意图生成通知内容。
+        NSUserActivityTypes: [INSendMessageIntent]
         # 只用系统自带的 HTTPS，属于豁免加密；上传 TestFlight 时不用再回答出口合规问题。
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
@@ -64,3 +69,27 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_PREVIEWS: YES
+  NotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService
+      - Shared
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: BetterChat 通知
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: zh-Hans
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.NotificationService
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
