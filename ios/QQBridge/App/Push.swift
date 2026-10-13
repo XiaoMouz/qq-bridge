@@ -39,10 +39,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     let chatId = Self.chatId(notification.request.content.userInfo)
     let content = notification.request.content
     let title = content.title, body = content.body
+    // 发送者头像（服务端放在推送里的 64px 小图）。
+    let sender = content.userInfo["sender"] as? [String: Any]
+    let avatar = (sender?["avatar"] as? String).flatMap { Data(base64Encoded: $0) }
+    let senderId = (sender?["id"] as? NSNumber)?.int64Value ?? 0
     // App 在前台：不弹系统通知；不是正在看的会话就显示 App 内横幅（点开可以快速回复）。
     Task { @MainActor in
       if let model, let chatId, chatId != model.openChatId {
-        model.showBanner(InAppBanner(chatId: chatId, title: title, body: body))
+        model.showBanner(InAppBanner(chatId: chatId, title: title, body: body, avatar: avatar, senderId: senderId))
       }
       completionHandler([])
     }
@@ -173,6 +177,9 @@ struct InAppBanner: Identifiable, Equatable {
   let chatId: Int64
   let title: String
   let body: String
+  /// 发送者头像（推送里带的小图）；没有时用会话的头像。
+  var avatar: Data? = nil
+  var senderId: Int64 = 0
 }
 
 extension AppModel {

@@ -9,10 +9,11 @@ struct InAppBannerView: View {
   let onTap: () -> Void
   let onDismiss: () -> Void
   @State private var drag: CGFloat = 0
+  @Environment(\.session) private var session
 
   var body: some View {
     HStack(spacing: 10) {
-      Image(systemName: "bubble.left.fill").foregroundStyle(.tint)
+      avatar
       VStack(alignment: .leading, spacing: 2) {
         Text(banner.title).font(.subheadline.bold()).lineLimit(1)
         Text(banner.body).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
@@ -33,6 +34,18 @@ struct InAppBannerView: View {
           if v.translation.height < -30 { onDismiss() } else { withAnimation(.spring) { drag = 0 } }
         }
     )
+  }
+
+  /// 左边：发送者头像（推送里带的）；没有就用会话的头像（群头像 / 好友头像）。
+  @ViewBuilder private var avatar: some View {
+    if let data = banner.avatar, let image = UIImage(data: data) {
+      Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+        .frame(width: 40, height: 40).clipShape(Circle())
+    } else {
+      let item = (try? session?.store.dialog(chatId: banner.chatId)) ?? nil
+      let peer = item.flatMap { d in try? session?.store.peer(kind: d.scene == .group ? .group : .user, peerId: d.peerID) }
+      AvatarView(sha256: peer?.avatarSha256, title: banner.title, seed: item?.peerID ?? banner.chatId, size: 40)
+    }
   }
 }
 
