@@ -245,6 +245,13 @@ struct DialogRow: View {
   let item: DialogItem
   let typing: Bool
   @Environment(\.session) private var session
+  @Environment(AppModel.self) private var model
+
+  /// 这个群正在群语音（收到了邀请、或者自己在里面）。
+  private var inVoice: Bool {
+    guard item.isGroup, let call = model.calls.call, call.groupID == item.dialog.peerID else { return false }
+    return call.phase != .ended
+  }
   /// 2：会话名 +「发送者：内容」；3：会话名、发送者、内容各一行。
   @AppStorage(DialogRow.linesKey) private var lines = 2
 
@@ -256,6 +263,14 @@ struct DialogRow: View {
           Text(item.title).font(.body.weight(.semibold)).lineLimit(1)
           if item.isMuted {
             Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(.secondary)
+          }
+          if inVoice {
+            Label("语音中", systemImage: "waveform")
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6).padding(.vertical, 2)
+              .background(Capsule().fill(Color.green))
+              .fixedSize()
           }
           Spacer(minLength: 8)
           Text(Format.listTime(item.dialog.topTime)).font(.caption).foregroundStyle(.secondary)

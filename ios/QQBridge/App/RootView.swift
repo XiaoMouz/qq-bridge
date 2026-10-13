@@ -11,7 +11,11 @@ struct RootView: View {
   private var showFullCall: Bool {
     let calls = model.calls
     guard calls.call != nil, !calls.minimized else { return false }
-    if calls.isRinging, !calls.expanded { return tab == 0 && model.openChatId == nil }
+    if calls.isRinging, !calls.expanded {
+      // 免打扰的群发起的群语音：不弹出（在会话列表、群聊里点「加入」）。
+      if calls.quiet { return false }
+      return tab == 0 && model.openChatId == nil
+    }
     return true
   }
 
@@ -94,7 +98,7 @@ struct RootView: View {
       CallScreen(manager: model.calls, session: session)
     }
     .overlay(alignment: .top) {
-      if model.calls.call != nil, !showFullCall, !model.calls.ended {
+      if model.calls.call != nil, !showFullCall, !model.calls.ended, !(model.calls.quiet && model.calls.isRinging && !model.calls.expanded) {
         CallBanner(manager: model.calls, session: session)
           .transition(.move(edge: .top).combined(with: .opacity))
       }

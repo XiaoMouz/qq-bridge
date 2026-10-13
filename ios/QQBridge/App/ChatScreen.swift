@@ -168,6 +168,7 @@ struct ChatScreen: View {
       }
     }
     .animation(.snappy, value: notice)
+    .modifier(GroupVoiceBar(calls: model.calls, groupId: isGroup ? (dialog?.peerID ?? 0) : 0))
     // 快速回复浮层盖住了 App 底部的提示：在浮层里自己显示一份。
     .overlay(alignment: .bottom) {
       if onExpand != nil, let toast = model.toast {
@@ -1396,5 +1397,44 @@ struct ReactionSheet: ViewModifier {
       }
       .presentationDetents([.medium, .large])
     }
+  }
+}
+
+/// 群聊顶部：这个群正在群语音、自己还没进去时显示「加入」（免打扰的群不弹来电，就从这里进）。
+struct GroupVoiceBar: ViewModifier {
+  let calls: CallManager
+  let groupId: Int64
+
+  private var show: Bool {
+    guard groupId != 0, let call = calls.call, call.groupID == groupId, call.phase != .ended else { return false }
+    return !calls.answeredHere && !calls.joining
+  }
+
+  func body(content: Content) -> some View {
+    content.safeAreaInset(edge: .top) {
+      if show {
+        Button {
+          calls.expanded = true
+          Task { await calls.answer() }
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: "waveform")
+            Text("群语音通话进行中").font(.subheadline.weight(.semibold))
+            Spacer()
+            Text("加入").font(.subheadline.weight(.semibold))
+              .padding(.horizontal, 14).padding(.vertical, 6)
+              .background(Capsule().fill(Color.green))
+              .foregroundStyle(.white)
+          }
+          .padding(.horizontal, 14).padding(.vertical, 8)
+          .glassEffect(.regular, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .animation(.snappy, value: show)
   }
 }

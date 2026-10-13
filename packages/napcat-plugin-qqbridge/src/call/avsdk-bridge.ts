@@ -18,7 +18,10 @@ import { buildAcceptParams } from './accept-params.js';
  * 22 CloseMic、23 OpenMic、55 OnPenetrateEvent（转发内核数据）……（2026-10-13 从符号和 .rela.dyn 还原，1/5/55 与已验证的一致）。
  * param 是方法除第一个参数（实例 id）以外的参数；字符串数组后面的个数参数由插件自己补。
  */
-export const AvCommand = { login: 1, accept: 5, reject: 9, close: 10, kernelData: 55 } as const;
+export const AvCommand = { login: 1, accept: 5, quit: 8, reject: 9, close: 10, kernelData: 55 } as const;
+
+/** 来电的 invite_type / 来电数组 [0]：1 是 1 对 1，3 是群语音（多人通话，进房间后有成员进出、各人音量的输出）。 */
+export const GROUP_INVITE_TYPE = 3;
 
 /** AVSDK 插件输出（AV Host 转发过来的 message 事件的 cmd）。 */
 export const AvOutput = {
@@ -50,6 +53,8 @@ export interface CallState {
   endedAt: string | null;
   endReason: number | null;
   inviteType: number | null;
+  /** 群语音（多人通话，invite_type 3）所在的群号；1 对 1 通话为 null。 */
+  groupCode: string | null;
   callerUid: string | null;
   callerUin: string | null;
   callerName: string | null;
@@ -88,6 +93,7 @@ function idleCall(): CallState {
     endedAt: null,
     endReason: null,
     inviteType: null,
+    groupCode: null,
     callerUid: null,
     callerUin: null,
     callerName: null,
@@ -203,7 +209,12 @@ export class AvsdkBridge {
     this.call.acceptRequested = false;
     if (Array.isArray(invite) && typeof invite[0] === 'number' && typeof invite[1] === 'string') {
       const answered = phase === 'accepting' || phase === 'accepted' || phase === 'connected';
-      await this.invokeAVHost(answered ? AvCommand.close : AvCommand.reject, [invite[0], invite[1], 0]);
+      if (answered && invite[0] === GROUP_INVITE_TYPE) {
+        // 群语音：Close 不会退出房间（2026-10-13 实测引擎回成功但没有退房的请求），要用 Quit [类型, 原因]。
+        await this.invokeAVHost(AvCommand.quit, [invite[0], 0]);
+      } else {
+        await this.invokeAVHost(answered ? AvCommand.close : AvCommand.reject, [invite[0], invite[1], 0]);
+      }
     }
     const timer = setTimeout(() => {
       if (this.call.callId !== callId || this.call.phase === 'ended' || this.call.phase === 'idle') return;
@@ -266,7 +277,9 @@ export class AvsdkBridge {
         if (!Array.isArray(value)) break;
         this.activeInvite = value;
         const callerUid = typeof value[1] === 'string' ? value[1] : null;
-        this.call = { ...this.call, callerUid, callerUin: null, callerName: null };
+        // 来电数组：[类型, 邀请人 uid, [被邀请的 uid], ?, 群号（群语音）/ 会话键, ?, 房间号, …]
+        const groupCode = value[0] === GROUP_INVITE_TYPE && value[4] ? String(value[4]) : this.call.groupCode;
+        this.call = { ...this.call, callerUid, callerUin: null, callerName: null, groupCode };
         if (callerUid) void this.resolveCaller(callerUid, this.call.callId);
         if (this.call.acceptRequested) this.scheduleAccept(50);
         else if (this.cfg.autoAccept) this.scheduleAccept(500);
@@ -344,13 +357,16 @@ export class AvsdkBridge {
     if (lower === 'oninviteactiontoavsdk') {
       this.activeInvite = null;
       this.acceptPostedFor = null;
-      const first = args[0] as { invite_type?: unknown } | undefined;
+      const first = args[0] as { invite_type?: unknown; relation_id?: unknown } | undefined;
+      const inviteType = typeof first?.invite_type === 'number' ? first.invite_type : null;
       this.call = {
         ...idleCall(),
         callId: randomUUID(),
         phase: 'ringing',
         inviteAt: new Date().toISOString(),
-        inviteType: typeof first?.invite_type === 'number' ? first.invite_type : null,
+        inviteType,
+        // 群语音：relation_id 是群号（2026-10-13 抓到：invite_type 3，relation_id 521409608）。
+        groupCode: inviteType === GROUP_INVITE_TYPE && first?.relation_id ? String(first.relation_id) : null,
       };
       this.emit();
     } else if (lower === 'ons2cactiontoavsdk') {

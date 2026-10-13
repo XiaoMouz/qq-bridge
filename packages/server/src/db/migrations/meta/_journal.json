@@ -176,6 +176,13 @@
       "when": 1791794431344,
       "tag": "0024_member_robot",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791878400000,
+      "tag": "0025_call_group",
+      "breakpoints": true
     }
   ]
 }

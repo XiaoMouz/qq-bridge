@@ -24,6 +24,8 @@ export interface PluginCallState {
   endedAt: string | null;
   endReason: number | null;
   inviteType: number | null;
+  /** 群语音所在的群号（插件 0.2 起）。 */
+  groupCode?: string | null;
   callerUid: string | null;
   callerUin: string | null;
   callerName: string | null;
@@ -39,6 +41,8 @@ export interface CallRecord {
   media: 'voice' | 'video';
   peerUin: number | null;
   peerName: string | null;
+  /** 群语音所在的群；1 对 1 为 null。 */
+  groupId: number | null;
   inviteAt: Date;
   acceptedAt: Date | null;
   connectedAt: Date | null;
@@ -68,7 +72,7 @@ export class CallError extends Error {
 }
 
 const COLUMNS = sql.raw(
-  `call_id, qq_account_id, phase, incoming, media, peer_uin, peer_name, invite_at, accepted_at, connected_at, ended_at, end_reason, answered_device_id, room`,
+  `call_id, qq_account_id, phase, incoming, media, peer_uin, peer_name, group_id, invite_at, accepted_at, connected_at, ended_at, end_reason, answered_device_id, room`,
 );
 
 interface CallRow {
@@ -79,6 +83,7 @@ interface CallRow {
   media: 'voice' | 'video';
   peer_uin: number | null;
   peer_name: string | null;
+  group_id: number | string | null;
   invite_at: Date | string;
   accepted_at: Date | string | null;
   connected_at: Date | string | null;
@@ -99,6 +104,7 @@ function toRecord(r: CallRow): CallRecord {
     media: r.media,
     peerUin: r.peer_uin === null ? null : Number(r.peer_uin),
     peerName: r.peer_name,
+    groupId: r.group_id === null ? null : Number(r.group_id),
     inviteAt: toDate(r.invite_at)!,
     acceptedAt: toDate(r.accepted_at),
     connectedAt: toDate(r.connected_at),
@@ -139,16 +145,18 @@ export class CallService {
     const stale = state.phase === 'ringing' && Date.now() - inviteAt.getTime() > (this.cfg?.ringTimeoutMs ?? 120_000);
     const phase: CallPhase = stale ? 'ended' : state.phase;
     const peerUin = state.callerUin && /^\d+$/.test(state.callerUin) ? Number(state.callerUin) : null;
+    const groupId = state.groupCode && /^\d+$/.test(state.groupCode) ? Number(state.groupCode) : null;
     const before = await this.get(state.callId);
     const row = await maybeOne<CallRow>(
       this.db,
-      sql`insert into calls (qq_account_id, call_id, incoming, media, peer_uin, peer_name, phase, invite_at, accepted_at, connected_at, ended_at, end_reason)
-          values (${qqAccountId}, ${state.callId}, true, ${state.inviteType === 2 ? 'video' : 'voice'}, ${peerUin}, ${state.callerName},
+      sql`insert into calls (qq_account_id, call_id, incoming, media, peer_uin, peer_name, group_id, phase, invite_at, accepted_at, connected_at, ended_at, end_reason)
+          values (${qqAccountId}, ${state.callId}, true, ${state.inviteType === 2 ? 'video' : 'voice'}, ${peerUin}, ${state.callerName}, ${groupId},
                   ${phase}, ${inviteAt}, ${state.acceptedAt ? new Date(state.acceptedAt) : null}, ${state.connectedAt ? new Date(state.connectedAt) : null},
                   ${state.endedAt ? new Date(state.endedAt) : stale ? new Date() : null}, ${state.endReason})
           on conflict (call_id) do update set
             peer_uin = coalesce(excluded.peer_uin, calls.peer_uin),
             peer_name = coalesce(excluded.peer_name, calls.peer_name),
+            group_id = coalesce(excluded.group_id, calls.group_id),
             -- 已经结束的通话不会再回到前面的状态（重放、乱序）。
             phase = case when calls.phase = 'ended' then 'ended' else excluded.phase end,
             accepted_at = coalesce(calls.accepted_at, excluded.accepted_at),
@@ -239,19 +247,21 @@ export class CallService {
     if (call.room && this.gateway) {
       await this.gateway.leave(call.room).catch((error: unknown) => this.cfg?.logger?.warn({ err: error, room: call.room }, 'gateway leave failed'));
     }
-    if (call.peerUin === null) return;
+    if (call.peerUin === null && call.groupId === null) return;
     const end = call.endedAt ?? new Date();
     const durationSec = call.connectedAt ? Math.max(0, Math.round((end.getTime() - call.connectedAt.getTime()) / 1000)) : 0;
+    // 群语音的记录留在群里，1 对 1 的留在与对方的私聊里。
     await this.ingest.addChatEvent(call.qqAccountId, {
-      scene: 'friend',
-      peerId: call.peerUin,
+      scene: call.groupId !== null ? 'group' : 'friend',
+      peerId: call.groupId ?? call.peerUin!,
       kind: 'call',
       time: Math.floor(call.inviteAt.getTime() / 1000),
-      ...(call.incoming ? { actorId: call.peerUin } : {}),
+      ...(call.incoming && call.peerUin !== null ? { actorId: call.peerUin } : {}),
       data: {
         callId: call.callId,
         incoming: call.incoming,
         media: call.media,
+        ...(call.groupId !== null ? { group: true } : {}),
         // endReason -2：在这里拒接的（插件 REJECTED_HERE）。
         result: call.connectedAt ? 'answered' : call.endReason === -2 ? 'declined' : 'missed',
         durationSec,

@@ -120,12 +120,24 @@ export class PushNotifier {
     }
     const name = call.peerName || (call.peerUin ? String(call.peerUin) : 'QQ');
     const kind = call.media === 'video' ? '视频' : '语音';
-    const chat = call.peerUin
-      ? await maybeOne<{ id: number }>(
+    // 群语音：跟着群的消息设置走——免打扰、收进群助手、只提醒 @我 的群不推（在 App 里手动加入）。
+    const chat = call.groupId !== null
+      ? await maybeOne<{ id: number; notify_policy: string; name: string | null }>(
           this.db,
-          sql`select id from chats where qq_account_id = ${call.qqAccountId} and scene = 'friend' and peer_id = ${call.peerUin}`,
+          sql`select c.id, c.notify_policy, p.name from chats c
+                left join peers p on p.qq_account_id = c.qq_account_id and p.kind = 'group' and p.peer_id = c.peer_id
+               where c.qq_account_id = ${call.qqAccountId} and c.scene = 'group' and c.peer_id = ${call.groupId}`,
         )
-      : null;
+      : call.peerUin
+        ? await maybeOne<{ id: number; notify_policy: string; name: string | null }>(
+            this.db,
+            sql`select id, notify_policy, null as name from chats where qq_account_id = ${call.qqAccountId} and scene = 'friend' and peer_id = ${call.peerUin}`,
+          )
+        : null;
+    if (call.groupId !== null && (!chat || [...QUIET_POLICIES, 'mentions'].includes(chat.notify_policy))) return 0;
+    const title = call.groupId !== null ? (chat?.name || String(call.groupId)) : name;
+    const ringText = call.groupId !== null ? `${name} 邀请你加入群${kind}通话` : `邀请你${kind}通话`;
+    const missedText = call.groupId !== null ? `${name} 发起的群${kind}通话已结束` : `未接${kind}通话`;
     const devices = await rows<{ id: number; apns_token: string; apns_env: string | null }>(
       this.db,
       sql`select id, apns_token, apns_env from devices
@@ -140,7 +152,7 @@ export class PushNotifier {
         ttlSec: ringing ? 60 : 24 * 3600,
         payload: {
           aps: {
-            alert: ringing ? { title: name, body: `邀请你${kind}通话` } : { title: name, body: `未接${kind}通话` },
+            alert: { title, body: ringing ? ringText : missedText },
             ...(ringing ? { sound: 'default', 'interruption-level': 'time-sensitive' } : {}),
             'thread-id': chat ? `chat-${chat.id}` : 'calls',
           },

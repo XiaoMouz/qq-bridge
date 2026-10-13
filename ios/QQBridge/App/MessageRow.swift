@@ -1231,6 +1231,13 @@ enum EventText {
     case "group_file": return "\(actor) 上传了文件 \(data["name"] as? String ?? "")"
     case "call":
       let video = (data["media"] as? String) == "video"
+      if (data["group"] as? Bool) == true {
+        // 群语音：没接不算「未接」，只说结束了。
+        if (data["result"] as? String) == "answered" {
+          return "群\(video ? "视频" : "语音")通话 \(Format.duration(data["durationSec"] as? Int ?? 0))"
+        }
+        return "\(actor) 发起的群\(video ? "视频" : "语音")通话已结束"
+      }
       if (data["result"] as? String) == "answered" {
         return "\(video ? "视频" : "语音")通话 \(Format.duration(data["durationSec"] as? Int ?? 0))"
       }

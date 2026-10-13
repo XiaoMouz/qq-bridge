@@ -26,6 +26,11 @@ final class CallManager {
   private(set) var error: String?
   /// 在这台设备上接的（别的设备接了、或在手机 QQ 上接了，这里只显示「已在其他设备接听」）。
   private(set) var answeredHere = false
+  /// 群语音来自免打扰 / 群助手 / 只提醒 @我 的群：不响铃、不弹出，只在会话列表、群聊里显示「语音中」，自己点进去加入。
+  private(set) var quiet = false
+  /// 群语音所在群的名字（会话列表里的）。
+  private(set) var groupTitle: String?
+  var isGroup: Bool { (call?.groupID ?? 0) != 0 }
   /// 通话界面收起成顶部的小条。
   var minimized = false
   /// 来电时点了顶部的横幅：展开成全屏。
@@ -51,10 +56,15 @@ final class CallManager {
       reset()
       guard new.phase != .ended else { return }  // 已经结束的旧来电（例如重连时收到）不弹出来
     }
+    if call?.id != new.id, new.groupID != 0, let session {
+      let item = (try? session.store.dialogItems(limit: 5000))?.first { $0.isGroup && $0.dialog.peerID == new.groupID }
+      groupTitle = item?.title
+      quiet = item == nil || item!.isMuted || ["mentions", "archived", "muted"].contains(item!.dialog.notifyPolicy)
+    }
     call = new
     switch new.phase {
     case .ringing:
-      startRinging()
+      if !quiet { startRinging() }
     case .ended:
       stopRinging()
       Task { await leaveRoom() }
@@ -174,6 +184,8 @@ final class CallManager {
     localLevels = []
     minimized = false
     expanded = false
+    quiet = false
+    groupTitle = nil
     dismissTask?.cancel()
     call = nil
     joining = false
@@ -220,7 +232,25 @@ struct CallInfo {
     return try? session.store.peer(kind: .user, peerId: uin)
   }
 
+  /// 头像：群语音用群头像。
+  var avatarSha: String? {
+    if manager.isGroup, let gid = call?.groupID { return (try? session.store.peer(kind: .group, peerId: gid))?.avatarSha256 }
+    return peer?.avatarSha256
+  }
+
+  var avatarSeed: Int64 { manager.isGroup ? (call?.groupID ?? 0) : (call?.peerUin ?? 0) }
+
+  /// 邀请人（群语音）/ 对方（1 对 1）。
+  var callerName: String {
+    if let p = peer, !p.remark.isEmpty { return p.remark }
+    if let p = peer, !p.name.isEmpty { return p.name }
+    if let n = call?.peerName, !n.isEmpty { return n }
+    return call.map { String($0.peerUin) } ?? ""
+  }
+
+  /// 界面上的标题：群语音是群名，1 对 1 是对方。
   var name: String {
+    if manager.isGroup { return manager.groupTitle ?? String(call?.groupID ?? 0) }
     if let p = peer, !p.remark.isEmpty { return p.remark }
     if let p = peer, !p.name.isEmpty { return p.name }
     if let n = call?.peerName, !n.isEmpty { return n }
@@ -238,7 +268,9 @@ struct CallInfo {
     guard let call else { return "" }
     if let e = manager.error { return e }
     switch call.phase {
-    case .ringing: return manager.joining ? "正在接通…" : "邀请你\(kind)通话"
+    case .ringing:
+      if manager.joining { return "正在接通…" }
+      return manager.isGroup ? "\(callerName) 邀请你加入群\(kind)通话" : "邀请你\(kind)通话"
     case .accepting, .unspecified: return "正在接通…"
     case .connected: return manager.answeredHere ? (duration ?? "通话中") : "已在其他设备接听"
     case .ended: return "通话结束"
@@ -268,7 +300,7 @@ struct CallScreen: View {
       }
       .padding(.top, 8)
       Spacer().frame(height: 40)
-      AvatarView(sha256: info.peer?.avatarSha256, title: info.name, seed: info.call?.peerUin ?? 0, size: 104)
+      AvatarView(sha256: info.avatarSha, title: info.name, seed: info.avatarSeed, size: 104)
       Text(info.name).font(.title.bold()).lineLimit(1)
       Text(info.status)
         .font(.headline.monospacedDigit())
@@ -381,7 +413,7 @@ struct CallBanner: View {
     Group {
       if manager.isRinging {
         HStack(spacing: 12) {
-          AvatarView(sha256: info.peer?.avatarSha256, title: info.name, seed: info.call?.peerUin ?? 0, size: 44)
+          AvatarView(sha256: info.avatarSha, title: info.name, seed: info.avatarSeed, size: 44)
           VStack(alignment: .leading, spacing: 2) {
             Text(info.name).font(.headline).lineLimit(1)
             Text(info.status).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)

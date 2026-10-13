@@ -14,10 +14,10 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
 /**
- * 默认只允许：登录 1、接听 5、拒接 9、挂断 10、转发内核数据 55。研究模式（QQBRIDGE_LAB=1）放开，用于重放录制的指令。
+ * 默认只允许：登录 1、接听 5、退出多人通话 8、拒接 9、挂断 10、转发内核数据 55。研究模式（QQBRIDGE_LAB=1）放开，用于重放录制的指令。
  * 指令号就是 libAVSDKPlugin.so 里 QRTCServiceInterfaceWrapper 方法表的下标（见 napcat 插件 call/avsdk-bridge.ts 的 AvCommand）。
  */
-const DEFAULT_ALLOWED_COMMANDS = new Set([1, 5, 9, 10, 55]);
+const DEFAULT_ALLOWED_COMMANDS = new Set([1, 5, 8, 9, 10, 55]);
 const MAX_RECENT = 50;
 
 function port(value, fallback, name) {

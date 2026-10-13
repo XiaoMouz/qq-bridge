@@ -136,6 +136,9 @@ public nonisolated struct Qqbridge_V1_Call: Sendable {
   /// 由哪台设备接听（0：没有经本系统接听）。
   public var answeredDeviceID: Int64 = 0
 
+  /// 群语音所在的群号（0 = 1 对 1 通话）。peer_uin 是邀请人。
+  public var groupID: Int64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -288,7 +291,7 @@ nonisolated extension Qqbridge_V1_CallMedia: SwiftProtobuf._ProtoNameProviding {
 
 nonisolated extension Qqbridge_V1_Call: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Call"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}phase\0\u{1}media\0\u{1}incoming\0\u{3}peer_uin\0\u{3}peer_name\0\u{3}invite_at\0\u{3}connected_at\0\u{3}ended_at\0\u{3}end_reason\0\u{3}answered_device_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}phase\0\u{1}media\0\u{1}incoming\0\u{3}peer_uin\0\u{3}peer_name\0\u{3}invite_at\0\u{3}connected_at\0\u{3}ended_at\0\u{3}end_reason\0\u{3}answered_device_id\0\u{3}group_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -307,6 +310,7 @@ nonisolated extension Qqbridge_V1_Call: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 9: try { try decoder.decodeSingularInt64Field(value: &self.endedAt) }()
       case 10: try { try decoder.decodeSingularInt32Field(value: &self.endReason) }()
       case 11: try { try decoder.decodeSingularInt64Field(value: &self.answeredDeviceID) }()
+      case 12: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
       default: break
       }
     }
@@ -346,6 +350,9 @@ nonisolated extension Qqbridge_V1_Call: SwiftProtobuf.Message, SwiftProtobuf._Me
     if self.answeredDeviceID != 0 {
       try visitor.visitSingularInt64Field(value: self.answeredDeviceID, fieldNumber: 11)
     }
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 12)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -361,6 +368,7 @@ nonisolated extension Qqbridge_V1_Call: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.endedAt != rhs.endedAt {return false}
     if lhs.endReason != rhs.endReason {return false}
     if lhs.answeredDeviceID != rhs.answeredDeviceID {return false}
+    if lhs.groupID != rhs.groupID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

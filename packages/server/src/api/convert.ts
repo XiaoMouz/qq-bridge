@@ -234,6 +234,7 @@ export function callToProto(c: CallRecord): Call {
     endedAt: unix(c.endedAt),
     endReason: c.endReason ?? 0,
     answeredDeviceId: big(c.answeredDeviceId),
+    groupId: big(c.groupId),
   });
 }
 

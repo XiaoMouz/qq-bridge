@@ -37,6 +37,8 @@ message Call {
   int32 end_reason = 10;
   // 由哪台设备接听（0：没有经本系统接听）。
   int64 answered_device_id = 11;
+  // 群语音所在的群号（0 = 1 对 1 通话）。peer_uin 是邀请人。
+  int64 group_id = 12;
 }
 
 message GetActiveCallRequest {}
