@@ -186,15 +186,14 @@ struct ChatScreen: View {
     .overlay(alignment: .bottomTrailing) {
       VStack(spacing: 12) {
         if let top = mentions.first {
-          FloatingChatButton(systemImage: Self.icon(top.kind), count: mentions.count) { jumpToNextMention() }
-            .contextMenu {
-              Button("全部标为已看（\(mentions.count) 条）", systemImage: "checkmark.circle") {
-                let all = Set(mentions.map(\.seq))
-                mentions = []
-                mentionsSeen(all, force: true)
-              }
+          FloatingChatButton(systemImage: Self.icon(top.kind), count: mentions.count, action: jumpToNextMention) {
+            Button("全部标为已看（\(mentions.count) 条）", systemImage: "checkmark.circle") {
+              let all = Set(mentions.map(\.seq))
+              mentions = []
+              mentionsSeen(all, force: true)
             }
-            .transition(.scale.combined(with: .opacity))
+          }
+          .transition(.scale.combined(with: .opacity))
         }
         ZStack {
           if !atBottom {
@@ -1263,19 +1262,25 @@ struct MovieFile: Transferable {
 }
 
 /// 聊天页右下角的圆形玻璃按钮，右上角带个蓝色数字。
-struct FloatingChatButton: View {
+/// 聊天页右下角的圆形浮动按钮（回到底部、有人@我）。带 menu 时长按弹出贴着按钮的小菜单
+/// （Menu 的 primaryAction：点一下照常执行；不用 contextMenu——那会把按钮拎出来、整屏变暗，菜单离按钮很远）。
+struct FloatingChatButton<MenuContent: View>: View {
   let systemImage: String
   let count: Int
   let action: () -> Void
+  @ViewBuilder var menu: () -> MenuContent
 
   var body: some View {
-    Button(action: action) {
-      Image(systemName: systemImage)
-        .font(.system(size: 18, weight: .semibold))
-        .frame(width: 46, height: 46)
-        .contentShape(Circle())
+    Group {
+      if MenuContent.self == EmptyView.self {
+        Button(action: action) { icon }
+          .buttonStyle(.plain)
+      } else {
+        Menu { menu() } label: { icon } primaryAction: { action() }
+          .menuStyle(.button)
+          .buttonStyle(.plain)
+      }
     }
-    .buttonStyle(.plain)
     .foregroundStyle(.tint)
     .glassEffect(.regular.interactive(), in: Circle())
     .overlay(alignment: .topTrailing) {
@@ -1287,8 +1292,22 @@ struct FloatingChatButton: View {
           .frame(minWidth: 18, minHeight: 18)
           .background(Color.accentColor, in: Capsule())
           .offset(x: 6, y: -6)
+          .allowsHitTesting(false)
       }
     }
+  }
+
+  private var icon: some View {
+    Image(systemName: systemImage)
+      .font(.system(size: 18, weight: .semibold))
+      .frame(width: 46, height: 46)
+      .contentShape(Circle())
+  }
+}
+
+extension FloatingChatButton where MenuContent == EmptyView {
+  init(systemImage: String, count: Int, action: @escaping () -> Void) {
+    self.init(systemImage: systemImage, count: count, action: action, menu: { EmptyView() })
   }
 }
 
