@@ -23,6 +23,9 @@ export const AvCommand = { login: 1, startCall: 4, accept: 5, quit: 8, reject: 9
 /** 来电的 invite_type / 来电数组 [0]：1 是 1 对 1，3 是群语音（多人通话，进房间后有成员进出、各人音量的输出）。 */
 export const GROUP_INVITE_TYPE = 3;
 
+/** onS2CActionToAVSDK 的第二个参数：14 = 通话结束（10 是房间状态推送，例如对方接听）。 */
+const S2C_DESTROY = 14;
+
 /** AVSDK 插件输出（AV Host 转发过来的 message 事件的 cmd）。 */
 export const AvOutput = {
   network: 20001,
@@ -140,11 +143,21 @@ export class AvsdkBridge {
       throw new Error('AVSDK service is unavailable in this QQ/NapCat build');
     }
     this.service = service;
-    this.listenerId = service.addKernelAVSDKListener(this.makeListener());
+    // 整个进程只注册一次内核监听，事件交给「当前」的通话桥：插件热重载时内核的 removeKernelAVSDKListener 不生效，
+    // 以前每重载一次就多一个监听，旧的还一直往引擎转发（2026-10-13 一个内核事件被转发了 20 多遍，
+    // 打出去的电话对方一接就断）。
+    const dispatch = globalDispatch();
+    dispatch.bridge = this;
+    if (!dispatch.registered) {
+      this.listenerId = service.addKernelAVSDKListener(makeDispatchListener());
+      dispatch.registered = true;
+    }
     this.scheduleLogin(500);
   }
 
   stop(): void {
+    const dispatch = globalDispatch();
+    if (dispatch.bridge === this) dispatch.bridge = null;
     if (this.loginTimer) clearTimeout(this.loginTimer);
     if (this.acceptTimer) clearTimeout(this.acceptTimer);
     this.loginTimer = null;
@@ -375,22 +388,7 @@ export class AvsdkBridge {
     this.stats.lastError = null;
   }
 
-  private makeListener(): Record<string, (...args: unknown[]) => void> {
-    const target: Record<string, (...args: unknown[]) => void> = {};
-    for (const name of KNOWN_KERNEL_CALLBACKS) target[name] = (...args) => this.onKernelEvent(name, args);
-    // 未知回调也照单全收并记录：研究新版本 QQ 的通话事件时有用。
-    return new Proxy(target, {
-      get: (object, property, receiver) => {
-        if (Reflect.has(object, property)) return Reflect.get(object, property, receiver);
-        if (typeof property !== 'string') return Reflect.get(object, property, receiver);
-        const callback = (...args: unknown[]) => this.onKernelEvent(property, args);
-        Reflect.set(object, property, callback);
-        return callback;
-      },
-    });
-  }
-
-  private onKernelEvent(name: string, args: unknown[]): void {
+  onKernelEvent(name: string, args: unknown[]): void {
     this.stats.kernelEvents += 1;
     this.capture.write('avsdk', { dir: 'kernel', name, args: this.capturedValue(args) });
     const lower = name.toLowerCase();
@@ -411,7 +409,9 @@ export class AvsdkBridge {
       this.emit();
     } else if (lower === 'ons2cactiontoavsdk') {
       const destroyReason = (args[0] as { destroyReason?: unknown } | undefined)?.destroyReason;
-      if (typeof destroyReason === 'number' && this.call.phase !== 'idle' && this.call.phase !== 'ended') {
+      // 第二个参数是动作：14 结束；10 是房间状态（打出去时对方接了也是 destroyReason 0 + 10，不能当成结束）。
+      const ended = typeof destroyReason === 'number' && (destroyReason > 0 || args[1] === S2C_DESTROY);
+      if (ended && this.call.phase !== 'idle' && this.call.phase !== 'ended') {
         if (this.acceptTimer) clearTimeout(this.acceptTimer);
         this.acceptTimer = null;
         this.activeInvite = null;
@@ -575,4 +575,31 @@ function discoverMethods(value: unknown): string[] {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 进程里唯一的内核监听转给谁（插件重载后换成新的通话桥；停掉的通话桥不再收事件）。 */
+interface KernelDispatch {
+  bridge: AvsdkBridge | null;
+  registered: boolean;
+}
+
+function globalDispatch(): KernelDispatch {
+  const key = Symbol.for('qqbridge.avsdk.dispatch');
+  const g = globalThis as unknown as Record<symbol, KernelDispatch | undefined>;
+  return (g[key] ??= { bridge: null, registered: false });
+}
+
+/** 内核的 AVSDK 监听：已知回调和未知回调（研究新版本 QQ 的通话事件时有用）都转给当前的通话桥。 */
+function makeDispatchListener(): Record<string, (...args: unknown[]) => void> {
+  const forward = (name: string) => (...args: unknown[]) => globalDispatch().bridge?.onKernelEvent(name, args);
+  const target: Record<string, (...args: unknown[]) => void> = {};
+  for (const name of KNOWN_KERNEL_CALLBACKS) target[name] = forward(name);
+  return new Proxy(target, {
+    get: (object, property, receiver) => {
+      if (Reflect.has(object, property) || typeof property !== 'string') return Reflect.get(object, property, receiver);
+      const callback = forward(property);
+      Reflect.set(object, property, callback);
+      return callback;
+    },
+  });
 }
