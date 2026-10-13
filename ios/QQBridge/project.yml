@@ -53,6 +53,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSMicrophoneUsageDescription: 按住麦克风录语音消息
+        NSCameraUsageDescription: 拍照或录像后发送到聊天
         NSPhotoLibraryUsageDescription: 选择要发送的照片
         NSPhotoLibraryAddUsageDescription: 把聊天里的图片保存到相册
         CFBundleDevelopmentRegion: zh-Hans
