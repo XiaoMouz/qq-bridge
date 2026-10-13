@@ -59,7 +59,8 @@ targets:
         CFBundleLocalizations: [zh-Hans]
         UILaunchScreen: {}
         # 视频后台播放、画中画。
-        UIBackgroundModes: [audio]
+        # voip：来电的 VoIP 推送（PushKit）交给 CallKit。
+        UIBackgroundModes: [audio, voip]
         # 通讯通知（通知左边显示发送者头像）：通知扩展用发消息的意图生成通知内容。
         NSUserActivityTypes: [INSendMessageIntent]
         # 只用系统自带的 HTTPS，属于豁免加密；上传 TestFlight 时不用再回答出口合规问题。

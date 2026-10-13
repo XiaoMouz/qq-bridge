@@ -25,6 +25,7 @@ import type { OutboxService } from '../outbox/service.ts';
 import type { HoleFiller } from '../upstream/history.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
 import { NotFoundError } from '../sync/difference.ts';
+import type { OnlineDevices } from '../sync/online-devices.ts';
 import type { ActiveChats } from '../sync/active-chats.ts';
 import type { UpdateBus } from '../sync/bus.ts';
 import type { MediaUrlSigner } from './media-urls.ts';
@@ -67,6 +68,7 @@ export interface ApiDeps {
   defaultAutoFetchMaxBytes: number;
   signer: MediaUrlSigner;
   activeChats: ActiveChats;
+  onlineDevices: OnlineDevices;
   logger: Logger;
 }
 

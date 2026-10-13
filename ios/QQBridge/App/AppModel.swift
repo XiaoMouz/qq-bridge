@@ -7,6 +7,9 @@ import QQBridgeProto
 @MainActor
 @Observable
 final class AppModel {
+  /// 只有一个：VoIP 推送可能在界面还没起来时就把 App 拉起（CallKitBridge 要直接用它）。
+  static let shared = AppModel()
+
   enum Phase {
     case launching
     case loggedOut

@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
   func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    // VoIP 推送（来电交给 CallKit）：要在启动时马上注册，被推送拉起时才接得住。
+    CallKitBridge.shared.register()
     #if DEBUG
       // 调试：启动参数 -debugCommNotify YES，3 秒后发一条本地的通讯通知（看头像、App 图标的效果；模拟器的推送不走通知扩展）。
       if UserDefaults.standard.bool(forKey: "debugCommNotify") { Self.debugCommunicationNotification() }
@@ -102,6 +104,19 @@ extension AppModel {
       guard granted else { return }
       UIApplication.shared.registerForRemoteNotifications()
     }
+  }
+
+  /// VoIP 推送的令牌（PushKit）：来电时服务端发 VoIP 推送，App 交给 CallKit。
+  func didReceiveVoipToken(_ hex: String) {
+    guard let session else { return }
+    var req = Qqbridge_V1_RegisterPushRequest()
+    req.apnsVoipToken = hex
+    #if DEBUG
+      req.environment = .sandbox
+    #else
+      req.environment = .production
+    #endif
+    Task { _ = await session.api.auth.registerPush(request: req, headers: session.api.headers) }
   }
 
   func didReceivePushToken(_ hex: String) {

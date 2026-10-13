@@ -21,6 +21,7 @@ import { DialogPrefs } from './dialogs/prefs.ts';
 import { OutboxService } from './outbox/service.ts';
 import { OutboxWorker } from './outbox/worker.ts';
 import { ActiveChats } from './sync/active-chats.ts';
+import { OnlineDevices } from './sync/online-devices.ts';
 import { UpdateBus } from './sync/bus.ts';
 import { WriterRegistry } from './sync/writer.ts';
 import { CallService } from './calls/service.ts';
@@ -96,6 +97,7 @@ export function createDeps(
     contacts: new ContactService(db, ingest, media, processor, () => deps.upstream, { logger: logger.child({ component: 'contacts' }) }),
     signer: new MediaUrlSigner(opts.mediaUrlSecret),
     activeChats: new ActiveChats(),
+    onlineDevices: new OnlineDevices(),
     logger,
   };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow, deps.forwards, () => deps.upstream, deps.logger.child({ component: 'forward' }));
   deps.groupContent = new GroupContentService(db, media, () => deps.upstream, {
@@ -163,7 +165,12 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
       topic: config.APNS_TOPIC,
       logger: deps.logger.child({ component: 'apns' }),
     });
-    const notifier = new PushNotifier(db, apns, { showPreview: config.APNS_PREVIEW, logger: deps.logger.child({ component: 'push' }), media: deps.media });
+    const notifier = new PushNotifier(db, apns, {
+      showPreview: config.APNS_PREVIEW,
+      logger: deps.logger.child({ component: 'push' }),
+      media: deps.media,
+      isOnline: (deviceId) => deps.onlineDevices.has(deviceId),
+    });
     deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
     deps.ingest.onCall = (accountId, call) => notifier.onCall(accountId, call);
   }

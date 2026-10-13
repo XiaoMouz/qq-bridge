@@ -93,9 +93,11 @@ function authService(deps: ApiDeps): ServiceImpl<typeof AuthService> {
         if (value && !hex.test(value)) throw new ConnectError(`${name} must be a hex device token`, Code.InvalidArgument);
       }
       const env = req.environment === ApnsEnvironment.SANDBOX ? 'sandbox' : req.environment === ApnsEnvironment.PRODUCTION ? 'production' : null;
+      // 两个令牌可能分开到（普通推送、VoIP 推送各自注册）：只更新这次带了的。
       await deps.db.execute(
-        sql`update devices set apns_token = ${req.apnsToken.toLowerCase() || null}, apns_voip_token = ${req.apnsVoipToken.toLowerCase() || null},
-                               apns_env = ${env} where id = ${auth.deviceId}`,
+        sql`update devices set apns_token = coalesce(${req.apnsToken.toLowerCase() || null}, apns_token),
+                               apns_voip_token = coalesce(${req.apnsVoipToken.toLowerCase() || null}, apns_voip_token),
+                               apns_env = coalesce(${env}, apns_env) where id = ${auth.deviceId}`,
       );
       return {};
     },
@@ -158,9 +160,14 @@ function syncService(deps: ApiDeps): ServiceImpl<typeof SyncService> {
     },
     async *subscribe(req, ctx) {
       const auth = requireAuth(ctx);
-      for await (const event of subscribe(deps.db, deps.bus, auth.accountId, toSafeNumber(req.pts, 'pts'), ctx.signal)) {
-        yield streamEventToProto(event);
-        if (event.kind === 'resync') return;
+      deps.onlineDevices.add(auth.deviceId);
+      try {
+        for await (const event of subscribe(deps.db, deps.bus, auth.accountId, toSafeNumber(req.pts, 'pts'), ctx.signal)) {
+          yield streamEventToProto(event);
+          if (event.kind === 'resync') return;
+        }
+      } finally {
+        deps.onlineDevices.remove(auth.deviceId);
       }
     },
   };

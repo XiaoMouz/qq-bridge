@@ -67,6 +67,8 @@ export class PushNotifier {
       now?: () => number;
       /** 读头像原图（缩成小图放进推送里）；没有时通知不带头像。 */
       media?: Pick<MediaService, 'getBlob' | 'openBlob'>;
+      /** 这台设备现在连着 Subscribe（App 在前台）：来电由 App 自己显示，不推。 */
+      isOnline?: (deviceId: number) => boolean;
     } = {},
   ) {}
 
@@ -110,17 +112,11 @@ export class PushNotifier {
   async notifyCall(accountId: number, call: CallRecord): Promise<number> {
     if (!call.incoming) return 0;
     const ringing = call.phase === 'ringing';
+    // 振铃时等插件认出来电的人（QQ 号、昵称）再推：最早的那次状态里还没有，推出去就没有名字。
+    if (ringing && call.peerUin === null) return 0;
     const missed = call.phase === 'ended' && !call.connectedAt && this.ringingPushed.has(call.callId);
     if (!(ringing && !this.ringingPushed.has(call.callId)) && !missed) return 0;
-    if (ringing) {
-      this.ringingPushed.add(call.callId);
-      if (this.ringingPushed.size > 200) this.ringingPushed.delete(this.ringingPushed.values().next().value!);
-    } else {
-      this.ringingPushed.delete(call.callId);
-    }
-    const name = call.peerName || (call.peerUin ? String(call.peerUin) : 'QQ');
     const kind = call.media === 'video' ? '视频' : '语音';
-    // 群语音：跟着群的消息设置走——免打扰、收进群助手、只提醒 @我 的群不推（在 App 里手动加入）。
     const chat = call.groupId !== null
       ? await maybeOne<{ id: number; notify_policy: string; name: string | null }>(
           this.db,
@@ -134,30 +130,83 @@ export class PushNotifier {
             sql`select id, notify_policy, null as name from chats where qq_account_id = ${call.qqAccountId} and scene = 'friend' and peer_id = ${call.peerUin}`,
           )
         : null;
+    // 群语音：跟着群的消息设置走——免打扰、收进群助手、只提醒 @我 的群不推（在 App 里手动加入）。
     if (call.groupId !== null && (!chat || [...QUIET_POLICIES, 'mentions'].includes(chat.notify_policy))) return 0;
-    const title = call.groupId !== null ? (chat?.name || String(call.groupId)) : name;
-    const ringText = call.groupId !== null ? `${name} 邀请你加入群${kind}通话` : `邀请你${kind}通话`;
-    const missedText = call.groupId !== null ? `${name} 发起的群${kind}通话已结束` : `未接${kind}通话`;
-    const devices = await rows<{ id: number; apns_token: string; apns_env: string | null }>(
+    if (ringing) {
+      this.ringingPushed.add(call.callId);
+      if (this.ringingPushed.size > 200) this.ringingPushed.delete(this.ringingPushed.values().next().value!);
+    } else {
+      this.ringingPushed.delete(call.callId);
+    }
+    // 来电人的名字：备注 > 昵称 > 插件给的昵称 > 号码。
+    const person = call.peerUin
+      ? await maybeOne<{ remark: string | null; name: string | null }>(
+          this.db,
+          sql`select remark, name from peers where qq_account_id = ${call.qqAccountId} and kind = 'user' and peer_id = ${call.peerUin}`,
+        )
+      : null;
+    const callerName = person?.remark || person?.name || call.peerName || (call.peerUin ? String(call.peerUin) : 'QQ');
+    const groupName = call.groupId !== null ? (chat?.name || String(call.groupId)) : null;
+    const title = groupName ?? callerName;
+    const body = ringing
+      ? groupName ? `${callerName} 邀请你加入群${kind}通话` : `邀请你${kind}通话`
+      : groupName ? `${callerName} 发起的群${kind}通话已结束` : `未接${kind}通话`;
+    const devices = await rows<{ id: number; apns_token: string | null; apns_voip_token: string | null; apns_env: string | null }>(
       this.db,
-      sql`select id, apns_token, apns_env from devices
-           where account_id = ${accountId} and revoked_at is null and apns_token is not null`,
+      sql`select id, apns_token, apns_voip_token, apns_env from devices
+           where account_id = ${accountId} and revoked_at is null and (apns_token is not null or apns_voip_token is not null)`,
     );
+    const avatar = devices.length > 0 && call.peerUin ? await this.avatarThumb(call.qqAccountId, call.peerUin) : null;
     let sent = 0;
     for (const d of devices) {
+      const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
+      // App 在前台（连着 Subscribe）：来电界面由 App 自己显示，不再推。
+      if (ringing && this.opts.isOnline?.(d.id)) continue;
+      if (ringing && d.apns_voip_token) {
+        // VoIP 推送：App 收到后交给 CallKit（系统来电界面，锁屏也能接）。
+        const result = await this.sender.send({
+          token: d.apns_voip_token,
+          env,
+          pushType: 'voip',
+          priority: 10,
+          ttlSec: 30,
+          payload: {
+            call: {
+              id: call.callId,
+              callerName,
+              callerUin: call.peerUin,
+              media: call.media,
+              ...(call.groupId !== null ? { groupId: call.groupId, groupName } : {}),
+              ...(chat ? { chatId: chat.id } : {}),
+            },
+          },
+        });
+        if (result.ok) {
+          sent++;
+          continue;
+        }
+        if (result.invalidToken) {
+          await this.db.execute(sql`update devices set apns_voip_token = null where id = ${d.id} and apns_voip_token = ${d.apns_voip_token}`);
+        }
+      }
+      if (!d.apns_token) continue;
+      // 普通通知（没有 VoIP 令牌时的来电、未接来电）：带上来电人的头像，通知扩展做成通讯通知。
       const result = await this.sender.send({
         token: d.apns_token,
-        env: d.apns_env === 'sandbox' ? 'sandbox' : 'production',
+        env,
         collapseId: `call-${call.callId}`,
         ttlSec: ringing ? 60 : 24 * 3600,
         payload: {
           aps: {
-            alert: { title, body: ringing ? ringText : missedText },
+            alert: { title, body },
             ...(ringing ? { sound: 'default', 'interruption-level': 'time-sensitive' } : {}),
             'thread-id': chat ? `chat-${chat.id}` : 'calls',
+            'mutable-content': 1,
           },
           ...(chat ? { chatId: chat.id } : {}),
           callId: call.callId,
+          ...(call.peerUin ? { sender: { id: call.peerUin, name: callerName, ...(avatar ? { avatar } : {}) } } : {}),
+          ...(groupName ? { group: groupName } : {}),
         },
       });
       if (result.ok) sent++;

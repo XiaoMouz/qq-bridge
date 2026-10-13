@@ -31,6 +31,8 @@ final class CallManager {
   /// 群语音所在群的名字（会话列表里的）。
   private(set) var groupTitle: String?
   var isGroup: Bool { (call?.groupID ?? 0) != 0 }
+  /// 交给 CallKit（系统来电界面）的那通：响铃由系统负责，App 里不再响铃、不弹来电界面。
+  var callKitCallId: String?
   /// 通话界面收起成顶部的小条。
   var minimized = false
   /// 来电时点了顶部的横幅：展开成全屏。
@@ -61,12 +63,14 @@ final class CallManager {
       groupTitle = item?.title
       quiet = item == nil || item!.isMuted || ["mentions", "archived", "muted"].contains(item!.dialog.notifyPolicy)
     }
+    if callKitCallId == new.id { quiet = true }
     call = new
     switch new.phase {
     case .ringing:
       if !quiet { startRinging() }
     case .ended:
       stopRinging()
+      CallKitBridge.shared.reportEnded(new.id, answeredElsewhere: new.connectedAt > 0 && !answeredHere)
       Task { await leaveRoom() }
       dismissTask?.cancel()
       dismissTask = Task { [weak self] in
@@ -77,6 +81,26 @@ final class CallManager {
       stopRinging()
     }
   }
+
+  /// 从 CallKit 接听：App 可能刚被推送拉起来，还没拿到这通电话的状态，先问一次。
+  func answer(callId: String, viaCallKit: Bool) async {
+    if call?.id != callId {
+      for _ in 0..<10 {
+        await refresh()
+        if call?.id == callId { break }
+        try? await Task.sleep(for: .milliseconds(300))
+      }
+    }
+    guard call?.id == callId else {
+      error = "接听失败：找不到这通电话"
+      CallKitBridge.shared.reportEnded(callId)
+      return
+    }
+    answeringViaCallKit = viaCallKit
+    await answer()
+  }
+
+  @ObservationIgnored private var answeringViaCallKit = false
 
   func answer() async {
     guard let session, let call, call.phase == .ringing || call.phase == .accepting, !joining else { return }
@@ -98,6 +122,9 @@ final class CallManager {
         // 模拟器上系统的语音处理（回声消除）起不来，开麦克风会报 -4010：关掉（真机保留回声消除）。
         try? AudioManager.shared.setVoiceProcessingEnabled(false)
       #endif
+      // CallKit 接的：音频会话由 CallKit 管（见 CallKitBridge），这里不用开后台连接以外的东西。
+      // 后台时 App 不连 Subscribe：接通后连上，对方挂断时才收得到。
+      if answeringViaCallKit { await session.sync.start() }
       let room = Room()
       self.room = room
       try await room.connect(url: res.livekitURL, token: res.livekitToken)
@@ -117,8 +144,13 @@ final class CallManager {
     }
   }
 
-  /// 挂断：响铃中是拒接，接通后是结束通话。
-  func hangup() async {
+  /// 挂断：响铃中是拒接，接通后是结束通话。交给了 CallKit 的那通，先让 CallKit 结束（它再回调这里）。
+  func hangup(fromCallKit: Bool = false, callId: String? = nil) async {
+    if !fromCallKit, let id = call?.id, CallKitBridge.shared.isReported(id) {
+      CallKitBridge.shared.requestEnd(id)
+      return
+    }
+    if call == nil, let callId { await refresh(); guard call?.id == callId else { return } }
     guard let session, let call else { return }
     stopRinging()
     var req = Qqbridge_V1_HangupCallRequest()
@@ -132,8 +164,16 @@ final class CallManager {
   }
 
   func toggleMute() async {
-    muted.toggle()
-    try? await room?.localParticipant.setMicrophone(enabled: !muted)
+    if let id = call?.id, CallKitBridge.shared.isReported(id) {
+      CallKitBridge.shared.requestMute(id, muted: !muted)
+      return
+    }
+    await setMuted(!muted)
+  }
+
+  func setMuted(_ value: Bool, fromCallKit: Bool = false) async {
+    muted = value
+    try? await room?.localParticipant.setMicrophone(enabled: !value)
   }
 
   func toggleSpeaker() {
@@ -142,10 +182,20 @@ final class CallManager {
   }
 
   /// 启动、回到前台时问一次：有没有正在响的来电（推送没点、或 App 刚打开）。
-  func refresh() async {
+  /// includeEnded：CallKit 那边还有通话、服务端却已经没有进行中的了——当作结束，收起系统界面。
+  func refresh(includeEnded: Bool = false) async {
     guard let session else { return }
     guard let res = try? await session.api.calls.getActiveCall(request: .init(), headers: session.api.headers).get() else { return }
-    if res.hasCall { update(res.call) }
+    if res.hasCall {
+      update(res.call)
+    } else if includeEnded, let id = callKitCallId {
+      if var current = call, current.id == id {
+        current.phase = .ended
+        update(current)
+      } else {
+        CallKitBridge.shared.reportEnded(id)
+      }
+    }
   }
 
   private func applySpeaker() {
@@ -186,6 +236,11 @@ final class CallManager {
     expanded = false
     quiet = false
     groupTitle = nil
+    callKitCallId = nil
+    answeringViaCallKit = false
+    // CallKit 接的通话关掉了 LiveKit 的自动音频配置，结束后恢复（App 里接的通话靠它）。
+    AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = true
+    try? AudioManager.shared.setEngineAvailability(.default)
     dismissTask?.cancel()
     call = nil
     joining = false
