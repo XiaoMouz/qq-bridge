@@ -372,9 +372,17 @@ struct MessageContent: View {
           .fill(outgoing ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.secondarySystemBackground)))
       }
     }
+    // 文字末尾的时间：和最后一行的文字基线对齐（只有 @ 徽章时一行比正文高，贴底会落到徽章下面）。
+    .overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextBaseline)) {
+      if place == .inline {
+        Text(time).font(.caption2.monospacedDigit()).opacity(0.7).padding(.trailing, 10)
+      }
+    }
     .overlay(alignment: .bottomTrailing) {
       switch place {
-      case .inline, .row:
+      case .inline:
+        EmptyView()
+      case .row:
         Text(time).font(.caption2.monospacedDigit()).opacity(0.7).padding(.trailing, 10).padding(.bottom, 8)
       case .pill:
         // 图片、视频、表情上：半透明底的小胶囊。

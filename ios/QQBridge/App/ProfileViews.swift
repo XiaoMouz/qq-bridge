@@ -308,7 +308,7 @@ struct GroupInfoView: View {
   private var filteredMembers: [Qqbridge_V1_GroupMember] {
     let q = memberQuery.trimmingCharacters(in: .whitespaces)
     guard !q.isEmpty else { return members.list }
-    return members.list.filter { memberName($0).localizedCaseInsensitiveContains(q) || $0.nickname.localizedCaseInsensitiveContains(q) || String($0.userID).contains(q) }
+    return members.list.filter { members.matches($0, q) }
   }
 
   private func memberName(_ m: Qqbridge_V1_GroupMember) -> String {
@@ -351,7 +351,10 @@ struct MentionPicker: View {
             HStack(spacing: 12) {
               AvatarView(sha256: avatars.sha256[m.userID], title: name(m), seed: m.userID, size: 32)
                 .onAppear { avatars.want(m.userID, session: session) }
-              Text(name(m)).foregroundStyle(.primary)
+              VStack(alignment: .leading, spacing: 1) {
+                Text(name(m)).foregroundStyle(.primary)
+                if let sub = members.subtitle(m) { Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+              }
               Spacer()
               Text(String(m.userID)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
@@ -371,7 +374,7 @@ struct MentionPicker: View {
     let q = query.trimmingCharacters(in: .whitespaces)
     let list = members.list.sorted { $0.lastSentAt > $1.lastSentAt }  // 最近发过言的在前
     guard !q.isEmpty else { return list }
-    return list.filter { name($0).localizedCaseInsensitiveContains(q) || $0.nickname.localizedCaseInsensitiveContains(q) || String($0.userID).contains(q) }
+    return list.filter { members.matches($0, q) }
   }
 
   private func name(_ m: Qqbridge_V1_GroupMember) -> String {

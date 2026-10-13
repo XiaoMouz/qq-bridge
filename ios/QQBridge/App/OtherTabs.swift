@@ -16,6 +16,7 @@ struct SearchView: View {
   @State private var dialogs: [DialogItem] = []
   /// 本地缓存的全部好友和群（还没聊过的也能搜到备注、昵称）。
   @State private var contacts: [Qqbridge_V1_Peer] = []
+  @State private var avatars = AvatarBook()
   @State private var path = NavigationPath()
   @State private var results: [Qqbridge_V1_Message] = []
   @State private var searching = false
@@ -47,7 +48,13 @@ struct SearchView: View {
             ForEach(people.prefix(20), id: \.searchKey) { p in
               Button { Task { await open(p) } } label: {
                 HStack(spacing: 12) {
-                  AvatarView(sha256: p.avatarSha256, title: Self.name(p), seed: p.peerID, size: 40)
+                  // 本地资料里常没有头像（只有聊过的人才有）：显示到时向服务端要。
+                  AvatarView(sha256: !p.avatarSha256.isEmpty ? p.avatarSha256 : (p.kind == .group ? avatars.groupSha256[p.peerID] : avatars.sha256[p.peerID]),
+                             title: Self.name(p), seed: p.peerID, size: 40)
+                    .onAppear {
+                      guard p.avatarSha256.isEmpty else { return }
+                      if p.kind == .group { avatars.wantGroup(p.peerID, session: session) } else { avatars.want(p.peerID, session: session) }
+                    }
                   VStack(alignment: .leading, spacing: 2) {
                     Text(Self.name(p)).lineLimit(1).foregroundStyle(.primary)
                     Text(p.kind == .group ? "群 \(String(p.peerID))" : (!p.remark.isEmpty && !p.name.isEmpty ? "\(p.name) · QQ \(String(p.peerID))" : "QQ \(String(p.peerID))"))

@@ -177,6 +177,40 @@ final class GroupMembers {
     guard let res = try? await session.api.contacts.listGroupMembers(request: req, headers: session.api.headers).get() else { return }
     list = res.members
     byId = Dictionary(res.members.map { ($0.userID, $0) }, uniquingKeysWith: { a, _ in a })
+    loadPeerNames(session)
+  }
+
+  /// 自己给好友起的备注、QQ 资料里的昵称（成员列表里的昵称可能是空的或旧的）：搜索成员时一起比对。
+  private(set) var remarks: [Int64: String] = [:]
+  private(set) var qqNames: [Int64: String] = [:]
+
+  private func loadPeerNames(_ session: Session) {
+    guard let peers = try? session.store.peers(kind: .user) else { return }
+    var r: [Int64: String] = [:], n: [Int64: String] = [:]
+    for p in peers where byId[p.peerID] != nil {
+      if !p.remark.isEmpty { r[p.peerID] = p.remark }
+      if !p.name.isEmpty { n[p.peerID] = p.name }
+    }
+    remarks = r
+    qqNames = n
+  }
+
+  /// 搜索成员：群名片、QQ 昵称、备注、号码，任一包含就算。
+  func matches(_ m: Qqbridge_V1_GroupMember, _ q: String) -> Bool {
+    m.card.localizedCaseInsensitiveContains(q)
+      || m.nickname.localizedCaseInsensitiveContains(q)
+      || (qqNames[m.userID]?.localizedCaseInsensitiveContains(q) ?? false)
+      || (remarks[m.userID]?.localizedCaseInsensitiveContains(q) ?? false)
+      || String(m.userID).contains(q)
+  }
+
+  /// 搜索结果里名字旁边补充显示的（备注 / QQ 昵称，和群名片不同时）。
+  func subtitle(_ m: Qqbridge_V1_GroupMember) -> String? {
+    let shown = !m.card.isEmpty ? m.card : m.nickname
+    if let r = remarks[m.userID], r != shown { return "备注：\(r)" }
+    let nick = qqNames[m.userID] ?? m.nickname
+    if !nick.isEmpty, nick != shown { return nick }
+    return nil
   }
 
   /// 群里显示的名字：群名片 > 昵称。
