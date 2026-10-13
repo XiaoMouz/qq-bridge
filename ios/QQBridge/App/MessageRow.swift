@@ -566,6 +566,11 @@ struct BlockView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture { context.actions.playVoice(r) }
+        // 私聊的语音：显示到时就下到本机（几十 KB），点了马上播。群聊的点了再下。
+        .task(id: VoicePlayer.sha(r)) {
+          guard !context.isGroup, r.media.state == .stored else { return }
+          _ = try? await context.session.media.file(for: VoicePlayer.sha(r), chatId: context.chatId)
+        }
         if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing) }
       }
     case .video(let v):
