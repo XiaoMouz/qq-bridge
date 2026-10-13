@@ -68,8 +68,19 @@ message ListCallsResponse {
   repeated Call calls = 1;
 }
 
+message HangupCallRequest {
+  string call_id = 1;
+}
+
+// 结束状态随后经 Subscribe 的 CallUpdate 推送（QQ 那边确认，或 3 秒后自行记为结束）。
+message HangupCallResponse {
+  Call call = 1;
+}
+
 service CallService {
   rpc GetActiveCall(GetActiveCallRequest) returns (GetActiveCallResponse);
   rpc AnswerCall(AnswerCallRequest) returns (AnswerCallResponse);
+  // 挂断：还在响铃就是拒接，已经接了就是结束通话（QQ 那边对方会看到通话结束）。
+  rpc HangupCall(HangupCallRequest) returns (HangupCallResponse);
   rpc ListCalls(ListCallsRequest) returns (ListCallsResponse);
 }

@@ -33,6 +33,7 @@ const URL_TIMEOUT_MS = 5000;
 export interface CallControl {
   current(): unknown;
   accept(): Promise<unknown>;
+  hangup(): Promise<unknown>;
   status(): Record<string, unknown>;
 }
 
@@ -53,6 +54,7 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
     'x.call.current': async () => calls().current(),
     /** iPhone 端经服务端接听：服务端先让网关进好房间，再调这个。 */
     'x.call.accept': async () => calls().accept(),
+    'x.call.hangup': async () => calls().hangup(),
     /** 通话桥健康状态（管理页用）；通话桥关闭时 enabled = false。 */
     'x.call.status': async () => {
       if (!deps.calls) return { enabled: false };

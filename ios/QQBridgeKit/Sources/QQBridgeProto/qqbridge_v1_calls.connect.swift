@@ -17,6 +17,10 @@ public protocol Qqbridge_V1_CallServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `answerCall`(request: Qqbridge_V1_AnswerCallRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_AnswerCallResponse>
 
+    /// 挂断：还在响铃就是拒接，已经接了就是结束通话（QQ 那边对方会看到通话结束）。
+    @available(iOS 13, *)
+    func `hangupCall`(request: Qqbridge_V1_HangupCallRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_HangupCallResponse>
+
     @available(iOS 13, *)
     func `listCalls`(request: Qqbridge_V1_ListCallsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListCallsResponse>
 }
@@ -40,6 +44,11 @@ public final class Qqbridge_V1_CallServiceClient: Qqbridge_V1_CallServiceClientI
     }
 
     @available(iOS 13, *)
+    public func `hangupCall`(request: Qqbridge_V1_HangupCallRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_HangupCallResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.CallService/HangupCall", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `listCalls`(request: Qqbridge_V1_ListCallsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListCallsResponse> {
         return await self.client.unary(path: "/qqbridge.v1.CallService/ListCalls", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -48,6 +57,7 @@ public final class Qqbridge_V1_CallServiceClient: Qqbridge_V1_CallServiceClientI
         public enum Methods {
             public static let getActiveCall = Connect.MethodSpec(name: "GetActiveCall", service: "qqbridge.v1.CallService", type: .unary)
             public static let answerCall = Connect.MethodSpec(name: "AnswerCall", service: "qqbridge.v1.CallService", type: .unary)
+            public static let hangupCall = Connect.MethodSpec(name: "HangupCall", service: "qqbridge.v1.CallService", type: .unary)
             public static let listCalls = Connect.MethodSpec(name: "ListCalls", service: "qqbridge.v1.CallService", type: .unary)
         }
     }

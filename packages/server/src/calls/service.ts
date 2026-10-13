@@ -4,7 +4,8 @@
 // - 客户端接听（answer）：建 LiveKit 房间名 → 网关以"QQ 端"身份入会 → 让插件接听 → 把客户端令牌交回去。
 //   顺序很重要：先让网关就位，QQ 一接通对方说的话就有地方去。
 // - 同一个 QQ 号同时只有一通进行中的通话。
-// 还没有的（G2 指令录制之后再做）：拒接、挂断、静音、主动拨打。客户端离开房间不会挂断 QQ 那边。
+// - 挂断（hangup）：插件对通话引擎发拒接（响铃中）或结束（已接）；静音在客户端自己关麦克风轨道。
+// 还没有的：主动拨打、群通话。
 import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { maybeOne, rows, type Db } from '../db/client.ts';
@@ -220,6 +221,19 @@ export class CallService {
     return { call: updated, url: this.cfg.livekitPublicUrl, token: clientToken, room };
   }
 
+  /** 挂断 / 拒接：交给插件；结束状态随后由插件上报（onPluginState）。 */
+  async hangup(accountId: number, callId: string): Promise<CallRecord> {
+    if (!this.hub) throw new CallError('unavailable', 'calls are not configured (upstream)');
+    const call = await this.get(callId);
+    const owned = call
+      ? await maybeOne(this.db, sql`select 1 as x from qq_accounts where id = ${call.qqAccountId} and account_id = ${accountId}`)
+      : null;
+    if (!call || !owned) throw new CallError('not_found', `call ${callId} not found`);
+    if (call.phase === 'ended') return call;
+    await this.hub.call(call.qqAccountId, 'x.call.hangup', {});
+    return (await this.get(callId))!;
+  }
+
   /** 通话结束：网关离开房间，在与对方的私聊里留通话记录。 */
   private async finish(call: CallRecord): Promise<void> {
     if (call.room && this.gateway) {
@@ -238,7 +252,8 @@ export class CallService {
         callId: call.callId,
         incoming: call.incoming,
         media: call.media,
-        result: call.connectedAt ? 'answered' : 'missed',
+        // endReason -2：在这里拒接的（插件 REJECTED_HERE）。
+        result: call.connectedAt ? 'answered' : call.endReason === -2 ? 'declined' : 'missed',
         durationSec,
         answeredHere: call.answeredDeviceId !== null,
         endReason: call.endReason,

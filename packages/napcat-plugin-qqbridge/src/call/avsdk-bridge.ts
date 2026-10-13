@@ -11,14 +11,22 @@ import type { NapCatPluginContext } from '../napcat.js';
 import { redactDeep, summarizeValue } from '../redact.js';
 import { buildAcceptParams } from './accept-params.js';
 
-/** 发给 AVSDK 插件的指令（embed.postMessage 的 cmd）。 */
-export const AvCommand = { login: 1, accept: 5, kernelData: 55 } as const;
+/**
+ * 发给 AVSDK 插件的指令（embed.postMessage 的 cmd）。
+ * 指令号 = libAVSDKPlugin.so 里 QRTCServiceInterfaceWrapper 方法表（成员函数指针，每项 16 字节）的下标：
+ * 1 Login、2 LoginOut、4 StartCall、5 Accept、6 Ignore、7 Invite、8 Quit、9 Reject、10 Close、
+ * 22 CloseMic、23 OpenMic、55 OnPenetrateEvent（转发内核数据）……（2026-10-13 从符号和 .rela.dyn 还原，1/5/55 与已验证的一致）。
+ * param 是方法除第一个参数（实例 id）以外的参数；字符串数组后面的个数参数由插件自己补。
+ */
+export const AvCommand = { login: 1, accept: 5, reject: 9, close: 10, kernelData: 55 } as const;
 
 /** AVSDK 插件输出（AV Host 转发过来的 message 事件的 cmd）。 */
 export const AvOutput = {
   network: 20001,
   inviteDetail: 20006,
   acceptResult: 5,
+  /** 拒接结果：[0, ""] 成功（引擎随即发 SsoRefuseInvite）。 */
+  rejectResult: 9,
   enterRoom: 20004,
   /**
    * 通话引擎自己的运行日志（一行文本，以 "avsdk output(wrapper):" 开头）。
@@ -27,6 +35,9 @@ export const AvOutput = {
   engineLog: 20050,
   relogin: 120043,
 } as const;
+
+/** endReason：被本系统拒接（QQ 自己的结束原因都是非负数）。 */
+export const REJECTED_HERE = -2;
 
 export type CallPhase = 'idle' | 'ringing' | 'accepting' | 'accepted' | 'connected' | 'ended';
 
@@ -175,10 +186,39 @@ export class AvsdkBridge {
     return this.current();
   }
 
+  /**
+   * 挂断（iPhone 端或服务端发起）：还在响铃就拒接（Reject），已经接了就结束通话（Close）。
+   * 参数和接听一样取自来电数组：[类型 invite[0], 对方 uid invite[1], 原因 0]。
+   * 结束状态以 QQ 内核的 onS2CActionToAVSDK（destroyReason）为准；3 秒内没等到就自己记为结束。
+   */
+  async hangup(): Promise<CallState> {
+    const phase = this.call.phase;
+    if (phase === 'idle' || phase === 'ended') return this.current();
+    const callId = this.call.callId;
+    const invite = this.activeInvite;
+    if (this.acceptTimer) {
+      clearTimeout(this.acceptTimer);
+      this.acceptTimer = null;
+    }
+    this.call.acceptRequested = false;
+    if (Array.isArray(invite) && typeof invite[0] === 'number' && typeof invite[1] === 'string') {
+      const answered = phase === 'accepting' || phase === 'accepted' || phase === 'connected';
+      await this.invokeAVHost(answered ? AvCommand.close : AvCommand.reject, [invite[0], invite[1], 0]);
+    }
+    const timer = setTimeout(() => {
+      if (this.call.callId !== callId || this.call.phase === 'ended' || this.call.phase === 'idle') return;
+      this.call = { ...this.call, phase: 'ended', endedAt: new Date().toISOString(), endReason: this.call.endReason ?? -1 };
+      this.emit();
+    }, 3000);
+    timer.unref?.();
+    return this.current();
+  }
+
   registerRoutes(server: ControlServer, lab: boolean): void {
     server.route('GET', '/v1/status', () => this.status());
     server.route('GET', '/v1/calls/current', () => this.current());
     server.route('POST', '/v1/calls/accept', () => this.accept());
+    server.route('POST', '/v1/calls/hangup', () => this.hangup());
     server.route('POST', '/v1/avsdk/output', async ({ body }) => {
       await this.handleOutput(body);
       return 'accepted';
@@ -231,6 +271,14 @@ export class AvsdkBridge {
         if (this.call.acceptRequested) this.scheduleAccept(50);
         else if (this.cfg.autoAccept) this.scheduleAccept(500);
         this.emit();
+        break;
+      }
+      case AvOutput.rejectResult: {
+        // 拒接成功：没接通的来电 QQ 内核不会再给结束回调，这里直接记为结束（endReason -2 = 本系统拒接）。
+        if (Array.isArray(value) && value[0] === 0 && this.call.phase === 'ringing') {
+          this.call = { ...this.call, phase: 'ended', endedAt: new Date().toISOString(), endReason: REJECTED_HERE };
+          this.emit();
+        }
         break;
       }
       case AvOutput.acceptResult: {

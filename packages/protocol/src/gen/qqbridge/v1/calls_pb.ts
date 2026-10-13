@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/calls.proto.
  */
 export const file_qqbridge_v1_calls: GenFile = /*@__PURE__*/
-  fileDesc("ChdxcWJyaWRnZS92MS9jYWxscy5wcm90bxILcXFicmlkZ2UudjEiggIKBENhbGwSCgoCaWQYASABKAkSJQoFcGhhc2UYAiABKA4yFi5xcWJyaWRnZS52MS5DYWxsUGhhc2USJQoFbWVkaWEYAyABKA4yFi5xcWJyaWRnZS52MS5DYWxsTWVkaWESEAoIaW5jb21pbmcYBCABKAgSEAoIcGVlcl91aW4YBSABKAMSEQoJcGVlcl9uYW1lGAYgASgJEhEKCWludml0ZV9hdBgHIAEoAxIUCgxjb25uZWN0ZWRfYXQYCCABKAMSEAoIZW5kZWRfYXQYCSABKAMSEgoKZW5kX3JlYXNvbhgKIAEoBRIaChJhbnN3ZXJlZF9kZXZpY2VfaWQYCyABKAMiFgoUR2V0QWN0aXZlQ2FsbFJlcXVlc3QiRgoVR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEiQKBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsSACIAQFCBwoFX2NhbGwiJAoRQW5zd2VyQ2FsbFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCSJvChJBbnN3ZXJDYWxsUmVzcG9uc2USHwoEY2FsbBgBIAEoCzIRLnFxYnJpZGdlLnYxLkNhbGwSEwoLbGl2ZWtpdF91cmwYAiABKAkSFQoNbGl2ZWtpdF90b2tlbhgDIAEoCRIMCgRyb29tGAQgASgJIjEKEExpc3RDYWxsc1JlcXVlc3QSDQoFbGltaXQYASABKAUSDgoGYmVmb3JlGAIgASgDIjUKEUxpc3RDYWxsc1Jlc3BvbnNlEiAKBWNhbGxzGAEgAygLMhEucXFicmlkZ2UudjEuQ2FsbCqJAQoJQ2FsbFBoYXNlEhoKFkNBTExfUEhBU0VfVU5TUEVDSUZJRUQQABIWChJDQUxMX1BIQVNFX1JJTkdJTkcQARIYChRDQUxMX1BIQVNFX0FDQ0VQVElORxACEhgKFENBTExfUEhBU0VfQ09OTkVDVEVEEAMSFAoQQ0FMTF9QSEFTRV9FTkRFRBAEKlMKCUNhbGxNZWRpYRIaChZDQUxMX01FRElBX1VOU1BFQ0lGSUVEEAASFAoQQ0FMTF9NRURJQV9WT0lDRRABEhQKEENBTExfTUVESUFfVklERU8QAjKAAgoLQ2FsbFNlcnZpY2USVgoNR2V0QWN0aXZlQ2FsbBIhLnFxYnJpZGdlLnYxLkdldEFjdGl2ZUNhbGxSZXF1ZXN0GiIucXFicmlkZ2UudjEuR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEk0KCkFuc3dlckNhbGwSHi5xcWJyaWRnZS52MS5BbnN3ZXJDYWxsUmVxdWVzdBofLnFxYnJpZGdlLnYxLkFuc3dlckNhbGxSZXNwb25zZRJKCglMaXN0Q2FsbHMSHS5xcWJyaWRnZS52MS5MaXN0Q2FsbHNSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuTGlzdENhbGxzUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChdxcWJyaWRnZS92MS9jYWxscy5wcm90bxILcXFicmlkZ2UudjEiggIKBENhbGwSCgoCaWQYASABKAkSJQoFcGhhc2UYAiABKA4yFi5xcWJyaWRnZS52MS5DYWxsUGhhc2USJQoFbWVkaWEYAyABKA4yFi5xcWJyaWRnZS52MS5DYWxsTWVkaWESEAoIaW5jb21pbmcYBCABKAgSEAoIcGVlcl91aW4YBSABKAMSEQoJcGVlcl9uYW1lGAYgASgJEhEKCWludml0ZV9hdBgHIAEoAxIUCgxjb25uZWN0ZWRfYXQYCCABKAMSEAoIZW5kZWRfYXQYCSABKAMSEgoKZW5kX3JlYXNvbhgKIAEoBRIaChJhbnN3ZXJlZF9kZXZpY2VfaWQYCyABKAMiFgoUR2V0QWN0aXZlQ2FsbFJlcXVlc3QiRgoVR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEiQKBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsSACIAQFCBwoFX2NhbGwiJAoRQW5zd2VyQ2FsbFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCSJvChJBbnN3ZXJDYWxsUmVzcG9uc2USHwoEY2FsbBgBIAEoCzIRLnFxYnJpZGdlLnYxLkNhbGwSEwoLbGl2ZWtpdF91cmwYAiABKAkSFQoNbGl2ZWtpdF90b2tlbhgDIAEoCRIMCgRyb29tGAQgASgJIjEKEExpc3RDYWxsc1JlcXVlc3QSDQoFbGltaXQYASABKAUSDgoGYmVmb3JlGAIgASgDIjUKEUxpc3RDYWxsc1Jlc3BvbnNlEiAKBWNhbGxzGAEgAygLMhEucXFicmlkZ2UudjEuQ2FsbCIkChFIYW5ndXBDYWxsUmVxdWVzdBIPCgdjYWxsX2lkGAEgASgJIjUKEkhhbmd1cENhbGxSZXNwb25zZRIfCgRjYWxsGAEgASgLMhEucXFicmlkZ2UudjEuQ2FsbCqJAQoJQ2FsbFBoYXNlEhoKFkNBTExfUEhBU0VfVU5TUEVDSUZJRUQQABIWChJDQUxMX1BIQVNFX1JJTkdJTkcQARIYChRDQUxMX1BIQVNFX0FDQ0VQVElORxACEhgKFENBTExfUEhBU0VfQ09OTkVDVEVEEAMSFAoQQ0FMTF9QSEFTRV9FTkRFRBAEKlMKCUNhbGxNZWRpYRIaChZDQUxMX01FRElBX1VOU1BFQ0lGSUVEEAASFAoQQ0FMTF9NRURJQV9WT0lDRRABEhQKEENBTExfTUVESUFfVklERU8QAjLPAgoLQ2FsbFNlcnZpY2USVgoNR2V0QWN0aXZlQ2FsbBIhLnFxYnJpZGdlLnYxLkdldEFjdGl2ZUNhbGxSZXF1ZXN0GiIucXFicmlkZ2UudjEuR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEk0KCkFuc3dlckNhbGwSHi5xcWJyaWRnZS52MS5BbnN3ZXJDYWxsUmVxdWVzdBofLnFxYnJpZGdlLnYxLkFuc3dlckNhbGxSZXNwb25zZRJNCgpIYW5ndXBDYWxsEh4ucXFicmlkZ2UudjEuSGFuZ3VwQ2FsbFJlcXVlc3QaHy5xcWJyaWRnZS52MS5IYW5ndXBDYWxsUmVzcG9uc2USSgoJTGlzdENhbGxzEh0ucXFicmlkZ2UudjEuTGlzdENhbGxzUmVxdWVzdBoeLnFxYnJpZGdlLnYxLkxpc3RDYWxsc1Jlc3BvbnNlYgZwcm90bzM");
 
 /**
  * @generated from message qqbridge.v1.Call
@@ -210,6 +210,42 @@ export const ListCallsResponseSchema: GenMessage<ListCallsResponse> = /*@__PURE_
   messageDesc(file_qqbridge_v1_calls, 6);
 
 /**
+ * @generated from message qqbridge.v1.HangupCallRequest
+ */
+export type HangupCallRequest = Message<"qqbridge.v1.HangupCallRequest"> & {
+  /**
+   * @generated from field: string call_id = 1;
+   */
+  callId: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.HangupCallRequest.
+ * Use `create(HangupCallRequestSchema)` to create a new message.
+ */
+export const HangupCallRequestSchema: GenMessage<HangupCallRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_calls, 7);
+
+/**
+ * 结束状态随后经 Subscribe 的 CallUpdate 推送（QQ 那边确认，或 3 秒后自行记为结束）。
+ *
+ * @generated from message qqbridge.v1.HangupCallResponse
+ */
+export type HangupCallResponse = Message<"qqbridge.v1.HangupCallResponse"> & {
+  /**
+   * @generated from field: qqbridge.v1.Call call = 1;
+   */
+  call?: Call | undefined;
+};
+
+/**
+ * Describes the message qqbridge.v1.HangupCallResponse.
+ * Use `create(HangupCallResponseSchema)` to create a new message.
+ */
+export const HangupCallResponseSchema: GenMessage<HangupCallResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_calls, 8);
+
+/**
  * @generated from enum qqbridge.v1.CallPhase
  */
 export enum CallPhase {
@@ -292,6 +328,16 @@ export const CallService: GenService<{
     methodKind: "unary";
     input: typeof AnswerCallRequestSchema;
     output: typeof AnswerCallResponseSchema;
+  },
+  /**
+   * 挂断：还在响铃就是拒接，已经接了就是结束通话（QQ 那边对方会看到通话结束）。
+   *
+   * @generated from rpc qqbridge.v1.CallService.HangupCall
+   */
+  hangupCall: {
+    methodKind: "unary";
+    input: typeof HangupCallRequestSchema;
+    output: typeof HangupCallResponseSchema;
   },
   /**
    * @generated from rpc qqbridge.v1.CallService.ListCalls

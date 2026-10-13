@@ -1234,6 +1234,7 @@ enum EventText {
       if (data["result"] as? String) == "answered" {
         return "\(video ? "视频" : "语音")通话 \(Format.duration(data["durationSec"] as? Int ?? 0))"
       }
+      if (data["result"] as? String) == "declined" { return "已拒接\(video ? "视频" : "语音")通话" }
       return "未接\(video ? "视频" : "语音")通话"
     case "gray_tip": return data["text"] as? String ?? "系统消息"
     default: return "[\(e.kind)]"

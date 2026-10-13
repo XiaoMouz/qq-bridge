@@ -937,6 +937,20 @@ function callService(deps: ApiDeps): ServiceImpl<typeof CallService> {
         throw error;
       }
     },
+    async hangupCall(req, ctx) {
+      const auth = requireAuth(ctx);
+      if (!req.callId) throw new ConnectError('call_id is required', Code.InvalidArgument);
+      try {
+        return { call: callToProto(await deps.calls.hangup(auth.accountId, req.callId)) };
+      } catch (error) {
+        if (error instanceof CallError) {
+          const code = { not_found: Code.NotFound, not_ringing: Code.FailedPrecondition, unavailable: Code.Unavailable }[error.code];
+          throw new ConnectError(error.message, code);
+        }
+        if (error instanceof UpstreamCallError) throw new ConnectError(error.message, Code.FailedPrecondition);
+        throw error;
+      }
+    },
     async listCalls(req, ctx) {
       const before = req.before ? new Date(Number(req.before) * 1000) : undefined;
       const list = await deps.calls.list(requireAuth(ctx).accountId, clampLimit(req.limit, 50, 200), before);
