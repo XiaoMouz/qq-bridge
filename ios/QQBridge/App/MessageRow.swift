@@ -192,11 +192,6 @@ struct Notice: View {
   }
 }
 
-/// 常用的表情回应（QQ 的 emoji 回应用码点做 id）。
-let quickReactions: [(id: String, label: String)] = [
-  ("128077", "👍"), ("10084", "❤️"), ("128514", "😂"), ("128558", "😮"), ("128546", "😢"), ("127881", "🎉"),
-]
-
 struct MessageBubbleRow: View {
   let message: Qqbridge_V1_Message
   let context: MessageContext
@@ -293,9 +288,20 @@ struct MessageBubbleRow: View {
     }
     if context.isGroup, !recalled {
       Menu("回应", systemImage: "face.smiling") {
-        ForEach(quickReactions, id: \.id) { r in
-          Button(r.label) { context.actions.react(message, r.id) }
+        ForEach(ReactionRecents.list, id: \.self) { id in
+          Button {
+            ReactionRecents.use(id)
+            context.actions.react(message, id)
+          } label: {
+            if let image = ReactionLabel.icon(id, size: 22) {
+              Label { Text(ReactionLabel.name(id)) } icon: { Image(uiImage: image) }
+            } else {
+              Text(ReactionLabel.name(id))
+            }
+          }
         }
+        Divider()
+        Button("更多表情…", systemImage: "ellipsis") { context.actions.pickReaction(message) }
       }
     }
     switch context.recallKind(message) {
@@ -501,7 +507,10 @@ struct BlockView: View {
   var body: some View {
     switch block {
     case .text(let runs):
-      if let faces = Inline.jumboFaces(runs) {
+      if let faces = Inline.jumboFaces(runs), faces.count == 1, faces[0].large {
+        // 超级表情（QQ 里单独发的会动的大表情）：播 QQ 的动画。
+        SuperFaceView(id: faces[0].id, name: faces[0].name)
+      } else if let faces = Inline.jumboFaces(runs) {
         // 只有 1–3 个 QQ 表情：放大显示，不要气泡（和 Telegram 的单 emoji 消息一样）。
         let size: CGFloat = faces.count == 1 ? 72 : 52
         HStack(spacing: 4) {
@@ -916,11 +925,11 @@ enum Inline {
   case mention(Int64, name: String, avatar: UIImage?)
 
   /// 整段只有 1–3 个 QQ 表情（可夹空白）时返回它们，用来放大显示。
-  static func jumboFaces(_ runs: [Inline]) -> [(id: String, name: String)]? {
-    var faces: [(id: String, name: String)] = []
+  static func jumboFaces(_ runs: [Inline]) -> [(id: String, name: String, large: Bool)]? {
+    var faces: [(id: String, name: String, large: Bool)] = []
     for run in runs {
       switch run {
-      case .face(let id, let name, _): faces.append((id, name))
+      case .face(let id, let name, let large): faces.append((id, name, large))
       case .mention: return nil
       case .text(let a): if !String(a.characters).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
       }
@@ -972,8 +981,8 @@ enum QQFace {
   }
 
   /// 表情面板里可选的：本地有图、QQ 里没藏起来的（按编号排）。
-  @MainActor static let pickable: [(id: Int, name: String)] = names.keys.sorted()
-    .filter { Bundle.main.url(forResource: "s\($0)", withExtension: "png", subdirectory: "QQFaces") != nil }
+  @MainActor static let pickable: [(id: Int, name: String)] = infos.keys.sorted()
+    .filter { !(infos[$0]?.hidden ?? true) && Bundle.main.url(forResource: "s\($0)", withExtension: "png", subdirectory: "QQFaces") != nil }
     .map { ($0, names[$0]!) }
 
   @MainActor private static var cache: [String: UIImage] = [:]

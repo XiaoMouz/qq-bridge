@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import pino from 'pino';
 import { buildServer } from './api/server.ts';
+import { registerQFaceRoutes } from './api/qface-routes.ts';
 import { MediaUrlSigner } from './api/media-urls.ts';
 import type { ApiDeps } from './api/context.ts';
 import { AuthService } from './auth/service.ts';
@@ -166,6 +167,8 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
   }
   const app = await buildServer(deps);
+  // QQ 表情资源放在媒体目录旁边（deploy/data/qface，见 tools/qface-sync.py）。
+  registerQFaceRoutes(app, deps, path.join(config.MEDIA_ROOT, '..', 'qface'));
   if (upstream) await upstream.hub.register(app);
   if (config.CALL_LAB) {
     // 通话测试页（iOS 客户端完成前代替 iPhone 接听）。页面本身不含任何数据，接口照常要求登录。

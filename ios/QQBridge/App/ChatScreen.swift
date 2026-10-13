@@ -49,6 +49,8 @@ struct ChatScreen: View {
   @State private var forwardMessage: Qqbridge_V1_Message?
   @State private var showInfo = false
   @State private var showStickers = false
+  /// 正在选回应的消息（完整的回应面板）。
+  @State private var reactingTo: Qqbridge_V1_Message?
   @State private var recorder = VoiceRecorder()
   @State private var photoItems: [PhotosPickerItem] = []
   @State private var showPhotos = false
@@ -326,6 +328,7 @@ struct ChatScreen: View {
       }
       .presentationDetents([.medium, .large])
     }
+    .modifier(ReactionSheet(message: $reactingTo, react: actions.react))
     .sheet(isPresented: $showStickers) {
       StickerPanel(session: session, onPick: { sticker in
         showStickers = false
@@ -884,6 +887,7 @@ struct ChatScreen: View {
         }
       }
     }
+    actions.pickReaction = { m in reactingTo = m }
     actions.recall = { m in
       // 普通撤回直接撤；用群主 / 管理员权限撤回的（别人的，或自己超过 2 分钟的）先确认。
       if Date().timeIntervalSince1970 - Double(m.time) < 120, m.senderID == selfUin { recall(m) } else { confirmRecall = m }
@@ -1364,4 +1368,26 @@ struct AlbumRef: Identifiable, Hashable {
   let albumId: String
   let title: String
   var id: String { "\(groupId):\(albumId)" }
+}
+
+/// 回应面板的目标消息（sheet(item:) 要 Identifiable）。
+struct ReactTarget: Identifiable {
+  let message: Qqbridge_V1_Message
+  var id: Int64 { message.seq }
+}
+
+/// 完整的回应面板（单独成一个修饰器：聊天页的修饰链太长，编译器推断不过来）。
+struct ReactionSheet: ViewModifier {
+  @Binding var message: Qqbridge_V1_Message?
+  let react: (Qqbridge_V1_Message, String) -> Void
+
+  func body(content: Content) -> some View {
+    content.sheet(item: Binding(get: { message.map(ReactTarget.init) }, set: { message = $0?.message })) { target in
+      ReactionPicker { id in
+        message = nil
+        react(target.message, id)
+      }
+      .presentationDetents([.medium, .large])
+    }
+  }
 }

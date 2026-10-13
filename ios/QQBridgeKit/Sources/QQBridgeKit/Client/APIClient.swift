@@ -75,6 +75,17 @@ public final class APIClient: SyncAPI {
   /// 每个请求都要带的认证头。
   public var headers: Headers { ["authorization": ["Bearer \(token)"]] }
 
+  /// QQ 表情资源（服务端 /qface/:id/:kind/:name，见 tools/qface-sync.py）：kind = png / apng / lottie。
+  public func qfaceAsset(id: String, kind: String, name: String) async throws -> Data {
+    var url = config.baseURL
+    for part in ["qface", id, kind, name] { url.append(path: part) }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.fileDoesNotExist) }
+    return data
+  }
+
   /// 用账号密码登录，换一个设备令牌（之后存进钥匙串）。
   public static func login(
     config: ServerConfig,

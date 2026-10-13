@@ -14,6 +14,10 @@ settings:
 packages:
   QQBridgeKit:
     path: ../QQBridgeKit
+  # 超级表情（QQ 的 lottie 动画）。
+  Lottie:
+    url: https://github.com/airbnb/lottie-spm
+    from: "4.5.0"
 targets:
   BetterChat:
     type: application
@@ -31,6 +35,8 @@ targets:
         product: QQBridgeKit
       - package: QQBridgeKit
         product: QQBridgeProto
+      - package: Lottie
+        product: Lottie
       # 通知扩展：通知显示发送者头像（通讯通知）。
       - target: NotificationService
     info:

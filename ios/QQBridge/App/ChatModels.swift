@@ -114,6 +114,8 @@ final class ChatActions {
   var mention: (Int64) -> Void = { _ in }
   var showProfile: (Int64) -> Void = { _ in }
   var react: (Qqbridge_V1_Message, String) -> Void = { _, _ in }
+  /// 打开完整的回应面板。
+  var pickReaction: (Qqbridge_V1_Message) -> Void = { _ in }
   var recall: (Qqbridge_V1_Message) -> Void = { _ in }
   var openMedia: (MediaTarget) -> Void = { _ in }
   var openFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
