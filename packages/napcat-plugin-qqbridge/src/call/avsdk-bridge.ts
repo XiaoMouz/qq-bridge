@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { CaptureWriter } from '../capture.js';
 import type { BridgeConfig } from '../config.js';
 import { HttpError, type ControlServer } from '../control-server.js';
-import { displayNameByUid, selfInfo, session, uinByUid } from '../core.js';
+import { displayNameByUid, selfInfo, session, uidByUin, uinByUid } from '../core.js';
 import type { NapCatPluginContext } from '../napcat.js';
 import { redactDeep, summarizeValue } from '../redact.js';
 import { buildAcceptParams } from './accept-params.js';
@@ -18,7 +18,7 @@ import { buildAcceptParams } from './accept-params.js';
  * 22 CloseMic、23 OpenMic、55 OnPenetrateEvent（转发内核数据）……（2026-10-13 从符号和 .rela.dyn 还原，1/5/55 与已验证的一致）。
  * param 是方法除第一个参数（实例 id）以外的参数；字符串数组后面的个数参数由插件自己补。
  */
-export const AvCommand = { login: 1, accept: 5, quit: 8, reject: 9, close: 10, kernelData: 55 } as const;
+export const AvCommand = { login: 1, startCall: 4, accept: 5, quit: 8, reject: 9, close: 10, kernelData: 55 } as const;
 
 /** 来电的 invite_type / 来电数组 [0]：1 是 1 对 1，3 是群语音（多人通话，进房间后有成员进出、各人音量的输出）。 */
 export const GROUP_INVITE_TYPE = 3;
@@ -55,6 +55,8 @@ export interface CallState {
   inviteType: number | null;
   /** 群语音（多人通话，invite_type 3）所在的群号；1 对 1 通话为 null。 */
   groupCode: string | null;
+  /** 自己打出去的（StartCall）。 */
+  outgoing?: boolean;
   callerUid: string | null;
   callerUin: string | null;
   callerName: string | null;
@@ -208,7 +210,8 @@ export class AvsdkBridge {
     }
     this.call.acceptRequested = false;
     if (Array.isArray(invite) && typeof invite[0] === 'number' && typeof invite[1] === 'string') {
-      const answered = phase === 'accepting' || phase === 'accepted' || phase === 'connected';
+      // 自己打出去的：响铃中挂断也是 Close（取消呼叫），不是拒接。
+      const answered = phase === 'accepting' || phase === 'accepted' || phase === 'connected' || this.call.outgoing === true;
       if (answered && invite[0] === GROUP_INVITE_TYPE) {
         // 群语音：Close 不会退出房间（2026-10-13 实测引擎回成功但没有退房的请求），要用 Quit [类型, 原因]。
         await this.invokeAVHost(AvCommand.quit, [invite[0], 0]);
@@ -225,11 +228,48 @@ export class AvsdkBridge {
     return this.current();
   }
 
+  /**
+   * 打出去（1 对 1 语音）：StartCall(4) 的参数是一段 JSON，字段从 libAVSDKPlugin.so 里还原
+   * （scene / relation_id / sub_business_type / invite_uids …），1 对 1 是 scene 1、business_type 1（与来电的引擎日志一致）。
+   * 引擎自己发邀请（输出 20001 交回内核），对方接了会进房间（20004），之后和来电一样。
+   */
+  async startCall(peerUin: string): Promise<CallState> {
+    if (this.call.phase !== 'idle' && this.call.phase !== 'ended') throw new HttpError(409, `already in a call (phase=${this.call.phase})`);
+    const uid = await uidByUin(this.ctx.core, peerUin);
+    if (!uid) throw new HttpError(404, `no uid for ${peerUin}`);
+    const params = {
+      scene: 1,
+      relation_id: 0,
+      sub_business_type: 1,
+      invite_uids: [uid],
+      invite_count: 1,
+      invite_reason: 0,
+      invite_original: 0,
+    };
+    this.activeInvite = [1, uid, [uid]];
+    this.acceptPostedFor = null;
+    this.call = {
+      ...idleCall(),
+      callId: randomUUID(),
+      phase: 'ringing',
+      outgoing: true,
+      inviteAt: new Date().toISOString(),
+      inviteType: 1,
+      callerUid: uid,
+      callerUin: peerUin,
+    };
+    void this.resolveCaller(uid, this.call.callId);
+    this.emit();
+    await this.invokeAVHost(AvCommand.startCall, [JSON.stringify(params)]);
+    return this.current();
+  }
+
   registerRoutes(server: ControlServer, lab: boolean): void {
     server.route('GET', '/v1/status', () => this.status());
     server.route('GET', '/v1/calls/current', () => this.current());
     server.route('POST', '/v1/calls/accept', () => this.accept());
     server.route('POST', '/v1/calls/hangup', () => this.hangup());
+    server.route('POST', '/v1/calls/start', ({ body }) => this.startCall(String((body as { peerUin?: unknown } | null)?.peerUin ?? '')));
     server.route('POST', '/v1/avsdk/output', async ({ body }) => {
       await this.handleOutput(body);
       return 'accepted';

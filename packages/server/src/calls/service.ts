@@ -29,6 +29,8 @@ export interface PluginCallState {
   callerUid: string | null;
   callerUin: string | null;
   callerName: string | null;
+  /** 自己打出去的。 */
+  outgoing?: boolean;
 }
 
 export type CallPhase = 'ringing' | 'accepting' | 'accepted' | 'connected' | 'ended';
@@ -150,7 +152,7 @@ export class CallService {
     const row = await maybeOne<CallRow>(
       this.db,
       sql`insert into calls (qq_account_id, call_id, incoming, media, peer_uin, peer_name, group_id, phase, invite_at, accepted_at, connected_at, ended_at, end_reason)
-          values (${qqAccountId}, ${state.callId}, true, ${state.inviteType === 2 ? 'video' : 'voice'}, ${peerUin}, ${state.callerName}, ${groupId},
+          values (${qqAccountId}, ${state.callId}, ${!state.outgoing}, ${state.inviteType === 2 ? 'video' : 'voice'}, ${peerUin}, ${state.callerName}, ${groupId},
                   ${phase}, ${inviteAt}, ${state.acceptedAt ? new Date(state.acceptedAt) : null}, ${state.connectedAt ? new Date(state.connectedAt) : null},
                   ${state.endedAt ? new Date(state.endedAt) : stale ? new Date() : null}, ${state.endReason})
           on conflict (call_id) do update set
@@ -265,6 +267,26 @@ export class CallService {
     if (call.phase === 'ended') return call;
     await this.hub.call(call.qqAccountId, 'x.call.hangup', {});
     return (await this.get(callId))!;
+  }
+
+  /** 打出去：先建房间、网关入会，再让插件呼叫；返回客户端入会用的地址和令牌（对方接了就能说话）。 */
+  async start(accountId: number, deviceId: number, peerUin: number): Promise<{ call: CallRecord; url: string; token: string; room: string }> {
+    if (!this.cfg || !this.gateway || !this.hub) throw new CallError('unavailable', 'calls are not configured (LiveKit / call gateway / upstream)');
+    const qq = await maybeOne<{ id: number }>(this.db, sql`select id from qq_accounts where account_id = ${accountId} order by id limit 1`);
+    if (!qq) throw new CallError('not_found', 'no QQ account is linked');
+    const state = await this.hub.call<PluginCallState>(qq.id, 'x.call.start', { peerUin: String(peerUin) });
+    if (!state?.callId) throw new CallError('unavailable', 'the call bridge did not start a call');
+    await this.onPluginState(qq.id, state);
+    const room = `qq-call-${state.callId}`;
+    const [clientToken, gatewayToken] = await Promise.all([
+      mintLiveKitToken(this.cfg, room, `device-${deviceId}`),
+      mintLiveKitToken(this.cfg, room, 'qq-gateway'),
+    ]);
+    await this.gateway.join(room, gatewayToken);
+    await this.db.execute(sql`update calls set room = ${room}, answered_device_id = ${deviceId}, updated_at = now() where call_id = ${state.callId}`);
+    const call = (await this.get(state.callId))!;
+    this.ingest.publishCall(call.qqAccountId, call);
+    return { call, url: this.cfg.livekitPublicUrl, token: clientToken, room };
   }
 
   /** 通话结束：网关离开房间，在与对方的私聊里留通话记录。 */

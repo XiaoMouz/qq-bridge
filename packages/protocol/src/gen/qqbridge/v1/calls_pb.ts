@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/calls.proto.
  */
 export const file_qqbridge_v1_calls: GenFile = /*@__PURE__*/
-  fileDesc("ChdxcWJyaWRnZS92MS9jYWxscy5wcm90bxILcXFicmlkZ2UudjEilAIKBENhbGwSCgoCaWQYASABKAkSJQoFcGhhc2UYAiABKA4yFi5xcWJyaWRnZS52MS5DYWxsUGhhc2USJQoFbWVkaWEYAyABKA4yFi5xcWJyaWRnZS52MS5DYWxsTWVkaWESEAoIaW5jb21pbmcYBCABKAgSEAoIcGVlcl91aW4YBSABKAMSEQoJcGVlcl9uYW1lGAYgASgJEhEKCWludml0ZV9hdBgHIAEoAxIUCgxjb25uZWN0ZWRfYXQYCCABKAMSEAoIZW5kZWRfYXQYCSABKAMSEgoKZW5kX3JlYXNvbhgKIAEoBRIaChJhbnN3ZXJlZF9kZXZpY2VfaWQYCyABKAMSEAoIZ3JvdXBfaWQYDCABKAMiFgoUR2V0QWN0aXZlQ2FsbFJlcXVlc3QiRgoVR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEiQKBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsSACIAQFCBwoFX2NhbGwiJAoRQW5zd2VyQ2FsbFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCSJvChJBbnN3ZXJDYWxsUmVzcG9uc2USHwoEY2FsbBgBIAEoCzIRLnFxYnJpZGdlLnYxLkNhbGwSEwoLbGl2ZWtpdF91cmwYAiABKAkSFQoNbGl2ZWtpdF90b2tlbhgDIAEoCRIMCgRyb29tGAQgASgJIjEKEExpc3RDYWxsc1JlcXVlc3QSDQoFbGltaXQYASABKAUSDgoGYmVmb3JlGAIgASgDIjUKEUxpc3RDYWxsc1Jlc3BvbnNlEiAKBWNhbGxzGAEgAygLMhEucXFicmlkZ2UudjEuQ2FsbCIkChFIYW5ndXBDYWxsUmVxdWVzdBIPCgdjYWxsX2lkGAEgASgJIjUKEkhhbmd1cENhbGxSZXNwb25zZRIfCgRjYWxsGAEgASgLMhEucXFicmlkZ2UudjEuQ2FsbCqJAQoJQ2FsbFBoYXNlEhoKFkNBTExfUEhBU0VfVU5TUEVDSUZJRUQQABIWChJDQUxMX1BIQVNFX1JJTkdJTkcQARIYChRDQUxMX1BIQVNFX0FDQ0VQVElORxACEhgKFENBTExfUEhBU0VfQ09OTkVDVEVEEAMSFAoQQ0FMTF9QSEFTRV9FTkRFRBAEKlMKCUNhbGxNZWRpYRIaChZDQUxMX01FRElBX1VOU1BFQ0lGSUVEEAASFAoQQ0FMTF9NRURJQV9WT0lDRRABEhQKEENBTExfTUVESUFfVklERU8QAjLPAgoLQ2FsbFNlcnZpY2USVgoNR2V0QWN0aXZlQ2FsbBIhLnFxYnJpZGdlLnYxLkdldEFjdGl2ZUNhbGxSZXF1ZXN0GiIucXFicmlkZ2UudjEuR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEk0KCkFuc3dlckNhbGwSHi5xcWJyaWRnZS52MS5BbnN3ZXJDYWxsUmVxdWVzdBofLnFxYnJpZGdlLnYxLkFuc3dlckNhbGxSZXNwb25zZRJNCgpIYW5ndXBDYWxsEh4ucXFicmlkZ2UudjEuSGFuZ3VwQ2FsbFJlcXVlc3QaHy5xcWJyaWRnZS52MS5IYW5ndXBDYWxsUmVzcG9uc2USSgoJTGlzdENhbGxzEh0ucXFicmlkZ2UudjEuTGlzdENhbGxzUmVxdWVzdBoeLnFxYnJpZGdlLnYxLkxpc3RDYWxsc1Jlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChdxcWJyaWRnZS92MS9jYWxscy5wcm90bxILcXFicmlkZ2UudjEilAIKBENhbGwSCgoCaWQYASABKAkSJQoFcGhhc2UYAiABKA4yFi5xcWJyaWRnZS52MS5DYWxsUGhhc2USJQoFbWVkaWEYAyABKA4yFi5xcWJyaWRnZS52MS5DYWxsTWVkaWESEAoIaW5jb21pbmcYBCABKAgSEAoIcGVlcl91aW4YBSABKAMSEQoJcGVlcl9uYW1lGAYgASgJEhEKCWludml0ZV9hdBgHIAEoAxIUCgxjb25uZWN0ZWRfYXQYCCABKAMSEAoIZW5kZWRfYXQYCSABKAMSEgoKZW5kX3JlYXNvbhgKIAEoBRIaChJhbnN3ZXJlZF9kZXZpY2VfaWQYCyABKAMSEAoIZ3JvdXBfaWQYDCABKAMiFgoUR2V0QWN0aXZlQ2FsbFJlcXVlc3QiRgoVR2V0QWN0aXZlQ2FsbFJlc3BvbnNlEiQKBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsSACIAQFCBwoFX2NhbGwiJAoRQW5zd2VyQ2FsbFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCSJvChJBbnN3ZXJDYWxsUmVzcG9uc2USHwoEY2FsbBgBIAEoCzIRLnFxYnJpZGdlLnYxLkNhbGwSEwoLbGl2ZWtpdF91cmwYAiABKAkSFQoNbGl2ZWtpdF90b2tlbhgDIAEoCRIMCgRyb29tGAQgASgJIjEKEExpc3RDYWxsc1JlcXVlc3QSDQoFbGltaXQYASABKAUSDgoGYmVmb3JlGAIgASgDIjUKEUxpc3RDYWxsc1Jlc3BvbnNlEiAKBWNhbGxzGAEgAygLMhEucXFicmlkZ2UudjEuQ2FsbCIkChFIYW5ndXBDYWxsUmVxdWVzdBIPCgdjYWxsX2lkGAEgASgJIjUKEkhhbmd1cENhbGxSZXNwb25zZRIfCgRjYWxsGAEgASgLMhEucXFicmlkZ2UudjEuQ2FsbCIkChBTdGFydENhbGxSZXF1ZXN0EhAKCHBlZXJfdWluGAEgASgDIm4KEVN0YXJ0Q2FsbFJlc3BvbnNlEh8KBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsEhMKC2xpdmVraXRfdXJsGAIgASgJEhUKDWxpdmVraXRfdG9rZW4YAyABKAkSDAoEcm9vbRgEIAEoCSqJAQoJQ2FsbFBoYXNlEhoKFkNBTExfUEhBU0VfVU5TUEVDSUZJRUQQABIWChJDQUxMX1BIQVNFX1JJTkdJTkcQARIYChRDQUxMX1BIQVNFX0FDQ0VQVElORxACEhgKFENBTExfUEhBU0VfQ09OTkVDVEVEEAMSFAoQQ0FMTF9QSEFTRV9FTkRFRBAEKlMKCUNhbGxNZWRpYRIaChZDQUxMX01FRElBX1VOU1BFQ0lGSUVEEAASFAoQQ0FMTF9NRURJQV9WT0lDRRABEhQKEENBTExfTUVESUFfVklERU8QAjKbAwoLQ2FsbFNlcnZpY2USSgoJU3RhcnRDYWxsEh0ucXFicmlkZ2UudjEuU3RhcnRDYWxsUmVxdWVzdBoeLnFxYnJpZGdlLnYxLlN0YXJ0Q2FsbFJlc3BvbnNlElYKDUdldEFjdGl2ZUNhbGwSIS5xcWJyaWRnZS52MS5HZXRBY3RpdmVDYWxsUmVxdWVzdBoiLnFxYnJpZGdlLnYxLkdldEFjdGl2ZUNhbGxSZXNwb25zZRJNCgpBbnN3ZXJDYWxsEh4ucXFicmlkZ2UudjEuQW5zd2VyQ2FsbFJlcXVlc3QaHy5xcWJyaWRnZS52MS5BbnN3ZXJDYWxsUmVzcG9uc2USTQoKSGFuZ3VwQ2FsbBIeLnFxYnJpZGdlLnYxLkhhbmd1cENhbGxSZXF1ZXN0Gh8ucXFicmlkZ2UudjEuSGFuZ3VwQ2FsbFJlc3BvbnNlEkoKCUxpc3RDYWxscxIdLnFxYnJpZGdlLnYxLkxpc3RDYWxsc1JlcXVlc3QaHi5xcWJyaWRnZS52MS5MaXN0Q2FsbHNSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * @generated from message qqbridge.v1.Call
@@ -253,6 +253,59 @@ export const HangupCallResponseSchema: GenMessage<HangupCallResponse> = /*@__PUR
   messageDesc(file_qqbridge_v1_calls, 8);
 
 /**
+ * @generated from message qqbridge.v1.StartCallRequest
+ */
+export type StartCallRequest = Message<"qqbridge.v1.StartCallRequest"> & {
+  /**
+   * 打给谁（好友的 QQ 号）。只支持 1 对 1 语音。
+   *
+   * @generated from field: int64 peer_uin = 1;
+   */
+  peerUin: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.StartCallRequest.
+ * Use `create(StartCallRequestSchema)` to create a new message.
+ */
+export const StartCallRequestSchema: GenMessage<StartCallRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_calls, 9);
+
+/**
+ * 和接听一样：拿着地址和令牌进房间（网关已经在里面了），对方接了就能说话。
+ *
+ * @generated from message qqbridge.v1.StartCallResponse
+ */
+export type StartCallResponse = Message<"qqbridge.v1.StartCallResponse"> & {
+  /**
+   * @generated from field: qqbridge.v1.Call call = 1;
+   */
+  call?: Call | undefined;
+
+  /**
+   * @generated from field: string livekit_url = 2;
+   */
+  livekitUrl: string;
+
+  /**
+   * @generated from field: string livekit_token = 3;
+   */
+  livekitToken: string;
+
+  /**
+   * @generated from field: string room = 4;
+   */
+  room: string;
+};
+
+/**
+ * Describes the message qqbridge.v1.StartCallResponse.
+ * Use `create(StartCallResponseSchema)` to create a new message.
+ */
+export const StartCallResponseSchema: GenMessage<StartCallResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_calls, 10);
+
+/**
  * @generated from enum qqbridge.v1.CallPhase
  */
 export enum CallPhase {
@@ -320,6 +373,16 @@ export const CallMediaSchema: GenEnum<CallMedia> = /*@__PURE__*/
  * @generated from service qqbridge.v1.CallService
  */
 export const CallService: GenService<{
+  /**
+   * 打出去（1 对 1 语音）：呼叫状态（响铃、接通、结束）照常经 CallUpdate 推送。
+   *
+   * @generated from rpc qqbridge.v1.CallService.StartCall
+   */
+  startCall: {
+    methodKind: "unary";
+    input: typeof StartCallRequestSchema;
+    output: typeof StartCallResponseSchema;
+  },
   /**
    * @generated from rpc qqbridge.v1.CallService.GetActiveCall
    */

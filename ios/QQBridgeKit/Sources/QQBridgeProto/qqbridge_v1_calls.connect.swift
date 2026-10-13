@@ -11,6 +11,10 @@ import SwiftProtobuf
 
 public protocol Qqbridge_V1_CallServiceClientInterface: Sendable {
 
+    /// 打出去（1 对 1 语音）：呼叫状态（响铃、接通、结束）照常经 CallUpdate 推送。
+    @available(iOS 13, *)
+    func `startCall`(request: Qqbridge_V1_StartCallRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_StartCallResponse>
+
     @available(iOS 13, *)
     func `getActiveCall`(request: Qqbridge_V1_GetActiveCallRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_GetActiveCallResponse>
 
@@ -31,6 +35,11 @@ public final class Qqbridge_V1_CallServiceClient: Qqbridge_V1_CallServiceClientI
 
     public init(client: Connect.ProtocolClientInterface) {
         self.client = client
+    }
+
+    @available(iOS 13, *)
+    public func `startCall`(request: Qqbridge_V1_StartCallRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_StartCallResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.CallService/StartCall", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
     @available(iOS 13, *)
@@ -55,6 +64,7 @@ public final class Qqbridge_V1_CallServiceClient: Qqbridge_V1_CallServiceClientI
 
     public enum Metadata {
         public enum Methods {
+            public static let startCall = Connect.MethodSpec(name: "StartCall", service: "qqbridge.v1.CallService", type: .unary)
             public static let getActiveCall = Connect.MethodSpec(name: "GetActiveCall", service: "qqbridge.v1.CallService", type: .unary)
             public static let answerCall = Connect.MethodSpec(name: "AnswerCall", service: "qqbridge.v1.CallService", type: .unary)
             public static let hangupCall = Connect.MethodSpec(name: "HangupCall", service: "qqbridge.v1.CallService", type: .unary)

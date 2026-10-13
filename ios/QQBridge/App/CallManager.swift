@@ -47,12 +47,57 @@ final class CallManager {
   @ObservationIgnored private var dismissTask: Task<Void, Never>?
   @ObservationIgnored weak var session: BridgeSession?
 
-  var isRinging: Bool { call?.phase == .ringing && !joining && !answeredHere }
+  var isRinging: Bool { call?.phase == .ringing && call?.incoming == true && !joining && !answeredHere }
+  /// 自己打出去、对方还没接。
+  var isDialing: Bool { call?.phase == .ringing && call?.incoming == false }
+
+  /// 打出去（1 对 1 语音）：服务端让 QQ 呼叫，这边先进房间等着，对方接了就能说话。
+  func startCall(peerUin: Int64) async {
+    guard let session, call == nil || ended else { return }
+    reset()
+    error = nil
+    joining = true
+    defer { joining = false }
+    guard await AVAudioApplication.requestRecordPermission() else {
+      error = "没有麦克风权限，到「设置」里打开后再打"
+      return
+    }
+    var req = Qqbridge_V1_StartCallRequest()
+    req.peerUin = peerUin
+    do {
+      let res = try await session.api.calls.startCall(request: req, headers: session.api.headers).get()
+      call = res.call
+      answeredHere = true
+      #if targetEnvironment(simulator)
+        try? AudioManager.shared.setVoiceProcessingEnabled(false)
+      #endif
+      let room = Room()
+      self.room = room
+      try await room.connect(url: res.livekitURL, token: res.livekitToken)
+      joined = true
+      applySpeaker()
+      startMeter(room)
+      do {
+        try await room.localParticipant.setMicrophone(enabled: true)
+      } catch {
+        muted = true
+        self.error = "麦克风打不开，只能听：\(LoadState.describe(error))"
+      }
+    } catch {
+      self.error = "呼叫失败：\(LoadState.describe(error))"
+      await leaveRoom()
+      if var ended = call {
+        ended.phase = .ended
+        update(ended)
+      }
+    }
+  }
   var ended: Bool { call?.phase == .ended }
 
   /// 服务端推来的状态（Subscribe 的 CallUpdate、启动时的 GetActiveCall）。
   func update(_ new: Qqbridge_V1_Call) {
-    guard new.incoming else { return }
+    // 打出去的：只认这台设备自己发起的那通。
+    guard new.incoming || call?.id == new.id else { return }
     if let current = call, current.id != new.id, current.phase != .ended, new.phase == .ended { return }
     if call?.id != new.id {
       reset()
@@ -329,6 +374,7 @@ struct CallInfo {
     if let e = manager.error { return e }
     switch call.phase {
     case .ringing:
+      if call.incoming == false { return "正在呼叫…" }
       if manager.joining { return "正在接通…" }
       return manager.isGroup ? "\(callerName) 邀请你加入群\(kind)通话" : "邀请你\(kind)通话"
     case .accepting, .unspecified: return "正在接通…"

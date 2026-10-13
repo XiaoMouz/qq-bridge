@@ -947,6 +947,24 @@ function callService(deps: ApiDeps): ServiceImpl<typeof CallService> {
         throw error;
       }
     },
+    async startCall(req, ctx) {
+      const auth = requireAuth(ctx);
+      const peerUin = toSafeNumber(req.peerUin, 'peer_uin');
+      if (peerUin <= 0) throw new ConnectError('peer_uin is required', Code.InvalidArgument);
+      try {
+        const res = await deps.calls.start(auth.accountId, auth.deviceId, peerUin);
+        const host = (ctx.requestHeader.get('host') ?? '').split(':')[0];
+        const local = host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+        return { call: callToProto(res.call), livekitUrl: local ? LOCAL_LIVEKIT_URL : res.url, livekitToken: res.token, room: res.room };
+      } catch (error) {
+        if (error instanceof CallError) {
+          const code = { not_found: Code.NotFound, not_ringing: Code.FailedPrecondition, unavailable: Code.Unavailable }[error.code];
+          throw new ConnectError(error.message, code);
+        }
+        if (error instanceof UpstreamCallError) throw new ConnectError(error.message, Code.FailedPrecondition);
+        throw error;
+      }
+    },
     async hangupCall(req, ctx) {
       const auth = requireAuth(ctx);
       if (!req.callId) throw new ConnectError('call_id is required', Code.InvalidArgument);

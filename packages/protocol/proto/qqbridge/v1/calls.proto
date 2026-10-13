@@ -79,7 +79,22 @@ message HangupCallResponse {
   Call call = 1;
 }
 
+message StartCallRequest {
+  // 打给谁（好友的 QQ 号）。只支持 1 对 1 语音。
+  int64 peer_uin = 1;
+}
+
+// 和接听一样：拿着地址和令牌进房间（网关已经在里面了），对方接了就能说话。
+message StartCallResponse {
+  Call call = 1;
+  string livekit_url = 2;
+  string livekit_token = 3;
+  string room = 4;
+}
+
 service CallService {
+  // 打出去（1 对 1 语音）：呼叫状态（响铃、接通、结束）照常经 CallUpdate 推送。
+  rpc StartCall(StartCallRequest) returns (StartCallResponse);
   rpc GetActiveCall(GetActiveCallRequest) returns (GetActiveCallResponse);
   rpc AnswerCall(AnswerCallRequest) returns (AnswerCallResponse);
   // 挂断：还在响铃就是拒接，已经接了就是结束通话（QQ 那边对方会看到通话结束）。

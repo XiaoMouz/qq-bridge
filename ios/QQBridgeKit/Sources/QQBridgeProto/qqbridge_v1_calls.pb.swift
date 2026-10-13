@@ -277,6 +277,47 @@ public nonisolated struct Qqbridge_V1_HangupCallResponse: Sendable {
   fileprivate var _call: Qqbridge_V1_Call? = nil
 }
 
+public nonisolated struct Qqbridge_V1_StartCallRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 打给谁（好友的 QQ 号）。只支持 1 对 1 语音。
+  public var peerUin: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 和接听一样：拿着地址和令牌进房间（网关已经在里面了），对方接了就能说话。
+public nonisolated struct Qqbridge_V1_StartCallResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var call: Qqbridge_V1_Call {
+    get {_call ?? Qqbridge_V1_Call()}
+    set {_call = newValue}
+  }
+  /// Returns true if `call` has been explicitly set.
+  public var hasCall: Bool {self._call != nil}
+  /// Clears the value of `call`. Subsequent reads from it will return its default value.
+  public mutating func clearCall() {self._call = nil}
+
+  public var livekitURL: String = String()
+
+  public var livekitToken: String = String()
+
+  public var room: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _call: Qqbridge_V1_Call? = nil
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate nonisolated let _protobuf_package = "qqbridge.v1"
@@ -630,6 +671,85 @@ nonisolated extension Qqbridge_V1_HangupCallResponse: SwiftProtobuf.Message, Swi
 
   public static func ==(lhs: Qqbridge_V1_HangupCallResponse, rhs: Qqbridge_V1_HangupCallResponse) -> Bool {
     if lhs._call != rhs._call {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StartCallRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StartCallRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}peer_uin\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.peerUin) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.peerUin != 0 {
+      try visitor.visitSingularInt64Field(value: self.peerUin, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StartCallRequest, rhs: Qqbridge_V1_StartCallRequest) -> Bool {
+    if lhs.peerUin != rhs.peerUin {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_StartCallResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".StartCallResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}call\0\u{3}livekit_url\0\u{3}livekit_token\0\u{1}room\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._call) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.livekitURL) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.livekitToken) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.room) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._call {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.livekitURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.livekitURL, fieldNumber: 2)
+    }
+    if !self.livekitToken.isEmpty {
+      try visitor.visitSingularStringField(value: self.livekitToken, fieldNumber: 3)
+    }
+    if !self.room.isEmpty {
+      try visitor.visitSingularStringField(value: self.room, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_StartCallResponse, rhs: Qqbridge_V1_StartCallResponse) -> Bool {
+    if lhs._call != rhs._call {return false}
+    if lhs.livekitURL != rhs.livekitURL {return false}
+    if lhs.livekitToken != rhs.livekitToken {return false}
+    if lhs.room != rhs.room {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

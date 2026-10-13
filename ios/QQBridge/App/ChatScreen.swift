@@ -572,9 +572,12 @@ struct ChatScreen: View {
             Button("照片或视频", systemImage: "photo.on.rectangle") { showPhotos = true }
             Button("文件", systemImage: "doc") { showFiles = true }
             if isGroup { Button("AI 语音", systemImage: "waveform") { showAiVoice = true } }
+            if let d = dialog, d.scene == .friend {
+              Button("语音通话", systemImage: "phone") { Task { await model.calls.startCall(peerUin: d.peerID) } }
+            }
             if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
           } label: {
-            Image(systemName: "paperclip").font(.title3).frame(width: 36, height: 40)
+            Image(systemName: "plus").font(.title3.weight(.medium)).frame(width: 36, height: 40)
           }
           .tint(.secondary)
           // 中：输入框占满，右侧嵌着表情按钮。

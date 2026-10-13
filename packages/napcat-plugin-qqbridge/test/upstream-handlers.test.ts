@@ -6,7 +6,7 @@ const ctx = { actions: { call: vi.fn() }, core: {} } as unknown as NapCatPluginC
 
 describe('call RPCs', () => {
   it('answer through the call bridge when it is on', async () => {
-    const calls = { current: vi.fn(() => ({ phase: 'ringing' })), accept: vi.fn(async () => ({ phase: 'accepting' })), hangup: vi.fn(async () => ({ phase: 'ended' })), status: vi.fn(() => ({ loginPosted: true, serviceMethods: ['x'] })) };
+    const calls = { current: vi.fn(() => ({ phase: 'ringing' })), accept: vi.fn(async () => ({ phase: 'accepting' })), hangup: vi.fn(async () => ({ phase: 'ended' })), startCall: vi.fn(async () => ({ phase: 'ringing' })), status: vi.fn(() => ({ loginPosted: true, serviceMethods: ['x'] })) };
     const handlers = createHandlers(ctx, { calls });
     expect(await handlers['x.call.current']!({})).toEqual({ phase: 'ringing' });
     expect(await handlers['x.call.accept']!({})).toEqual({ phase: 'accepting' });

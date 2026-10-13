@@ -1030,6 +1030,14 @@ struct OutgoingRow: View {
   let entry: Qqbridge_V1_OutboxEntry
   let session: Session
 
+  /// 发送中的语音：只有时长，波形先画成平的。
+  static func pendingRecord(_ m: Qqbridge_V1_OutgoingMedia) -> Qqbridge_V1_RecordSegment {
+    var r = Qqbridge_V1_RecordSegment()
+    r.durationSec = m.durationSec
+    r.media.sha256 = m.sha256
+    return r
+  }
+
   var body: some View {
     HStack(alignment: .bottom, spacing: 6) {
       Spacer(minLength: 48)
@@ -1048,6 +1056,12 @@ struct OutgoingRow: View {
         .frame(maxWidth: image.sticker ? 140 : 220, maxHeight: image.sticker ? 140 : 280)
         .clipShape(RoundedRectangle(cornerRadius: image.sticker ? 0 : 14, style: .continuous))
         .opacity(0.8)
+      } else if let voice = entry.segments.compactMap({ seg -> Qqbridge_V1_OutgoingMedia? in if case .record(let r) = seg.kind { r } else { nil } }).first {
+        // 语音：发送中也显示成语音气泡（时长，波形等发出去后由服务端给）。
+        VoiceBubble(record: Self.pendingRecord(voice))
+          .padding(10)
+          .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+          .foregroundStyle(.white)
       } else {
       Text(entry.segments.map { seg in
         switch seg.kind {
