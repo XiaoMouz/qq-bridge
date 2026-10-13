@@ -528,43 +528,138 @@ private struct CanvasView: UIViewRepresentable {
 
 // MARK: - 选会话
 
-/// 转发：选一个会话（可搜索；置顶在前，其余按最近）。
+/// 转发：选一个会话（置顶在前，其余按最近）。搜索时除了已有的会话，也搜全部好友和群聊（没有会话的选中时新建）。
 struct ChatPicker: View {
   let session: Session
   let onPick: (Int64) -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var items: [DialogItem] = []
   @State private var query = ""
+  @State private var friends: [Qqbridge_V1_Peer] = []
+  @State private var groups: [Qqbridge_V1_Peer] = []
+  @State private var contactsLoaded = false
+  @State private var avatars = AvatarBook()
+  @State private var opening: Int64?
+  @State private var error: String?
 
   var body: some View {
     NavigationStack {
-      List(filtered) { item in
-        Button { onPick(item.id) } label: {
-          HStack(spacing: 12) {
-            AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, size: 40)
-            Text(item.title).lineLimit(1).foregroundStyle(.primary)
-            Spacer()
-            if item.dialog.pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
+      List {
+        if !q.isEmpty, filtered.isEmpty, matchedFriends.isEmpty, matchedGroups.isEmpty, contactsLoaded {
+          Text("没有找到").foregroundStyle(.secondary)
+        }
+        Section(q.isEmpty ? "" : "会话") {
+          ForEach(filtered) { item in
+            Button { onPick(item.id) } label: {
+              row(sha: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, pinned: item.dialog.pinned, loading: false)
+            }
           }
+        }
+        if !matchedFriends.isEmpty {
+          Section("好友") {
+            ForEach(matchedFriends, id: \.peerID) { p in
+              Button { Task { await pick(.friend, p.peerID) } } label: {
+                row(sha: p.avatarSha256.isEmpty ? avatars.sha256[p.peerID] : p.avatarSha256, title: p.remark.isEmpty ? p.name : "\(p.remark)（\(p.name)）", seed: p.peerID, pinned: false, loading: opening == p.peerID)
+              }
+              .onAppear { if p.avatarSha256.isEmpty { avatars.want(p.peerID, session: session) } }
+            }
+          }
+        }
+        if !matchedGroups.isEmpty {
+          Section("群聊") {
+            ForEach(matchedGroups, id: \.peerID) { p in
+              Button { Task { await pick(.group, p.peerID) } } label: {
+                row(sha: p.avatarSha256.isEmpty ? avatars.groupSha256[p.peerID] : p.avatarSha256, title: p.name, seed: p.peerID, pinned: false, loading: opening == p.peerID)
+              }
+              .onAppear { if p.avatarSha256.isEmpty { avatars.wantGroup(p.peerID, session: session) } }
+            }
+          }
+        }
+        if !q.isEmpty, !contactsLoaded {
+          HStack { Spacer(); ProgressView(); Spacer() }
         }
       }
       .listStyle(.plain)
-      .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话")
+      .disabled(opening != nil)
+      .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话、好友、群聊")
       .navigationTitle("转发给")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+      .alert("打不开这个会话", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in
+        Button("好") { error = nil }
+      } message: { Text($0) }
       .task {
         do {
           for try await list in session.store.observeDialogs() { items = list }
         } catch {}
       }
+      // 好友、群聊列表一打开就在后台拉（搜索时直接用）。
+      .task { await loadContacts() }
     }
   }
 
+  private func row(sha: String?, title: String, seed: Int64, pinned: Bool, loading: Bool) -> some View {
+    HStack(spacing: 12) {
+      AvatarView(sha256: sha, title: title, seed: seed, size: 40)
+      Text(title).lineLimit(1).foregroundStyle(.primary)
+      Spacer()
+      if loading {
+        ProgressView()
+      } else if pinned {
+        Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private var q: String { query.trimmingCharacters(in: .whitespaces) }
+
   private var filtered: [DialogItem] {
-    let q = query.trimmingCharacters(in: .whitespaces)
     guard !q.isEmpty else { return items }
     return items.filter { $0.title.localizedCaseInsensitiveContains(q) || String($0.dialog.peerID).contains(q) }
+  }
+
+  /// 已经在会话列表里的（搜索结果里不再重复列）。
+  private var dialogPeers: Set<String> {
+    Set(items.map { "\($0.dialog.scene == .group ? "g" : "u")\($0.dialog.peerID)" })
+  }
+
+  private var matchedFriends: [Qqbridge_V1_Peer] {
+    guard !q.isEmpty else { return [] }
+    let seen = dialogPeers
+    return friends.filter { p in
+      !seen.contains("u\(p.peerID)")
+        && (p.name.localizedCaseInsensitiveContains(q) || p.remark.localizedCaseInsensitiveContains(q) || String(p.peerID).contains(q))
+    }
+    .prefix(50).map { $0 }
+  }
+
+  private var matchedGroups: [Qqbridge_V1_Peer] {
+    guard !q.isEmpty else { return [] }
+    let seen = dialogPeers
+    return groups.filter { p in
+      !seen.contains("g\(p.peerID)") && (p.name.localizedCaseInsensitiveContains(q) || String(p.peerID).contains(q))
+    }
+    .prefix(50).map { $0 }
+  }
+
+  private func loadContacts() async {
+    let api = session.api
+    async let f = try? api.contacts.listFriends(request: .init(), headers: api.headers).get().friends
+    async let g = try? api.contacts.listGroups(request: .init(), headers: api.headers).get().groups
+    friends = await f ?? []
+    groups = await g ?? []
+    contactsLoaded = true
+  }
+
+  /// 没有会话的好友 / 群：先让服务端建会话，再交出会话 id。
+  private func pick(_ scene: Qqbridge_V1_Scene, _ peerId: Int64) async {
+    opening = peerId
+    defer { opening = nil }
+    do {
+      onPick(try await DialogActions.openChat(session, scene: scene, peerId: peerId))
+    } catch {
+      self.error = LoadState.describe(error)
+    }
   }
 }
 
