@@ -141,6 +141,11 @@ final class CallManager {
     } catch {
       self.error = "接听失败：\(LoadState.describe(error))"
       await leaveRoom()
+      // 还没接通就失败（多半是这通电话已经不在了）：当作结束，显示一下原因后收起，不留着来电界面。
+      if !answeredHere || !joined, var ended = self.call {
+        ended.phase = .ended
+        update(ended)
+      }
     }
   }
 

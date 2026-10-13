@@ -168,9 +168,31 @@ export class CallService {
     );
     if (!row) return false;
     const call = toRecord(row);
+    // 通话桥同一时间只跟踪一通：来了新的，之前没收尾的（插件换了新的 id，旧的不会再有结束状态）都算结束。
+    if (!before) await this.endOthers(qqAccountId, call.callId);
     this.ingest.publishCall(qqAccountId, call);
     if (call.phase === 'ended' && before?.phase !== 'ended') await this.finish(call);
     return true;
+  }
+
+  /**
+   * 把没收尾的通话记为结束：除了 keep 以外的；keep 为空时只收尾响铃超时的（QQ 那边早就不响了）。
+   * 以前有一通群语音邀请一直停在「响铃」，App 每次打开都把它当来电弹出来，接听时又说不存在。
+   */
+  private async endOthers(qqAccountId: number, keep: string | null): Promise<void> {
+    const timeoutSec = Math.round((this.cfg?.ringTimeoutMs ?? 120_000) / 1000);
+    const stale = await rows<CallRow>(
+      this.db,
+      sql`update calls set phase = 'ended', ended_at = coalesce(ended_at, now()), end_reason = coalesce(end_reason, -3), updated_at = now()
+           where qq_account_id = ${qqAccountId} and phase <> 'ended'
+             and ${keep ? sql`call_id <> ${keep}` : sql`phase = 'ringing' and invite_at < now() - make_interval(secs => ${timeoutSec})`}
+         returning ${COLUMNS}`,
+    );
+    for (const r of stale) {
+      const call = toRecord(r);
+      this.ingest.publishCall(qqAccountId, call);
+      await this.finish(call).catch((error: unknown) => this.cfg?.logger?.warn({ err: error, callId: call.callId }, 'finish stale call failed'));
+    }
   }
 
   async get(callId: string): Promise<CallRecord | null> {
@@ -178,8 +200,11 @@ export class CallService {
     return row ? toRecord(row) : null;
   }
 
-  /** 账号下正在进行的通话（最多一通）。 */
+  /** 账号下正在进行的通话（最多一通）。顺带把响铃超时的记为结束。 */
   async active(accountId: number): Promise<CallRecord | null> {
+    for (const q of await rows<{ id: number }>(this.db, sql`select id from qq_accounts where account_id = ${accountId}`)) {
+      await this.endOthers(Number(q.id), null);
+    }
     const row = await maybeOne<CallRow>(
       this.db,
       sql`select ${COLUMNS} from calls
