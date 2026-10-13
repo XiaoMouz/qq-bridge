@@ -56,6 +56,17 @@ public protocol Qqbridge_V1_MessageServiceClientInterface: Sendable {
     /// 看过了这些 @我 / 回复我 / @全体成员：不再算进会话的未读 @ 数，也不再由 ListUnreadMentions 返回；已读位置不动。
     @available(iOS 13, *)
     func `markMentionsSeen`(request: Qqbridge_V1_MarkMentionsSeenRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_MarkMentionsSeenResponse>
+
+    /// 语音转文字：用 QQ 自己的识别（和 QQ 里长按语音「转文字」一样），识别要几秒。识别过的直接返回。
+    @available(iOS 13, *)
+    func `transcribeVoice`(request: Qqbridge_V1_TranscribeVoiceRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_TranscribeVoiceResponse>
+
+    /// QQ 的 AI 语音（文字转语音，只有群聊能用）：可选的角色；按角色把一段文字读成语音发到群里。
+    @available(iOS 13, *)
+    func `listAiVoices`(request: Qqbridge_V1_ListAiVoicesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListAiVoicesResponse>
+
+    @available(iOS 13, *)
+    func `sendAiVoice`(request: Qqbridge_V1_SendAiVoiceRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SendAiVoiceResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MessageServiceClientInterface`.
@@ -116,6 +127,21 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
         return await self.client.unary(path: "/qqbridge.v1.MessageService/MarkMentionsSeen", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `transcribeVoice`(request: Qqbridge_V1_TranscribeVoiceRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_TranscribeVoiceResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/TranscribeVoice", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `listAiVoices`(request: Qqbridge_V1_ListAiVoicesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListAiVoicesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/ListAiVoices", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `sendAiVoice`(request: Qqbridge_V1_SendAiVoiceRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_SendAiVoiceResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/SendAiVoice", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let getHistory = Connect.MethodSpec(name: "GetHistory", service: "qqbridge.v1.MessageService", type: .unary)
@@ -128,6 +154,9 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
             public static let forwardMessages = Connect.MethodSpec(name: "ForwardMessages", service: "qqbridge.v1.MessageService", type: .unary)
             public static let listUnreadMentions = Connect.MethodSpec(name: "ListUnreadMentions", service: "qqbridge.v1.MessageService", type: .unary)
             public static let markMentionsSeen = Connect.MethodSpec(name: "MarkMentionsSeen", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let transcribeVoice = Connect.MethodSpec(name: "TranscribeVoice", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let listAiVoices = Connect.MethodSpec(name: "ListAiVoices", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let sendAiVoice = Connect.MethodSpec(name: "SendAiVoice", service: "qqbridge.v1.MessageService", type: .unary)
         }
     }
 }

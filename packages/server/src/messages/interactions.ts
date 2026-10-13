@@ -187,6 +187,55 @@ export class MessageInteractions {
     return { items, nextBeforeSeq: 0, nextOffset: list.length < opts.limit ? 0 : offset + list.length };
   }
 
+  /** 语音转文字（QQ 自己的识别，要几秒）。 */
+  async transcribe(accountId: number, chatId: number, seq: number): Promise<string> {
+    const chat = await this.chat(accountId, chatId);
+    const hub = this.online(chat.qq_account_id);
+    try {
+      const res = await hub.call<{ text?: string }>(
+        chat.qq_account_id,
+        'x.ptt_text',
+        { chatType: chatTypeOf(chat.scene), peerUin: String(chat.peer_id), ...(chat.peer_uid ? { peerUid: chat.peer_uid } : {}), seq: String(seq) },
+        30_000,
+      );
+      return res?.text ?? '';
+    } catch (error) {
+      throw new InteractionError('upstream', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** QQ 的 AI 语音角色（只有群聊）。 */
+  async aiVoices(accountId: number, chatId: number): Promise<{ category: string; voices: { id: string; name: string; previewUrl: string }[] }[]> {
+    const chat = await this.chat(accountId, chatId);
+    if (chat.scene !== 'group') throw new InteractionError('unsupported', 'QQ AI voice only works in group chats');
+    try {
+      const res = await this.online(chat.qq_account_id).call<{ categories?: { category: string; voices: { id: string; name: string; previewUrl: string }[] }[] }>(
+        chat.qq_account_id,
+        'x.ai_voices',
+        { groupCode: String(chat.peer_id) },
+      );
+      return res?.categories ?? [];
+    } catch (error) {
+      throw new InteractionError('upstream', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** 用 QQ 的 AI 语音把文字读出来发到群里（消息随后经正常的消息事件进会话）。 */
+  async sendAiVoice(accountId: number, chatId: number, voiceId: string, text: string): Promise<void> {
+    const chat = await this.chat(accountId, chatId);
+    if (chat.scene !== 'group') throw new InteractionError('unsupported', 'QQ AI voice only works in group chats');
+    const content = text.trim();
+    if (!voiceId || !content) throw new InteractionError('unsupported', 'voice and text are required');
+    try {
+      await this.online(chat.qq_account_id).call(chat.qq_account_id, 'ob11', {
+        name: 'send_group_ai_record',
+        params: { group_id: String(chat.peer_id), character: voiceId, text: content },
+      }, 60_000);
+    } catch (error) {
+      throw new InteractionError('upstream', error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private online(qqAccountId: number): Pick<UpstreamHub, 'call'> {
     const hub = this.upstream();
     if (!hub?.isConnected(qqAccountId)) throw new InteractionError('offline', 'QQ is offline');
@@ -214,4 +263,9 @@ export interface SharedMediaItem {
   kind: MediaKind;
   segment: Segment;
   size: number;
+}
+
+/** NT 的会话类型：私聊 1、群 2、临时会话 100。 */
+function chatTypeOf(scene: string): number {
+  return scene === 'group' ? 2 : scene === 'temp' ? 100 : 1;
 }

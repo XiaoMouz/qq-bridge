@@ -277,11 +277,20 @@ struct MessageBubbleRow: View {
     if let image = Self.stickerable(message) {
       // 复制图片 / 表情：剪贴板里放图片本身（别的 App 也能粘贴）+ 服务端的 sha256（粘到本 App 别的会话不用重新上传）。
       Button("复制", systemImage: "doc.on.doc") { context.actions.copyMedia(image, Self.isSticker(message)) }
-    } else if !message.text.isEmpty {
+    } else if !message.text.isEmpty, !message.segments.contains(where: { if case .record = $0.kind { true } else { false } }) {
+      // 语音消息的 text 只是「[语音]」，不给复制。
       Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
     }
     if let image = Self.stickerable(message) {
       Button("添加到我的表情", systemImage: "face.smiling.inverse") { context.actions.addSticker(image, message.seq) }
+    }
+    if !recalled, message.segments.contains(where: { if case .record = $0.kind { true } else { false } }) {
+      // 语音转文字：用 QQ 自己的识别。
+      if case .text = VoiceTranscripts.shared.state(chatId: context.chatId, seq: message.seq) {
+        Button("收起文字", systemImage: "text.badge.minus") { VoiceTranscripts.shared.hide(chatId: context.chatId, seq: message.seq) }
+      } else {
+        Button("转文字", systemImage: "text.bubble") { VoiceTranscripts.shared.transcribe(chatId: context.chatId, seq: message.seq, session: context.session) }
+      }
     }
     if context.isGroup, !outgoing {
       Button("@\(context.name(of: message.senderID))", systemImage: "at") { context.actions.mention(message.senderID) }
@@ -532,9 +541,12 @@ struct BlockView: View {
       .frame(width: Block.stickerFrame(size).width, height: Block.stickerFrame(size).height)
       .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
-      VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
-        .contentShape(Rectangle())
-        .onTapGesture { context.actions.playVoice(r) }
+      VStack(alignment: .leading, spacing: 0) {
+        VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
+          .contentShape(Rectangle())
+          .onTapGesture { context.actions.playVoice(r) }
+        if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing) }
+      }
     case .video(let v):
       // 没有封面时向服务端要 QQ 自带的封面（几十 KB，不下视频本身）。
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId, onNeedThumb: { requestMedia(v.media) }, isVideo: true)

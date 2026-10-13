@@ -2,6 +2,7 @@
 import type { ControlServer } from './control-server.js';
 import type { NapCatPluginContext } from './napcat.js';
 import { callAction } from './upstream/actions.js';
+import { createHandlers } from './upstream/handlers.js';
 
 /** 只留标量字段和浅层对象，避免把大块数据吐出来。 */
 function shallow(value: unknown, depth = 0, max = 2): unknown {
@@ -12,6 +13,13 @@ function shallow(value: unknown, depth = 0, max = 2): unknown {
 }
 
 export function registerDebugRoutes(server: ControlServer, ctx: NapCatPluginContext): void {
+  // 直接调一个服务端用的 RPC（x.ptt_text 等），不经上游链路：POST {"name":"x.ptt_text","params":{...}}
+  server.route('POST', '/v1/debug/rpc', async ({ body }) => {
+    const { name, params } = (body ?? {}) as { name?: string; params?: unknown };
+    const handler = name ? createHandlers(ctx)[name] : undefined;
+    if (!handler) return { code: -1, message: `unknown rpc ${name}` };
+    return { code: 0, data: await handler(params as never) };
+  });
   server.route('GET', '/v1/debug/raw', async (req) => {
     const kind = req.url.searchParams.get('kind');
     const apis = (ctx.core as any)?.apis ?? {};

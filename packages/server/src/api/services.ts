@@ -493,6 +493,29 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         throw interactionError(error);
       }
     },
+    async transcribeVoice(req, ctx) {
+      try {
+        return { text: await deps.interactions.transcribe(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), toSafeNumber(req.seq, 'seq')) };
+      } catch (error) {
+        throw interactionError(error);
+      }
+    },
+    async listAiVoices(req, ctx) {
+      try {
+        const list = await deps.interactions.aiVoices(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'));
+        return { categories: list.map((c) => ({ name: c.category, voices: c.voices })) };
+      } catch (error) {
+        throw interactionError(error);
+      }
+    },
+    async sendAiVoice(req, ctx) {
+      try {
+        await deps.interactions.sendAiVoice(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), req.voiceId, req.text);
+        return {};
+      } catch (error) {
+        throw interactionError(error);
+      }
+    },
     async getForward(req, ctx) {
       if (req.path.length > 8 || req.path.some((i) => i < 0)) throw new ConnectError('invalid path', Code.InvalidArgument);
       try {

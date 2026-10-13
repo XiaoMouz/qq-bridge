@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ChatType, msgApi, requireFn, uidByUin, type Peer } from '../core.js';
+import { ChatType, msgApi, requireFn, session, uidByUin, type Peer } from '../core.js';
 import type { NapCatPluginContext } from '../napcat.js';
 import { callAction } from './actions.js';
 import type { RpcHandler } from './link.js';
@@ -259,6 +259,52 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       const res = await setEmojiLike(peer, String(params.seq), String(params.emojiId), params.add !== false);
       if (res?.result) throw new Error(`setEmojiLike failed: ${res.result} ${res.errMsg ?? ''}`);
       return { ok: true };
+    },
+
+    /**
+     * 语音转文字（QQ 自己的识别，和 QQ 里长按语音「转文字」一样）：按 seq 找到这条语音，让内核识别，
+     * 识别完（异步，几秒）文字写在语音元素的 pttElement.text 里，这里等到有了再返回。识别过的直接返回。
+     */
+    'x.ptt_text': async (params: { chatType?: number; peerUid?: string; peerUin?: string; seq?: string }) => {
+      if (!params?.seq) throw new Error('x.ptt_text: seq is required');
+      const peer = await historyPeer(ctx, params);
+      const api = msgApi(ctx.core);
+      const find = async () => {
+        const res = await api.getMsgsBySeqAndCount(peer, String(params.seq), 1, true, true);
+        const msg = (Array.isArray(res?.msgList) ? res.msgList : []).find((m: any) => String(m?.msgSeq) === String(params.seq));
+        if (!msg) throw new Error('message not found');
+        const el = (msg.elements ?? []).find((e: any) => e?.elementType === 4 && e.pttElement);
+        if (!el) throw new Error('message has no voice');
+        return { msg, el };
+      };
+      const first = await find();
+      if (first.el.pttElement.text) return { text: String(first.el.pttElement.text) };
+      const translate = requireFn<(...a: unknown[]) => Promise<{ result?: number; errMsg?: string }>>(session(ctx.core).getMsgService(), 'translatePtt2Text', 'MsgService');
+      const res = await translate(first.msg.msgId, peer, first.el);
+      if (res?.result) throw new Error(`translatePtt2Text failed: ${res.result} ${res.errMsg ?? ''}`);
+      // 识别是异步的：通常几秒后文字才写进消息，最多等 15 秒。
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const again = await find();
+        if (again.el.pttElement.text) return { text: String(again.el.pttElement.text) };
+      }
+      return { text: '' };
+    },
+
+    /** 群里能用的 AI 语音角色（QQ 的「AI 声聊」）：[{ category, voices: [{ id, name, previewUrl }] }]。 */
+    'x.ai_voices': async (params: { groupCode?: string }) => {
+      if (!params?.groupCode) throw new Error('x.ai_voices: groupCode is required');
+      const list = await requireFn<(group: number, chatType: number) => Promise<any[]>>(
+        (ctx.core as any)?.apis?.PacketApi?.pkt?.operation,
+        'FetchAiVoiceList',
+        'PacketApi',
+      )(Number(params.groupCode), 1);
+      return {
+        categories: (list ?? []).map((c: any) => ({
+          category: String(c?.category ?? ''),
+          voices: (c?.voices ?? []).map((v: any) => ({ id: String(v?.voiceId ?? ''), name: String(v?.voiceDisplayName ?? ''), previewUrl: String(v?.voiceExampleUrl ?? '') })),
+        })),
+      };
     },
 
     /**

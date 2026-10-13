@@ -49,6 +49,8 @@ struct ChatScreen: View {
   @State private var forwardMessage: Qqbridge_V1_Message?
   @State private var showInfo = false
   @State private var showStickers = false
+  /// AI 语音面板（群聊）。
+  @State private var showAiVoice = false
   /// 正在选回应的消息（完整的回应面板）。
   @State private var reactingTo: Qqbridge_V1_Message?
   @State private var recorder = VoiceRecorder()
@@ -329,6 +331,12 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .modifier(ReactionSheet(message: $reactingTo, react: actions.react))
+    .sheet(isPresented: $showAiVoice) {
+      AiVoiceSheet(session: session, chatId: chatId, initialText: composer.text) { sent in
+        if composer.text.trimmingCharacters(in: .whitespacesAndNewlines) == sent { composer.text = "" }
+      }
+      .presentationDetents([.medium, .large])
+    }
     .sheet(isPresented: $showStickers) {
       StickerPanel(session: session, onPick: { sticker in
         showStickers = false
@@ -564,6 +572,7 @@ struct ChatScreen: View {
             // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
             Button("照片或视频", systemImage: "photo.on.rectangle") { showPhotos = true }
             Button("文件", systemImage: "doc") { showFiles = true }
+            if isGroup { Button("AI 语音", systemImage: "waveform") { showAiVoice = true } }
             if isGroup { Button("@某人", systemImage: "at") { composer.text += "@" } }
           } label: {
             Image(systemName: "paperclip").font(.title3).frame(width: 36, height: 40)

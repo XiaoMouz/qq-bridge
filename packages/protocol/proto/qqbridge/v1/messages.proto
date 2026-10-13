@@ -31,7 +31,51 @@ service MessageService {
   rpc ListUnreadMentions(ListUnreadMentionsRequest) returns (ListUnreadMentionsResponse);
   // 看过了这些 @我 / 回复我 / @全体成员：不再算进会话的未读 @ 数，也不再由 ListUnreadMentions 返回；已读位置不动。
   rpc MarkMentionsSeen(MarkMentionsSeenRequest) returns (MarkMentionsSeenResponse);
+  // 语音转文字：用 QQ 自己的识别（和 QQ 里长按语音「转文字」一样），识别要几秒。识别过的直接返回。
+  rpc TranscribeVoice(TranscribeVoiceRequest) returns (TranscribeVoiceResponse);
+  // QQ 的 AI 语音（文字转语音，只有群聊能用）：可选的角色；按角色把一段文字读成语音发到群里。
+  rpc ListAiVoices(ListAiVoicesRequest) returns (ListAiVoicesResponse);
+  rpc SendAiVoice(SendAiVoiceRequest) returns (SendAiVoiceResponse);
 }
+
+message TranscribeVoiceRequest {
+  int64 chat_id = 1;
+  int64 seq = 2;
+}
+
+message TranscribeVoiceResponse {
+  // 空 = 没识别出文字（太短、没有说话声等）。
+  string text = 1;
+}
+
+message ListAiVoicesRequest {
+  int64 chat_id = 1;
+}
+
+message AiVoiceCategory {
+  string name = 1;
+  repeated AiVoice voices = 2;
+}
+
+message AiVoice {
+  string id = 1;
+  string name = 2;
+  // 试听（QQ 给的公开链接）。
+  string preview_url = 3;
+}
+
+message ListAiVoicesResponse {
+  repeated AiVoiceCategory categories = 1;
+}
+
+message SendAiVoiceRequest {
+  int64 chat_id = 1;
+  string voice_id = 2;
+  string text = 3;
+}
+
+// 发出的语音消息和别的消息一样经同步回到会话里。
+message SendAiVoiceResponse {}
 
 message ReactRequest {
   int64 chat_id = 1;
