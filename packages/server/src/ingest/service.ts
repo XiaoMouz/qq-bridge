@@ -89,6 +89,8 @@ export class IngestService {
   private readonly qqAccounts = new Map<number, QqAccountInfo>();
   /** 新消息入库（提交）之后调用，用于推送；只在消息是别人发的时候调用。 */
   onNewMessage: ((event: { accountId: number; chatId: number; seq: number }) => void) | null = null;
+  /** 通话状态变了（推来电通知用）。 */
+  onCall: ((accountId: number, call: CallRecord) => void) | null = null;
 
   constructor(
     private readonly db: Db,
@@ -544,7 +546,10 @@ export class IngestService {
 
   /** 通话状态变化：只推给在线设备（临时事件，通话本身记在 calls 表里）。 */
   publishCall(qqAccountId: number, call: CallRecord): void {
-    void this.qqAccount(qqAccountId).then((qq) => this.writers.publishEphemeral(qq.accountId, { type: 'call', call }));
+    void this.qqAccount(qqAccountId).then((qq) => {
+      this.writers.publishEphemeral(qq.accountId, { type: 'call', call });
+      this.onCall?.(qq.accountId, call);
+    });
   }
 
   /**

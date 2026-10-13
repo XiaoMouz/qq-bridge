@@ -18,6 +18,8 @@ final class AppModel {
   /// 正在输入：会话 id → 截止时间。
   private(set) var typing: [Int64: Date] = [:]
   private(set) var activeCall: Qqbridge_V1_Call?
+  /// 通话界面的状态（来电、接听、挂断）。
+  let calls = CallManager()
   /// QQ 是否在线（插件连着服务端）：nil = 还不知道（比如服务器本身连不上）。
   private(set) var qqOnline: Bool?
   /// 登录着的 QQ（昵称、号码、在线状态）：每次查状态时更新，并存在本机，设置页打开时直接显示。
@@ -134,6 +136,7 @@ final class AppModel {
     Task {
       if active {
         await session.sync.start()
+        await self.calls.refresh()
         await self.refreshQqStatus()
       } else {
         await session.sync.stop()
@@ -169,6 +172,8 @@ final class AppModel {
 
   private func enter(_ session: Session) {
     phase = .ready(session)
+    calls.session = session
+    Task { await calls.refresh() }
     registerForPush()
     Task.detached(priority: .utility) { await session.store.backfillMediaIndex() }
     statusTask?.cancel()
@@ -194,6 +199,7 @@ final class AppModel {
           self.typing[t.chatID] = Date().addingTimeInterval(6)
         case .call(let call):
           self.activeCall = call.phase == .ended ? nil : call
+          self.calls.update(call)
         case .mediaReady(let m):
           MediaReady.shared.publish(m)
         }
@@ -228,3 +234,6 @@ final class AppModel {
     var errorDescription: String? { "服务器地址不对" }
   }
 }
+
+/// 给同时引入 LiveKit 的文件用（LiveKit 也有 Session，名字会冲突）。
+typealias BridgeSession = Session

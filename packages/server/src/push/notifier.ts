@@ -11,6 +11,7 @@ import type { Logger } from 'pino';
 import { maybeOne, one, rows, type Db } from '../db/client.ts';
 import type { ApnsEnv, PushSender } from './apns.ts';
 import type { MediaService } from '../media/service.ts';
+import type { CallRecord } from '../calls/service.ts';
 import sharp from 'sharp';
 
 const { mentionsMe: MENTION_ME, mentionAll: MENTION_ALL, replyToMe: REPLY_TO_ME } = MessageFlag;
@@ -96,6 +97,63 @@ export class PushNotifier {
     } catch {
       return null;
     }
+  }
+
+  /** 已经推过振铃的来电（同一通只推一次）。 */
+  private readonly ringingPushed = new Set<string>();
+
+  /** 通话状态变了：来电振铃时推一条（时效性、带铃声）；没接就结束时用同一个 collapse id 换成「未接来电」。 */
+  onCall(accountId: number, call: CallRecord): void {
+    void this.notifyCall(accountId, call).catch((error: unknown) => this.opts.logger?.warn({ err: error, callId: call.callId }, 'call push failed'));
+  }
+
+  async notifyCall(accountId: number, call: CallRecord): Promise<number> {
+    if (!call.incoming) return 0;
+    const ringing = call.phase === 'ringing';
+    const missed = call.phase === 'ended' && !call.connectedAt && this.ringingPushed.has(call.callId);
+    if (!(ringing && !this.ringingPushed.has(call.callId)) && !missed) return 0;
+    if (ringing) {
+      this.ringingPushed.add(call.callId);
+      if (this.ringingPushed.size > 200) this.ringingPushed.delete(this.ringingPushed.values().next().value!);
+    } else {
+      this.ringingPushed.delete(call.callId);
+    }
+    const name = call.peerName || (call.peerUin ? String(call.peerUin) : 'QQ');
+    const kind = call.media === 'video' ? '视频' : '语音';
+    const chat = call.peerUin
+      ? await maybeOne<{ id: number }>(
+          this.db,
+          sql`select id from chats where qq_account_id = ${call.qqAccountId} and scene = 'friend' and peer_id = ${call.peerUin}`,
+        )
+      : null;
+    const devices = await rows<{ id: number; apns_token: string; apns_env: string | null }>(
+      this.db,
+      sql`select id, apns_token, apns_env from devices
+           where account_id = ${accountId} and revoked_at is null and apns_token is not null`,
+    );
+    let sent = 0;
+    for (const d of devices) {
+      const result = await this.sender.send({
+        token: d.apns_token,
+        env: d.apns_env === 'sandbox' ? 'sandbox' : 'production',
+        collapseId: `call-${call.callId}`,
+        ttlSec: ringing ? 60 : 24 * 3600,
+        payload: {
+          aps: {
+            alert: ringing ? { title: name, body: `邀请你${kind}通话` } : { title: name, body: `未接${kind}通话` },
+            ...(ringing ? { sound: 'default', 'interruption-level': 'time-sensitive' } : {}),
+            'thread-id': chat ? `chat-${chat.id}` : 'calls',
+          },
+          ...(chat ? { chatId: chat.id } : {}),
+          callId: call.callId,
+        },
+      });
+      if (result.ok) sent++;
+      else if (result.invalidToken) {
+        await this.db.execute(sql`update devices set apns_token = null where id = ${d.id} and apns_token = ${d.apns_token}`);
+      }
+    }
+    return sent;
   }
 
   /** 入库后调用；出错只记日志，不影响入库。 */

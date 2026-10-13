@@ -81,6 +81,10 @@ struct RootView: View {
       }
       .presentationDetents([.medium, .large])
     }
+    // 来电 / 通话中：全屏通话界面。
+    .fullScreenCover(isPresented: Binding(get: { model.calls.call != nil }, set: { _ in })) {
+      CallScreen(manager: model.calls, session: session)
+    }
     .environment(\.session, session)
   }
 }

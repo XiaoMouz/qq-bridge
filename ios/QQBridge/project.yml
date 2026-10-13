@@ -18,6 +18,10 @@ packages:
   Lottie:
     url: https://github.com/airbnb/lottie-spm
     from: "4.5.0"
+  # 通话：经 LiveKit 与 QQ 那边的通话网关互通语音。
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: "2.0.0"
 targets:
   BetterChat:
     type: application
@@ -37,6 +41,8 @@ targets:
         product: QQBridgeProto
       - package: Lottie
         product: Lottie
+      - package: LiveKit
+        product: LiveKit
       # 通知扩展：通知显示发送者头像（通讯通知）。
       - target: NotificationService
     info:
