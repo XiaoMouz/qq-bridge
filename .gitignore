@@ -26,3 +26,4 @@ ios/.build-app/
 
 # APNs 密钥
 *.p8
+.tmp/
