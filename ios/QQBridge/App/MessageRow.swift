@@ -20,8 +20,6 @@ struct MessageContext {
   let highlight: MessageHighlight
   /// 名字、头像、被回复消息的内存缓存：滚动时不在主线程查数据库。
   let lookup: ChatLookup
-  /// 在空白处往左拖：所有消息一起左移，露出发送时间。
-  let timeReveal: TimeReveal
   let bubbleFrames: BubbleFrames
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
@@ -108,19 +106,6 @@ struct MessageRow: View {
     }
     .frame(maxWidth: .infinity)
     .coordinateSpace(.named(MessageRow.space))
-    // 在空白处往左拖：内容整体左移，右边露出发送时间（今天只显示时刻，昨天、更早的带日期）。
-    .offset(x: revealsTime ? -context.timeReveal.offset : 0)
-    .overlay(alignment: .bottomTrailing) {
-      if revealsTime, context.timeReveal.offset > 0 {
-        Text(Format.messageTime(item.time))
-          .font(.caption2.monospacedDigit())
-          .foregroundStyle(.secondary)
-          .fixedSize()
-          .padding(.bottom, 4)
-          .offset(x: TimeReveal.width - context.timeReveal.offset)
-          .opacity(Double(context.timeReveal.offset / TimeReveal.width))
-      }
-    }
     // 高亮的淡入淡出只作用在底色上：以前整行挂着这个动画，跳转时可见的行的排版变化也跟着做动画，
     // 复用的格子会从上一条消息的位置滑过来（气泡错位、叠在一起、看不见）。
     .background {
@@ -136,11 +121,6 @@ struct MessageRow: View {
 
   /// 行内坐标系的名字（气泡位置用）。
   static let space = "messageRow"
-
-  private var revealsTime: Bool {
-    if case .event = item { return false }
-    return true
-  }
 
   /// 和上一条隔了 5 分钟以上才显示时间。
   private var showsTime: Bool {
@@ -375,11 +355,16 @@ struct MessageContent: View {
   var body: some View {
     let blocks = Block.make(message.segments, context: context)
     let bare = blocks.count == 1 && blocks[0].isBare
+    let time = Format.clockTime(message.time)
+    let place = TimePlacement.of(blocks.last, bare: bare)
     VStack(alignment: .leading, spacing: 6) {
       ForEach(blocks.indices, id: \.self) { i in
-        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message)
+        // 发送时间放在气泡右下角：最后是文字时在最后一行末尾留出时间的位置（和 Telegram 一样，放得下就同一行）。
+        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message, timeReserve: place == .inline && i == blocks.count - 1 ? time : nil)
       }
     }
+    // 单独一行时：底下留出一行的高度（不占宽度，气泡不会因此被撑宽），时间画在右下角。
+    .padding(.bottom, place == .row ? 12 : 0)
     .padding(bare ? 0 : 10)
     .background {
       if !bare {
@@ -387,7 +372,34 @@ struct MessageContent: View {
           .fill(outgoing ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color(.secondarySystemBackground)))
       }
     }
+    .overlay(alignment: .bottomTrailing) {
+      switch place {
+      case .inline, .row:
+        Text(time).font(.caption2.monospacedDigit()).opacity(0.7).padding(.trailing, 10).padding(.bottom, 8)
+      case .pill:
+        // 图片、视频、表情上：半透明底的小胶囊。
+        Text(time).font(.caption2.monospacedDigit()).foregroundStyle(.white)
+          .padding(.horizontal, 6).padding(.vertical, 2)
+          .background(.black.opacity(0.45), in: Capsule())
+          .padding(bare ? 4 : 16)
+      }
+    }
     .foregroundStyle(outgoing && !bare ? Color.white : Color.primary)
+  }
+}
+
+/// 气泡里的发送时间放哪：文字末尾（inline）、压在图片上（pill）、单独一行（row）。
+enum TimePlacement {
+  case inline, pill, row
+
+  static func of(_ last: Block?, bare: Bool) -> TimePlacement {
+    if bare { return .pill }
+    switch last {
+    case .text(let runs): return Inline.jumboFaces(runs) == nil ? .inline : .pill
+    // 卡片底下常有「在浏览器中打开」等文字：时间另起一行，不压在卡片上。
+    case .image, .video, .sticker: return .pill
+    default: return .row
+    }
   }
 }
 
@@ -512,6 +524,8 @@ struct BlockView: View {
   let context: MessageContext
   let outgoing: Bool
   var message: Qqbridge_V1_Message? = nil
+  /// 文字的最后一行末尾留出这么宽的位置（放发送时间）。
+  var timeReserve: String? = nil
 
   var body: some View {
     switch block {
@@ -526,7 +540,7 @@ struct BlockView: View {
           ForEach(faces.indices, id: \.self) { i in QQFace.inline(faces[i].id, name: faces[i].name, size: size) }
         }
       } else {
-        MentionText(runs: runs, context: context, outgoing: outgoing, seq: message?.seq ?? 0)
+        MentionText(runs: runs, context: context, outgoing: outgoing, seq: message?.seq ?? 0, reserve: timeReserve)
 
       }
     case .reply(let seq):
@@ -542,9 +556,16 @@ struct BlockView: View {
       .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
       VStack(alignment: .leading, spacing: 0) {
-        VoiceBubble(record: r, playing: context.voice.playing != nil && [r.media.playableSha256, r.media.sha256].contains(context.voice.playing!))
-          .contentShape(Rectangle())
-          .onTapGesture { context.actions.playVoice(r) }
+        let isPlaying = context.voice.isPlaying(r)
+        VoiceBubble(
+          record: r,
+          playing: isPlaying,
+          progress: isPlaying ? context.voice.progress : 0,
+          remaining: isPlaying ? max(0, Int((context.voice.duration * (1 - context.voice.progress)).rounded(.up))) : nil,
+          onWaveFrame: { context.voice.waveFrame = $0 }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { context.actions.playVoice(r) }
         if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing) }
       }
     case .video(let v):
@@ -559,7 +580,8 @@ struct BlockView: View {
           Image(systemName: v.media.state == .onDemand ? "arrow.down.circle.fill" : v.media.state == .pending ? "hourglass.circle.fill" : "play.circle.fill")
             .font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
         }
-        .overlay(alignment: .bottomTrailing) {
+        // 时长放左上角（右下角是发送时间）。
+        .overlay(alignment: .topLeading) {
           if v.durationSec > 0 {
             Text(Format.duration(Int(v.durationSec))).font(.caption2.monospacedDigit()).padding(4)
               .background(.black.opacity(0.5), in: Capsule()).foregroundStyle(.white).padding(6)
@@ -681,25 +703,57 @@ struct MediaThumb: View {
 }
 
 /// 语音：波形 + 时长，点一下播放 / 停止。
+/// 语音气泡：波形 + 时长。播放时气泡变大，听过的部分波形填满颜色，白线标出播放位置，拖白线可以调进度。
 struct VoiceBubble: View {
   let record: Qqbridge_V1_RecordSegment
   var playing = false
+  /// 播放进度 0…1（没在播时不用）。
+  var progress: Double = 0
+  /// 剩余秒数（播放时显示）。
+  var remaining: Int? = nil
+  /// 播放时波形在窗口里的位置。
+  var onWaveFrame: ((CGRect) -> Void)? = nil
 
   var body: some View {
     let bars = Array(record.media.waveform)
     let seconds = Int(record.durationSec)
+    let width = CGFloat(min(160, 60 + seconds * 4)) + (playing ? 40 : 0)
+    let barHeight: CGFloat = playing ? 28 : 18
     HStack(spacing: 8) {
       Image(systemName: playing ? "stop.fill" : "play.fill")
-      HStack(alignment: .center, spacing: 2) {
-        ForEach(0..<max(bars.count, 1), id: \.self) { i in
-          let v = bars.isEmpty ? 0.3 : CGFloat(bars[i]) / 255
-          Capsule().frame(width: 2, height: 4 + 18 * v)
+        .font(playing ? .title3 : .body)
+      ZStack(alignment: .leading) {
+        waveform(bars, height: barHeight, width: width).opacity(playing ? 0.35 : 1)
+        if playing {
+          // 听过的部分：同一份波形，按进度裁出左边一截，填满颜色。
+          waveform(bars, height: barHeight, width: width)
+            .mask(alignment: .leading) { Rectangle().frame(width: width * progress) }
+          // 白线：播放位置，可以拖。
+          Capsule()
+            .fill(.white)
+            .frame(width: 3, height: barHeight + 10)
+            .shadow(color: .black.opacity(0.35), radius: 1.5)
+            .offset(x: max(0, min(width - 3, width * progress - 1.5)))
         }
       }
-      .frame(width: CGFloat(min(160, 60 + seconds * 4)), alignment: .leading)
-      .clipped()
-      Text("\(seconds)″").font(.caption.monospacedDigit())
+      .frame(width: width, height: barHeight + 10, alignment: .leading)
+      // 拖白线由聊天列表的拖动手势处理（SwiftUI 的拖动抢不过系统的返回手势）：这里只报告波形的位置。
+      .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { if playing { onWaveFrame?($0) } }
+      Text("\(playing ? (remaining ?? seconds) : seconds)″").font(.caption.monospacedDigit())
     }
+    .padding(.vertical, playing ? 4 : 0)
+    .animation(.spring(duration: 0.3), value: playing)
+  }
+
+  private func waveform(_ bars: [UInt8], height: CGFloat, width: CGFloat) -> some View {
+    HStack(alignment: .center, spacing: 2) {
+      ForEach(0..<max(bars.count, 1), id: \.self) { i in
+        let v = bars.isEmpty ? 0.3 : CGFloat(bars[i]) / 255
+        Capsule().frame(width: 2, height: 4 + (height - 4) * v)
+      }
+    }
+    .frame(width: width, alignment: .leading)
+    .clipped()
   }
 }
 
@@ -852,23 +906,116 @@ struct ReplyQuote: View {
 struct Reactions: View {
   let message: Qqbridge_V1_Message
   let context: MessageContext
+  /// 长按某个回应：看都有谁点了。
+  @State private var showing: String?
+
   var body: some View {
     HStack(spacing: 4) {
       ForEach(message.reactions, id: \.emojiID) { r in
-        Button {
-          if context.isGroup { context.actions.react(message, r.emojiID) }
-        } label: {
-          HStack(spacing: 2) {
-            QQFace.view(r.emojiID)
-            Text("\(r.count)").monospacedDigit()
-          }
-          .font(.caption)
-          .padding(.horizontal, 7)
-          .padding(.vertical, 3)
-          .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+        HStack(spacing: 2) {
+          QQFace.view(r.emojiID)
+          Text("\(r.count)").monospacedDigit()
         }
-        .buttonStyle(.plain)
+        .font(.caption)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+        .contentShape(Capsule())
+        // 点一下：加上 / 取消自己的回应；长按：看都有谁点了（只有群聊有回应）。
+        .onTapGesture { if context.isGroup { context.actions.react(message, r.emojiID) } }
+        .onLongPressGesture(minimumDuration: 0.35) { if context.isGroup { showing = r.emojiID } }
+        .accessibilityAddTraits(.isButton)
       }
+    }
+    .sheet(item: Binding(get: { showing.map(ReactionPick.init) }, set: { showing = $0?.id })) { pick in
+      ReactionUsersSheet(message: message, context: context, selected: pick.id)
+        .presentationDetents([.medium, .large])
+    }
+  }
+}
+
+struct ReactionPick: Identifiable {
+  let id: String
+}
+
+/// 点了回应的人：上面一排切换是哪个表情，下面是点了的人（头像 + 群名片）。点人看资料。
+struct ReactionUsersSheet: View {
+  let message: Qqbridge_V1_Message
+  let context: MessageContext
+  @State var selected: String
+  @Environment(\.dismiss) private var dismiss
+  @State private var users: [String: [Qqbridge_V1_ReactionUser]] = [:]
+  @State private var errors: [String: String] = [:]
+
+  var body: some View {
+    NavigationStack {
+      VStack(spacing: 0) {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 6) {
+            ForEach(message.reactions, id: \.emojiID) { r in
+              Button { selected = r.emojiID } label: {
+                HStack(spacing: 3) {
+                  QQFace.view(r.emojiID, size: 20)
+                  Text("\(r.count)").monospacedDigit()
+                }
+                .font(.subheadline)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(selected == r.emojiID ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+              }
+              .buttonStyle(.plain)
+            }
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+        }
+        List {
+          if let list = users[selected] {
+            ForEach(list, id: \.userID) { u in
+              Button {
+                dismiss()
+                context.actions.showProfile(u.userID)
+              } label: {
+                HStack(spacing: 12) {
+                  AvatarView(sha256: context.avatars.sha256[u.userID], title: displayName(u), seed: u.userID, size: 36)
+                  Text(displayName(u)).foregroundStyle(.primary)
+                  Spacer()
+                  if u.userID == context.selfUin { Text("我").font(.caption).foregroundStyle(.secondary) }
+                }
+              }
+              .onAppear { context.avatars.want(u.userID, session: context.session) }
+            }
+          } else if let error = errors[selected] {
+            Text(error).foregroundStyle(.secondary)
+          } else {
+            HStack { Spacer(); ProgressView(); Spacer() }.listRowSeparator(.hidden)
+          }
+        }
+        .listStyle(.plain)
+      }
+      .navigationTitle(ReactionLabel.name(selected))
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+      .task(id: selected) { await load(selected) }
+    }
+  }
+
+  private func displayName(_ u: Qqbridge_V1_ReactionUser) -> String {
+    if u.userID == context.selfUin { return context.name(of: u.userID) }
+    if let n = context.members.displayName(u.userID) { return n }
+    return u.name.isEmpty ? String(u.userID) : u.name
+  }
+
+  private func load(_ emoji: String) async {
+    guard users[emoji] == nil else { return }
+    var req = Qqbridge_V1_ListReactionUsersRequest()
+    req.chatID = context.chatId
+    req.seq = message.seq
+    req.emojiID = emoji
+    do {
+      users[emoji] = try await context.session.api.messages.listReactionUsers(request: req, headers: context.session.api.headers).get().users
+    } catch {
+      errors[emoji] = LoadState.describe(error)
     }
   }
 }
@@ -1091,6 +1238,11 @@ enum EventText {
 
 extension Format {
   /// 左滑露出的时间：今天只有时刻，昨天"昨天 18:30"，今年"10-05 18:30"，更早带年份。
+  /// 气泡里的时间：只要时刻（日期看上面的日期分隔）。
+  @MainActor static func clockTime(_ unix: Int64) -> String {
+    Date(timeIntervalSince1970: TimeInterval(unix)).formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
+  }
+
   @MainActor static func messageTime(_ unix: Int64) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(unix))
     let time = date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
@@ -1245,6 +1397,8 @@ struct MentionText: View {
   let context: MessageContext
   let outgoing: Bool
   var seq: Int64 = 0
+  /// 末尾留出的位置（透明的同宽文字，给气泡右下角的时间让位）。
+  var reserve: String? = nil
   @State private var badges: [MentionHit] = []
   /// 正按着的徽章（-1 = 挪开了，不算点）。
   @State private var pressing: Int64?
@@ -1256,7 +1410,8 @@ struct MentionText: View {
   }
 
   var body: some View {
-    let text = Inline.compose(runs, outgoing: outgoing)
+    let composed = Inline.compose(runs, outgoing: outgoing)
+    let text = (reserve.map { composed + Text("\u{2002}\u{2002}\($0)").font(.caption2.monospacedDigit()).foregroundStyle(.clear) } ?? composed)
       .tint(outgoing ? .white : .accentColor)
       .textSelection(.enabled)
       // 链接用系统打开；号码（5 位以上）交给聊天页：查 QQ 用户、拨打、复制。

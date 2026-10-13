@@ -261,6 +261,24 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
       return { ok: true };
     },
 
+    /** 某条消息上点了某个表情回应的人（QQ 号、昵称），最多 500 个。 */
+    'x.reaction_users': async (params: { chatType?: number; peerUid?: string; peerUin?: string; seq?: string; emojiId?: string }) => {
+      if (!params?.seq || !params.emojiId) throw new Error('x.reaction_users: seq and emojiId are required');
+      const peer = await historyPeer(ctx, params);
+      const emojiId = String(params.emojiId);
+      const list = requireFn<(...a: unknown[]) => Promise<any>>(msgApi(ctx.core), 'getMsgEmojiLikesList', 'MsgApi');
+      const users: { uin: string; nick: string }[] = [];
+      let cookie = '';
+      for (let page = 0; page < 25 && users.length < 500; page++) {
+        const res = await list(peer, String(params.seq), emojiId, emojiId.length > 3 ? '2' : '1', cookie, 20);
+        if (res?.result) throw new Error(`getMsgEmojiLikesList failed: ${res.result} ${res.errMsg ?? ''}`);
+        for (const u of res?.emojiLikesList ?? []) users.push({ uin: String(u?.tinyId ?? ''), nick: String(u?.nickName ?? '') });
+        if (res?.isLastPage || !res?.cookie) break;
+        cookie = String(res.cookie);
+      }
+      return { users };
+    },
+
     /**
      * 语音转文字（QQ 自己的识别，和 QQ 里长按语音「转文字」一样）：按 seq 找到这条语音，让内核识别，
      * 识别完（异步，几秒）文字写在语音元素的 pttElement.text 里，这里等到有了再返回。识别过的直接返回。

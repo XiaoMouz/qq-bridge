@@ -454,15 +454,34 @@ final class MessageSelection {
 }
 
 /// 语音播放：同一时间只播一条；播的是服务端转好的 AAC（playable），边下边播。
+/// 播放时记着进度（0…1），气泡据此填色；拖动白线时先只改显示的位置，松手再跳过去。
 @MainActor
 @Observable
 final class VoicePlayer {
   private(set) var playing: String?
-  private var player: AVPlayer?
-  private var observer: NSObjectProtocol?
+  /// 播放进度 0…1（正在拖动时是拖到的位置）。
+  private(set) var progress: Double = 0
+  /// 总时长（秒）：播放器知道前用语音消息里的时长。
+  private(set) var duration: Double = 0
+  /// 正在拖动白线。
+  private(set) var scrubbing = false
+  /// 正在播的那条的波形在窗口里的位置（聊天列表的拖动手势据此判断是不是在拖进度）。
+  @ObservationIgnored var waveFrame: CGRect?
+  @ObservationIgnored private var player: AVPlayer?
+  @ObservationIgnored private var observer: NSObjectProtocol?
+  @ObservationIgnored private var ticker: Any?
+
+  static func sha(_ record: Qqbridge_V1_RecordSegment) -> String {
+    record.media.playableSha256.isEmpty ? record.media.sha256 : record.media.playableSha256
+  }
+
+  func isPlaying(_ record: Qqbridge_V1_RecordSegment) -> Bool {
+    guard let playing else { return false }
+    return playing == Self.sha(record) || playing == record.media.sha256
+  }
 
   func toggle(_ record: Qqbridge_V1_RecordSegment, session: Session) {
-    let sha = record.media.playableSha256.isEmpty ? record.media.sha256 : record.media.playableSha256
+    let sha = Self.sha(record)
     if playing == sha {
       stop()
       return
@@ -470,8 +489,19 @@ final class VoicePlayer {
     stop()
     guard !sha.isEmpty else { return }
     playing = sha
+    progress = 0
+    duration = Double(record.durationSec)
     Task {
-      guard let url = try? await session.media.streamURL(for: sha), playing == sha else { return }
+      // 语音很小：先整个下到本机再播（边下边播时往后拖进度跳不过去）；下不来再退回边下边播。
+      var source = try? await session.media.file(for: sha, chatId: nil)
+      if source != nil, let s = source {
+        // 缓存文件没有扩展名，播放器认不出类型：拷一份带 .m4a 的。
+        let named = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(sha).m4a")
+        if !FileManager.default.fileExists(atPath: named.path) { try? FileManager.default.copyItem(at: s, to: named) }
+        source = named
+      }
+      if source == nil { source = try? await session.media.streamURL(for: sha) }
+      guard let url = source, playing == sha else { return }
       try? AVAudioSession.sharedInstance().setCategory(.playback)
       try? AVAudioSession.sharedInstance().setActive(true)
       let item = AVPlayerItem(url: url)
@@ -480,14 +510,45 @@ final class VoicePlayer {
       observer = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
         MainActor.assumeIsolated { self?.stop() }
       }
+      ticker = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
+        MainActor.assumeIsolated {
+          guard let self, !self.scrubbing else { return }
+          let total = player.currentItem?.duration.seconds ?? .nan
+          if total.isFinite, total > 0 { self.duration = total }
+          if self.duration > 0 { self.progress = min(1, max(0, time.seconds / self.duration)) }
+        }
+      }
       player.play()
     }
   }
 
+  /// 拖动白线：先只改显示的位置。
+  func scrub(to fraction: Double) {
+    scrubbing = true
+    progress = min(1, max(0, fraction))
+  }
+
+  /// 松手：跳到拖到的位置接着播。
+  func endScrub() {
+    guard let player, duration > 0 else {
+      scrubbing = false
+      return
+    }
+    // 跳完之前不让播放进度回写（否则白线会先弹回原来的位置）。
+    player.seek(to: CMTime(seconds: progress * duration, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+      Task { @MainActor in self?.scrubbing = false }
+    }
+  }
+
   func stop() {
+    if let ticker { player?.removeTimeObserver(ticker) }
+    ticker = nil
     player?.pause()
     player = nil
     playing = nil
+    progress = 0
+    scrubbing = false
+    waveFrame = nil
     if let observer { NotificationCenter.default.removeObserver(observer) }
     observer = nil
   }
@@ -571,14 +632,6 @@ final class ChatLookup {
     avatars[userId] = .some(value)
     return value
   }
-}
-
-/// 从右边缘往左拖露出发送时间：拖动的距离（0…width），所有可见的消息行一起读它。
-@MainActor
-@Observable
-final class TimeReveal {
-  static let width: CGFloat = 64
-  var offset: CGFloat = 0
 }
 
 /// @ 徽章里的小圆头像（按头像缓存，不反复画）。

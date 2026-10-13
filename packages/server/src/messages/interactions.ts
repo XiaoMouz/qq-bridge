@@ -3,7 +3,7 @@ import type { MediaKind, Reaction, Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { maybeOne, one, rows, type Db } from '../db/client.ts';
 import type { IngestService } from '../ingest/service.ts';
-import { toMessage, MESSAGE_COLUMNS, type MessageRow } from '../sync/rows.ts';
+import { toMessage, MESSAGE_COLUMNS, sqlList, type MessageRow } from '../sync/rows.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
 
 export class InteractionError extends Error {
@@ -185,6 +185,37 @@ export class MessageInteractions {
       });
     }
     return { items, nextBeforeSeq: 0, nextOffset: list.length < opts.limit ? 0 : offset + list.length };
+  }
+
+  /** 点了某个表情回应的人：QQ 号 + 群名片 / 昵称（库里有的）。 */
+  async reactionUsers(accountId: number, chatId: number, seq: number, emojiId: string): Promise<{ userId: number; name: string }[]> {
+    if (!/^\d{1,10}$/.test(emojiId)) throw new InteractionError('unsupported', `invalid emoji id ${emojiId}`);
+    const chat = await this.chat(accountId, chatId);
+    if (chat.scene !== 'group') throw new InteractionError('unsupported', 'QQ only supports reactions in group chats');
+    let users: { uin: string; nick: string }[];
+    try {
+      const res = await this.online(chat.qq_account_id).call<{ users?: { uin: string; nick: string }[] }>(
+        chat.qq_account_id,
+        'x.reaction_users',
+        { chatType: 2, peerUin: String(chat.peer_id), seq: String(seq), emojiId },
+        30_000,
+      );
+      users = res?.users ?? [];
+    } catch (error) {
+      throw new InteractionError('upstream', error instanceof Error ? error.message : String(error));
+    }
+    const ids = [...new Set(users.map((u) => Number(u.uin)).filter((n) => Number.isSafeInteger(n) && n > 0))];
+    const names = new Map<number, string>();
+    if (ids.length > 0) {
+      for (const r of await rows<{ user_id: number | string; name: string | null }>(
+        this.db,
+        sql`select user_id, coalesce(nullif(card, ''), nickname) as name from group_members
+             where qq_account_id = ${chat.qq_account_id} and group_id = ${chat.peer_id} and user_id in ${sqlList(ids)}`,
+      )) {
+        if (r.name) names.set(Number(r.user_id), r.name);
+      }
+    }
+    return ids.map((id) => ({ userId: id, name: names.get(id) ?? users.find((u) => Number(u.uin) === id)?.nick ?? '' }));
   }
 
   /** 语音转文字（QQ 自己的识别，要几秒）。 */

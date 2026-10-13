@@ -135,10 +135,11 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     collectionView.addSubview(replyArrow)
   }
 
-  // MARK: 横向拖动：按在气泡上拖 = 回复这条；按在空白处拖 = 露出时间
+  // MARK: 横向拖动：按在气泡上往左拖 = 回复这条（发送时间显示在气泡右下角，不用拖出来看）
 
   private enum PanMode {
-    case times
+    /// 拖正在播放的语音的进度。
+    case scrub
     case reply(cell: UICollectionViewCell, message: Qqbridge_V1_Message)
   }
 
@@ -148,10 +149,25 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private static let replyThreshold: CGFloat = 64
   private var replyArmed = false
 
+  /// 播放语音时：系统的返回手势等我们的拖动先判断（按在波形上就是拖进度，不是返回）。
+  func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+    g.view === collectionView && g is UIPanGestureRecognizer && messageContext?.voice.playing != nil && !(other.view is UIScrollView)
+  }
+
   func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
     guard let pan = g as? UIPanGestureRecognizer, pan.view === collectionView else { return true }
     guard !selecting else { return false }
     let v = pan.velocity(in: collectionView)
+    // 正在播的语音：在波形上左右拖 = 拖播放进度的白线（两个方向都认，要抢在系统的返回手势前面）。
+    if abs(v.x) > abs(v.y), let voice = messageContext?.voice, voice.playing != nil, let wave = voice.waveFrame,
+      let window = collectionView.window
+    {
+      let p = pan.location(in: window)
+      if p.x >= wave.minX - 16, p.x <= wave.maxX + 16, p.y >= wave.minY - 24, p.y <= wave.maxY + 24 {
+        panMode = .scrub
+        return true
+      }
+    }
     // 只认往左、明显横向的拖动（往右是系统的返回手势）。
     guard v.x < 0, abs(v.x) > abs(v.y) * 1.5 else { return false }
     let p = pan.location(in: collectionView)
@@ -166,21 +182,22 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
         return true
       }
     }
-    panMode = .times
-    return true
+    return false
   }
 
   @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
     guard let mode = panMode else { return }
     let dx = min(0, pan.translation(in: collectionView).x)
     switch mode {
-    case .times:
-      let reveal = min(TimeReveal.width, -dx * 0.6)
-      switch pan.state {
-      case .changed: messageContext?.timeReveal.offset = reveal
-      default:
-        UIView.animate(withDuration: 0.25) { self.messageContext?.timeReveal.offset = 0 }
-        if pan.state != .changed { panMode = nil }
+    case .scrub:
+      guard let voice = messageContext?.voice, let wave = voice.waveFrame, let window = collectionView.window, wave.width > 0 else {
+        panMode = nil
+        return
+      }
+      voice.scrub(to: Double((pan.location(in: window).x - wave.minX) / wave.width))
+      if pan.state != .began, pan.state != .changed {
+        voice.endScrub()
+        panMode = nil
       }
     case .reply(let cell, let message):
       let shift = max(dx, -Self.replyThreshold * 1.4)

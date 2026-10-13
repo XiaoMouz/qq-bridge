@@ -67,6 +67,10 @@ public protocol Qqbridge_V1_MessageServiceClientInterface: Sendable {
 
     @available(iOS 13, *)
     func `sendAiVoice`(request: Qqbridge_V1_SendAiVoiceRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SendAiVoiceResponse>
+
+    /// 某条消息上点了某个表情回应的人（当场向 QQ 查，最多 500 个）。
+    @available(iOS 13, *)
+    func `listReactionUsers`(request: Qqbridge_V1_ListReactionUsersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListReactionUsersResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_MessageServiceClientInterface`.
@@ -142,6 +146,11 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
         return await self.client.unary(path: "/qqbridge.v1.MessageService/SendAiVoice", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `listReactionUsers`(request: Qqbridge_V1_ListReactionUsersRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListReactionUsersResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/ListReactionUsers", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let getHistory = Connect.MethodSpec(name: "GetHistory", service: "qqbridge.v1.MessageService", type: .unary)
@@ -157,6 +166,7 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
             public static let transcribeVoice = Connect.MethodSpec(name: "TranscribeVoice", service: "qqbridge.v1.MessageService", type: .unary)
             public static let listAiVoices = Connect.MethodSpec(name: "ListAiVoices", service: "qqbridge.v1.MessageService", type: .unary)
             public static let sendAiVoice = Connect.MethodSpec(name: "SendAiVoice", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let listReactionUsers = Connect.MethodSpec(name: "ListReactionUsers", service: "qqbridge.v1.MessageService", type: .unary)
         }
     }
 }

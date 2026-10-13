@@ -36,6 +36,24 @@ service MessageService {
   // QQ 的 AI 语音（文字转语音，只有群聊能用）：可选的角色；按角色把一段文字读成语音发到群里。
   rpc ListAiVoices(ListAiVoicesRequest) returns (ListAiVoicesResponse);
   rpc SendAiVoice(SendAiVoiceRequest) returns (SendAiVoiceResponse);
+  // 某条消息上点了某个表情回应的人（当场向 QQ 查，最多 500 个）。
+  rpc ListReactionUsers(ListReactionUsersRequest) returns (ListReactionUsersResponse);
+}
+
+message ListReactionUsersRequest {
+  int64 chat_id = 1;
+  int64 seq = 2;
+  string emoji_id = 3;
+}
+
+message ReactionUser {
+  int64 user_id = 1;
+  // 群名片 > 昵称（服务端知道的）；不知道时为空，客户端显示号码。
+  string name = 2;
+}
+
+message ListReactionUsersResponse {
+  repeated ReactionUser users = 1;
 }
 
 message TranscribeVoiceRequest {

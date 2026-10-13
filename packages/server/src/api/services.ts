@@ -493,6 +493,14 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         throw interactionError(error);
       }
     },
+    async listReactionUsers(req, ctx) {
+      try {
+        const users = await deps.interactions.reactionUsers(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), toSafeNumber(req.seq, 'seq'), req.emojiId);
+        return { users: users.map((u) => ({ userId: BigInt(u.userId), name: u.name })) };
+      } catch (error) {
+        throw interactionError(error);
+      }
+    },
     async transcribeVoice(req, ctx) {
       try {
         return { text: await deps.interactions.transcribe(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), toSafeNumber(req.seq, 'seq')) };

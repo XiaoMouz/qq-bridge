@@ -85,7 +85,9 @@ struct VoiceTranscriptView: View {
       .font(.subheadline)
       .opacity(0.85)
       .padding(.top, 4)
+      // 按文字本身的宽度（最多 260 再换行）：短的识别结果不把气泡撑宽。
       .frame(maxWidth: 260, alignment: .leading)
+      .fixedSize(horizontal: true, vertical: false)
       .transition(.opacity)
     }
   }
