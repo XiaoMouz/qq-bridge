@@ -565,6 +565,7 @@ struct BlockView: View {
     case .record(let r):
       VStack(alignment: .leading, spacing: 0) {
         let isPlaying = context.voice.isPlaying(r)
+        HStack(spacing: 10) {
         VoiceBubble(
           record: r,
           playing: isPlaying,
@@ -576,8 +577,29 @@ struct BlockView: View {
         .onTapGesture { context.actions.playVoice(r) }
         // 私聊的语音：显示到时就下到本机（几十 KB），点了马上播。群聊的点了再下。
         .task(id: VoicePlayer.sha(r)) {
+          if let message { VoiceTranscripts.shared.autoTranscribe(chatId: context.chatId, seq: message.seq, session: context.session) }
           guard !context.isGroup, r.media.state == .stored else { return }
           _ = try? await context.session.media.file(for: VoicePlayer.sha(r), chatId: context.chatId)
+        }
+          // 一键转文字（长按菜单里的「转文字」也保留）：转过的再点收起。
+          if let message, message.state != .recalled {
+            let state = VoiceTranscripts.shared.state(chatId: context.chatId, seq: message.seq)
+            Button {
+              VoiceTranscripts.shared.toggle(chatId: context.chatId, seq: message.seq, session: context.session)
+            } label: {
+              Group {
+                if state == .loading {
+                  ProgressView().controlSize(.mini).tint(outgoing ? .white : nil)
+                } else {
+                  Image(systemName: "character.bubble").font(.system(size: 15, weight: .semibold))
+                }
+              }
+              .frame(width: 30, height: 30)
+              .background(Circle().fill(outgoing ? Color.white.opacity(0.22) : Color.primary.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel({ if case .text = state { "收起文字" } else { "转文字" } }())
+          }
         }
         if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing) }
       }

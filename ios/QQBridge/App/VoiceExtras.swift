@@ -20,6 +20,10 @@ final class VoiceTranscripts {
 
   private(set) var states: [String: State] = [:]
   private static let storeKey = "voiceTranscripts"
+  /// 设置：语音消息出现时自动转文字。
+  static let autoKey = "autoTranscribeVoice"
+  /// 手动收起过的（自动转文字时不再自己展开）。
+  private var hidden: Set<String> = []
 
   private init() {
     let saved = UserDefaults.standard.dictionary(forKey: Self.storeKey) as? [String: String] ?? [:]
@@ -48,8 +52,30 @@ final class VoiceTranscripts {
   }
 
   func hide(chatId: Int64, seq: Int64) {
-    states["\(chatId):\(seq)"] = nil
+    let key = "\(chatId):\(seq)"
+    states[key] = nil
+    hidden.insert(key)
     save()
+  }
+
+  /// 自动转文字（设置打开时语音气泡出现就调用）：手动收起过的、已经有结果的不再转。
+  func autoTranscribe(chatId: Int64, seq: Int64, session: Session) {
+    guard UserDefaults.standard.bool(forKey: Self.autoKey), !hidden.contains("\(chatId):\(seq)") else { return }
+    if case .failed = states["\(chatId):\(seq)"] { return }
+    transcribe(chatId: chatId, seq: seq, session: session)
+  }
+
+  /// 语音旁边的按钮：没转过就转，转出来了就收起，收起了再点就重新显示。
+  func toggle(chatId: Int64, seq: Int64, session: Session) {
+    let key = "\(chatId):\(seq)"
+    switch states[key] {
+    case .text: hide(chatId: chatId, seq: seq)
+    case .loading: break
+    default:
+      hidden.remove(key)
+      states[key] = nil
+      transcribe(chatId: chatId, seq: seq, session: session)
+    }
   }
 
   /// 只存识别出来的（最多 500 条）。
@@ -85,9 +111,9 @@ struct VoiceTranscriptView: View {
       .font(.subheadline)
       .opacity(0.85)
       .padding(.top, 4)
-      // 按文字本身的宽度（最多 260 再换行）：短的识别结果不把气泡撑宽。
-      .frame(maxWidth: 260, alignment: .leading)
-      .fixedSize(horizontal: true, vertical: false)
+      // 按文字本身的宽度，最多 260 再换行、全部显示：短的识别结果不把气泡撑宽，长的不截断。
+      .fixedSize(horizontal: false, vertical: true)
+      .modifier(CappedWidth(max: 260))
       .transition(.opacity)
     }
   }
@@ -217,5 +243,28 @@ struct AiVoiceSheet: View {
     } catch {
       self.error = LoadState.describe(error)
     }
+  }
+}
+
+/// 宽度最多 max：给子视图的建议宽度不超过 max，自身大小就是子视图的大小（不像 frame(maxWidth:) 会撑满到 max）。
+struct CappedWidth: ViewModifier {
+  let max: CGFloat
+
+  func body(content: Content) -> some View {
+    CappedWidthLayout(max: max) { content }
+  }
+}
+
+private struct CappedWidthLayout: Layout {
+  let max: CGFloat
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    guard let child = subviews.first else { return .zero }
+    let width = min(proposal.width ?? max, max)
+    return child.sizeThatFits(ProposedViewSize(width: width, height: nil))
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
   }
 }

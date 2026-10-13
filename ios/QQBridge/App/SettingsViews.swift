@@ -95,6 +95,7 @@ struct StatusDotLabelStyle: LabelStyle {
 
 struct PreferencesView: View {
   @AppStorage(DialogRow.linesKey) private var previewLines = 2
+  @AppStorage(VoiceTranscripts.autoKey) private var autoTranscribe = false
 
   var body: some View {
     Form {
@@ -103,6 +104,13 @@ struct PreferencesView: View {
           Text("两行").tag(2)
           Text("三行").tag(3)
         }
+      }
+      Section {
+        Toggle("自动语音转文字", isOn: $autoTranscribe)
+      } header: {
+        Text("语音消息")
+      } footer: {
+        Text("打开后，聊天里出现的语音消息自动用 QQ 的识别转成文字，显示在语音下面。关闭时可以点语音右边的按钮或长按「转文字」。")
       }
     }
     .navigationTitle("偏好")
