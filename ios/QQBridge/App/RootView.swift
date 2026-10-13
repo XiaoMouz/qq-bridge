@@ -7,6 +7,14 @@ struct RootView: View {
   @State private var showQqLogin = false
   @State private var tab = 0
 
+  /// 通话全屏：来电时只在消息页（没开着会话）或点了横幅时；接听后除非收起。
+  private var showFullCall: Bool {
+    let calls = model.calls
+    guard calls.call != nil, !calls.minimized else { return false }
+    if calls.isRinging, !calls.expanded { return tab == 0 && model.openChatId == nil }
+    return true
+  }
+
   var body: some View {
     TabView(selection: Binding(get: { tab }, set: { new in
       // 已经在"消息"页时再点一次：跳到下一个有未读的会话。
@@ -81,10 +89,17 @@ struct RootView: View {
       }
       .presentationDetents([.medium, .large])
     }
-    // 来电 / 通话中：全屏通话界面。
-    .fullScreenCover(isPresented: Binding(get: { model.calls.call != nil }, set: { _ in })) {
+    // 来电：在消息页（没开着会话）时全屏，其他地方只在顶部显示横幅；接听后全屏通话界面，可以收起成顶部小条。
+    .fullScreenCover(isPresented: Binding(get: { showFullCall }, set: { _ in })) {
       CallScreen(manager: model.calls, session: session)
     }
+    .overlay(alignment: .top) {
+      if model.calls.call != nil, !showFullCall, !model.calls.ended {
+        CallBanner(manager: model.calls, session: session)
+          .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .animation(.spring(duration: 0.35), value: showFullCall)
     .environment(\.session, session)
   }
 }

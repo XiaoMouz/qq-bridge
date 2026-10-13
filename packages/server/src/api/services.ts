@@ -927,7 +927,10 @@ function callService(deps: ApiDeps): ServiceImpl<typeof CallService> {
       if (!req.callId) throw new ConnectError('call_id is required', Code.InvalidArgument);
       try {
         const res = await deps.calls.answer(auth.accountId, auth.deviceId, req.callId);
-        return { call: callToProto(res.call), livekitUrl: res.url, livekitToken: res.token, room: res.room };
+        // 经本机地址连进来的客户端（模拟器、本机调试）：Tailscale 的公开地址可能走不通（系统代理），给本机的 LiveKit。
+        const host = (ctx.requestHeader.get('host') ?? '').split(':')[0];
+        const local = host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+        return { call: callToProto(res.call), livekitUrl: local ? LOCAL_LIVEKIT_URL : res.url, livekitToken: res.token, room: res.room };
       } catch (error) {
         if (error instanceof CallError) {
           const code = { not_found: Code.NotFound, not_ringing: Code.FailedPrecondition, unavailable: Code.Unavailable }[error.code];
@@ -1228,6 +1231,9 @@ function adminService(deps: ApiDeps): ServiceImpl<typeof AdminService> {
     },
   };
 }
+
+/** 本机的 LiveKit 信令端口（deploy/docker-compose.yml 只开在回环上）。 */
+const LOCAL_LIVEKIT_URL = 'ws://127.0.0.1:7880';
 
 /** 群公告 / 精华 / 文件的错误 → Connect 错误码。 */
 async function groupContent<T>(fn: () => Promise<T>): Promise<T> {
