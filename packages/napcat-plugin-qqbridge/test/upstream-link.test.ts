@@ -175,6 +175,20 @@ describe('UpstreamLink', () => {
     expect(server.connections).toBe(2);
   });
 
+  it('sends from the oldest local event when a new queue id starts after old events were dropped', async () => {
+    // 前面的事件已确认、分段已删：本地最早是第 7 条。服务端把新队列 id 当成全新的（resume 0）。
+    queue.close();
+    queue = UpstreamQueue.open(dir, { segmentBytes: 1 });
+    for (let i = 1; i <= 9; i++) queue.append({ n: i });
+    queue.ack(6);
+    expect(queue.first).toBe(7);
+    const oldId = queue.id;
+    server.welcome = (hello) =>
+      hello.queue.id === oldId ? { t: 'welcome', resume: 6, reset: true } : { t: 'welcome', resume: 0 };
+    startLink({ maxInFlight: 4, batchSize: 2 });
+    await vi.waitFor(() => expect(server.received).toEqual([7, 8, 9]));
+  });
+
   it('retries the hello later while QQ is not logged in yet', async () => {
     let ready = false;
     startLink({

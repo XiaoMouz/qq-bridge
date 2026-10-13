@@ -149,12 +149,14 @@ export class UpstreamLink {
         }
         this.welcomed = true;
         this.backoffMs = this.o.minBackoffMs;
-        this.ackedUpTo = frame.resume;
         q.ack(frame.resume);
         if (frame.resume < q.first - 1) {
           this.o.logger.warn(`[qqbridge] upstream: events ${frame.resume + 1}..${q.first - 1} were dropped locally before the server got them`);
         }
         this.sentUpTo = Math.max(frame.resume, q.first - 1);
+        // 本地已经没有的那段不会再发，也就不会有 ack：确认位置从发送起点算。否则（新队列 id、本地早已清掉前面的事件时）
+        // 在途窗口 = maxInFlight - (sentUpTo - ackedUpTo) 一上来就是负数，一条都不发，卡死（2026-10-13 卡了 15 分钟）。
+        this.ackedUpTo = this.sentUpTo;
         this.o.logger.info(`[qqbridge] upstream connected: resume=${frame.resume} last=${q.last}`);
         this.pump();
         return;
