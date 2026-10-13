@@ -28,6 +28,13 @@ service ContactService {
   rpc ListGroupAlbumMedia(ListGroupAlbumMediaRequest) returns (ListGroupAlbumMediaResponse);
   // 下载一个群文件到服务端（已下过的直接返回）；完成后按 sha256 取。大文件可能要一会儿。
   rpc FetchGroupFile(FetchGroupFileRequest) returns (FetchGroupFileResponse);
+  // 管理群文件（QQ 那边按权限判断：群主、管理员能管所有文件，成员只能管自己上传的；建删文件夹只有群主、管理员）。
+  // 注意：QQ 的 file_id 每次列出都不一样，移动、重命名后也会变，客户端操作完重新列一次。
+  rpc DeleteGroupFiles(DeleteGroupFilesRequest) returns (DeleteGroupFilesResponse);
+  rpc MoveGroupFiles(MoveGroupFilesRequest) returns (MoveGroupFilesResponse);
+  rpc RenameGroupFile(RenameGroupFileRequest) returns (RenameGroupFileResponse);
+  rpc CreateGroupFolder(CreateGroupFolderRequest) returns (CreateGroupFolderResponse);
+  rpc DeleteGroupFolder(DeleteGroupFolderRequest) returns (DeleteGroupFolderResponse);
   // 删除好友（同时从 QQ 删除，对方的好友列表里也会没有你）。
   rpc DeleteFriend(DeleteFriendRequest) returns (DeleteFriendResponse);
 }
@@ -238,12 +245,74 @@ message FetchGroupFileRequest {
   string file_id = 2;
   uint32 busid = 3;
   string name = 4;
+  // 文件大小：服务端按"群 + 文件名 + 大小"认下载过的文件（QQ 的 file_id 每次列出都不一样）。
+  uint64 size = 5;
 }
 
 message FetchGroupFileResponse {
   string sha256 = 1;
   uint64 size = 2;
   string mime = 3;
+}
+
+message DeleteGroupFilesRequest {
+  int64 group_id = 1;
+  repeated string file_ids = 2;
+}
+
+message MoveGroupFilesRequest {
+  int64 group_id = 1;
+  repeated string file_ids = 2;
+  // 现在所在的文件夹（"" = 根目录）。
+  string from_folder_id = 3;
+  // 要移到的文件夹（"" = 根目录）。
+  string to_folder_id = 4;
+}
+
+message RenameGroupFileRequest {
+  int64 group_id = 1;
+  string file_id = 2;
+  // 所在的文件夹（"" = 根目录）。
+  string folder_id = 3;
+  string new_name = 4;
+  // 原来的文件名和大小：改名后服务端把下载过的记录对到新名字上。
+  string name = 5;
+  uint64 size = 6;
+}
+
+message CreateGroupFolderRequest {
+  int64 group_id = 1;
+  string name = 2;
+}
+
+message CreateGroupFolderResponse {
+  GroupFolder folder = 1;
+}
+
+message DeleteGroupFolderRequest {
+  int64 group_id = 1;
+  string folder_id = 2;
+}
+
+// 批量操作：成功的个数；失败的 id 和原因（例如没有权限）。
+message DeleteGroupFilesResponse {
+  uint32 succeeded = 1;
+  repeated GroupFileOpFailure failures = 2;
+}
+
+message MoveGroupFilesResponse {
+  uint32 succeeded = 1;
+  repeated GroupFileOpFailure failures = 2;
+}
+
+// 单个操作失败时直接返回错误。
+message RenameGroupFileResponse {}
+
+message DeleteGroupFolderResponse {}
+
+message GroupFileOpFailure {
+  string file_id = 1;
+  string reason = 2;
 }
 
 message ListGroupAlbumsRequest {

@@ -60,6 +60,23 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `fetchGroupFile`(request: Qqbridge_V1_FetchGroupFileRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_FetchGroupFileResponse>
 
+    /// 管理群文件（QQ 那边按权限判断：群主、管理员能管所有文件，成员只能管自己上传的；建删文件夹只有群主、管理员）。
+    /// 注意：QQ 的 file_id 每次列出都不一样，移动、重命名后也会变，客户端操作完重新列一次。
+    @available(iOS 13, *)
+    func `deleteGroupFiles`(request: Qqbridge_V1_DeleteGroupFilesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_DeleteGroupFilesResponse>
+
+    @available(iOS 13, *)
+    func `moveGroupFiles`(request: Qqbridge_V1_MoveGroupFilesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_MoveGroupFilesResponse>
+
+    @available(iOS 13, *)
+    func `renameGroupFile`(request: Qqbridge_V1_RenameGroupFileRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RenameGroupFileResponse>
+
+    @available(iOS 13, *)
+    func `createGroupFolder`(request: Qqbridge_V1_CreateGroupFolderRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_CreateGroupFolderResponse>
+
+    @available(iOS 13, *)
+    func `deleteGroupFolder`(request: Qqbridge_V1_DeleteGroupFolderRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_DeleteGroupFolderResponse>
+
     /// 删除好友（同时从 QQ 删除，对方的好友列表里也会没有你）。
     @available(iOS 13, *)
     func `deleteFriend`(request: Qqbridge_V1_DeleteFriendRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_DeleteFriendResponse>
@@ -139,6 +156,31 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
     }
 
     @available(iOS 13, *)
+    public func `deleteGroupFiles`(request: Qqbridge_V1_DeleteGroupFilesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_DeleteGroupFilesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/DeleteGroupFiles", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `moveGroupFiles`(request: Qqbridge_V1_MoveGroupFilesRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_MoveGroupFilesResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/MoveGroupFiles", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `renameGroupFile`(request: Qqbridge_V1_RenameGroupFileRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RenameGroupFileResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/RenameGroupFile", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `createGroupFolder`(request: Qqbridge_V1_CreateGroupFolderRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_CreateGroupFolderResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/CreateGroupFolder", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `deleteGroupFolder`(request: Qqbridge_V1_DeleteGroupFolderRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_DeleteGroupFolderResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/DeleteGroupFolder", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `deleteFriend`(request: Qqbridge_V1_DeleteFriendRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_DeleteFriendResponse> {
         return await self.client.unary(path: "/qqbridge.v1.ContactService/DeleteFriend", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -158,6 +200,11 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let listGroupAlbums = Connect.MethodSpec(name: "ListGroupAlbums", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupAlbumMedia = Connect.MethodSpec(name: "ListGroupAlbumMedia", service: "qqbridge.v1.ContactService", type: .unary)
             public static let fetchGroupFile = Connect.MethodSpec(name: "FetchGroupFile", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let deleteGroupFiles = Connect.MethodSpec(name: "DeleteGroupFiles", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let moveGroupFiles = Connect.MethodSpec(name: "MoveGroupFiles", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let renameGroupFile = Connect.MethodSpec(name: "RenameGroupFile", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let createGroupFolder = Connect.MethodSpec(name: "CreateGroupFolder", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let deleteGroupFolder = Connect.MethodSpec(name: "DeleteGroupFolder", service: "qqbridge.v1.ContactService", type: .unary)
             public static let deleteFriend = Connect.MethodSpec(name: "DeleteFriend", service: "qqbridge.v1.ContactService", type: .unary)
         }
     }

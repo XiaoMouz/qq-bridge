@@ -124,6 +124,26 @@ public actor MediaCache {
     return url
   }
 
+  /// 这些里面手机上已经存着的（不算访问，不触发下载）。
+  public func cachedSet(_ sha256s: [String]) throws -> Set<String> {
+    guard !sha256s.isEmpty else { return [] }
+    let known = try store.db.read { db in
+      try String.fetchAll(db, sql: "select sha256 from mediaCache where sha256 in (\(sha256s.map { _ in "?" }.joined(separator: ",")))", arguments: StatementArguments(sha256s))
+    }
+    return Set(known.filter { FileManager.default.fileExists(atPath: path(for: $0).path) })
+  }
+
+  /// 删掉手机上的这几个文件（服务端的不动）。返回释放的字节数。
+  @discardableResult
+  public func remove(_ sha256s: [String]) throws -> Int64 {
+    guard !sha256s.isEmpty else { return 0 }
+    let victims = try store.db.read { db in
+      try Row.fetchAll(db, sql: "select sha256, size from mediaCache where sha256 in (\(sha256s.map { _ in "?" }.joined(separator: ",")))", arguments: StatementArguments(sha256s))
+        .map { ($0["sha256"] as String, $0["size"] as Int64) }
+    }
+    return try remove(victims)
+  }
+
   /// 边下边播用的签名链接（不进缓存）。
   public func streamURL(for sha256: String) async throws -> URL {
     if let cached = try cachedFile(sha256) { return cached }

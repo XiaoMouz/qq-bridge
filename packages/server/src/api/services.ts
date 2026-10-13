@@ -1051,9 +1051,48 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
     },
     async fetchGroupFile(req, ctx) {
       return groupContent(async () => {
-        const f = await deps.groupContent.fetchFile(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.fileId, req.busid, req.name);
+        const f = await deps.groupContent.fetchFile(
+          requireAuth(ctx).accountId,
+          toSafeNumber(req.groupId, 'group_id'),
+          req.fileId,
+          req.busid,
+          req.name,
+          toSafeNumber(req.size, 'size'),
+        );
         return { sha256: f.sha256, size: BigInt(f.size), mime: f.mime ?? '' };
       });
+    },
+    async deleteGroupFiles(req, ctx) {
+      return groupContent(() => deps.groupContent.deleteFiles(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.fileIds));
+    },
+    async moveGroupFiles(req, ctx) {
+      return groupContent(() =>
+        deps.groupContent.moveFiles(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.fileIds, req.fromFolderId, req.toFolderId),
+      );
+    },
+    async renameGroupFile(req, ctx) {
+      await groupContent(() =>
+        deps.groupContent.renameFile(
+          requireAuth(ctx).accountId,
+          toSafeNumber(req.groupId, 'group_id'),
+          req.fileId,
+          req.folderId,
+          req.newName,
+          req.name,
+          toSafeNumber(req.size, 'size'),
+        ),
+      );
+      return {};
+    },
+    async createGroupFolder(req, ctx) {
+      return groupContent(async () => {
+        const f = await deps.groupContent.createFolder(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.name);
+        return { folder: { ...f, modifyTime: BigInt(f.modifyTime) } };
+      });
+    },
+    async deleteGroupFolder(req, ctx) {
+      await groupContent(() => deps.groupContent.deleteFolder(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'), req.folderId));
+      return {};
     },
     async getAvatars(req, ctx) {
       const accountId = requireAuth(ctx).accountId;
@@ -1151,7 +1190,13 @@ async function groupContent<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (error) {
     if (error instanceof GroupContentError) {
-      const code = { not_found: Code.NotFound, offline: Code.Unavailable, unavailable: Code.FailedPrecondition }[error.code];
+      const code = {
+        not_found: Code.NotFound,
+        offline: Code.Unavailable,
+        unavailable: Code.FailedPrecondition,
+        invalid: Code.InvalidArgument,
+        failed: Code.FailedPrecondition,
+      }[error.code];
       throw new ConnectError(error.message, code);
     }
     throw error;

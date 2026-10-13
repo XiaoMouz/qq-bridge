@@ -627,6 +627,9 @@ public nonisolated struct Qqbridge_V1_FetchGroupFileRequest: Sendable {
 
   public var name: String = String()
 
+  /// 文件大小：服务端按"群 + 文件名 + 大小"认下载过的文件（QQ 的 file_id 每次列出都不一样）。
+  public var size: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -642,6 +645,177 @@ public nonisolated struct Qqbridge_V1_FetchGroupFileResponse: Sendable {
   public var size: UInt64 = 0
 
   public var mime: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_DeleteGroupFilesRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var fileIds: [String] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_MoveGroupFilesRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var fileIds: [String] = []
+
+  /// 现在所在的文件夹（"" = 根目录）。
+  public var fromFolderID: String = String()
+
+  /// 要移到的文件夹（"" = 根目录）。
+  public var toFolderID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_RenameGroupFileRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var fileID: String = String()
+
+  /// 所在的文件夹（"" = 根目录）。
+  public var folderID: String = String()
+
+  public var newName: String = String()
+
+  /// 原来的文件名和大小：改名后服务端把下载过的记录对到新名字上。
+  public var name: String = String()
+
+  public var size: UInt64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_CreateGroupFolderRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var name: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_CreateGroupFolderResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var folder: Qqbridge_V1_GroupFolder {
+    get {_folder ?? Qqbridge_V1_GroupFolder()}
+    set {_folder = newValue}
+  }
+  /// Returns true if `folder` has been explicitly set.
+  public var hasFolder: Bool {self._folder != nil}
+  /// Clears the value of `folder`. Subsequent reads from it will return its default value.
+  public mutating func clearFolder() {self._folder = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _folder: Qqbridge_V1_GroupFolder? = nil
+}
+
+public nonisolated struct Qqbridge_V1_DeleteGroupFolderRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var groupID: Int64 = 0
+
+  public var folderID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 批量操作：成功的个数；失败的 id 和原因（例如没有权限）。
+public nonisolated struct Qqbridge_V1_DeleteGroupFilesResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var succeeded: UInt32 = 0
+
+  public var failures: [Qqbridge_V1_GroupFileOpFailure] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_MoveGroupFilesResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var succeeded: UInt32 = 0
+
+  public var failures: [Qqbridge_V1_GroupFileOpFailure] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// 单个操作失败时直接返回错误。
+public nonisolated struct Qqbridge_V1_RenameGroupFileResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_DeleteGroupFolderResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_GroupFileOpFailure: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var fileID: String = String()
+
+  public var reason: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2132,7 +2306,7 @@ nonisolated extension Qqbridge_V1_ListGroupFilesResponse: SwiftProtobuf.Message,
 
 nonisolated extension Qqbridge_V1_FetchGroupFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".FetchGroupFileRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}file_id\0\u{1}busid\0\u{1}name\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}file_id\0\u{1}busid\0\u{1}name\0\u{1}size\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2144,6 +2318,7 @@ nonisolated extension Qqbridge_V1_FetchGroupFileRequest: SwiftProtobuf.Message, 
       case 2: try { try decoder.decodeSingularStringField(value: &self.fileID) }()
       case 3: try { try decoder.decodeSingularUInt32Field(value: &self.busid) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.size) }()
       default: break
       }
     }
@@ -2162,6 +2337,9 @@ nonisolated extension Qqbridge_V1_FetchGroupFileRequest: SwiftProtobuf.Message, 
     if !self.name.isEmpty {
       try visitor.visitSingularStringField(value: self.name, fieldNumber: 4)
     }
+    if self.size != 0 {
+      try visitor.visitSingularUInt64Field(value: self.size, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2170,6 +2348,7 @@ nonisolated extension Qqbridge_V1_FetchGroupFileRequest: SwiftProtobuf.Message, 
     if lhs.fileID != rhs.fileID {return false}
     if lhs.busid != rhs.busid {return false}
     if lhs.name != rhs.name {return false}
+    if lhs.size != rhs.size {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2210,6 +2389,388 @@ nonisolated extension Qqbridge_V1_FetchGroupFileResponse: SwiftProtobuf.Message,
     if lhs.sha256 != rhs.sha256 {return false}
     if lhs.size != rhs.size {return false}
     if lhs.mime != rhs.mime {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteGroupFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteGroupFilesRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}file_ids\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.fileIds) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.fileIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.fileIds, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteGroupFilesRequest, rhs: Qqbridge_V1_DeleteGroupFilesRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.fileIds != rhs.fileIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_MoveGroupFilesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MoveGroupFilesRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}file_ids\0\u{3}from_folder_id\0\u{3}to_folder_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.fileIds) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.fromFolderID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.toFolderID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.fileIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.fileIds, fieldNumber: 2)
+    }
+    if !self.fromFolderID.isEmpty {
+      try visitor.visitSingularStringField(value: self.fromFolderID, fieldNumber: 3)
+    }
+    if !self.toFolderID.isEmpty {
+      try visitor.visitSingularStringField(value: self.toFolderID, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_MoveGroupFilesRequest, rhs: Qqbridge_V1_MoveGroupFilesRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.fileIds != rhs.fileIds {return false}
+    if lhs.fromFolderID != rhs.fromFolderID {return false}
+    if lhs.toFolderID != rhs.toFolderID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_RenameGroupFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RenameGroupFileRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}file_id\0\u{3}folder_id\0\u{3}new_name\0\u{1}name\0\u{1}size\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.fileID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.folderID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.newName) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self.size) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.fileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.fileID, fieldNumber: 2)
+    }
+    if !self.folderID.isEmpty {
+      try visitor.visitSingularStringField(value: self.folderID, fieldNumber: 3)
+    }
+    if !self.newName.isEmpty {
+      try visitor.visitSingularStringField(value: self.newName, fieldNumber: 4)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 5)
+    }
+    if self.size != 0 {
+      try visitor.visitSingularUInt64Field(value: self.size, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_RenameGroupFileRequest, rhs: Qqbridge_V1_RenameGroupFileRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.fileID != rhs.fileID {return false}
+    if lhs.folderID != rhs.folderID {return false}
+    if lhs.newName != rhs.newName {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.size != rhs.size {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_CreateGroupFolderRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateGroupFolderRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{1}name\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_CreateGroupFolderRequest, rhs: Qqbridge_V1_CreateGroupFolderRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_CreateGroupFolderResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CreateGroupFolderResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}folder\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._folder) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._folder {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_CreateGroupFolderResponse, rhs: Qqbridge_V1_CreateGroupFolderResponse) -> Bool {
+    if lhs._folder != rhs._folder {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteGroupFolderRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteGroupFolderRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}group_id\0\u{3}folder_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.groupID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.folderID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.groupID != 0 {
+      try visitor.visitSingularInt64Field(value: self.groupID, fieldNumber: 1)
+    }
+    if !self.folderID.isEmpty {
+      try visitor.visitSingularStringField(value: self.folderID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteGroupFolderRequest, rhs: Qqbridge_V1_DeleteGroupFolderRequest) -> Bool {
+    if lhs.groupID != rhs.groupID {return false}
+    if lhs.folderID != rhs.folderID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteGroupFilesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteGroupFilesResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}succeeded\0\u{1}failures\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.succeeded) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.failures) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.succeeded != 0 {
+      try visitor.visitSingularUInt32Field(value: self.succeeded, fieldNumber: 1)
+    }
+    if !self.failures.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.failures, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteGroupFilesResponse, rhs: Qqbridge_V1_DeleteGroupFilesResponse) -> Bool {
+    if lhs.succeeded != rhs.succeeded {return false}
+    if lhs.failures != rhs.failures {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_MoveGroupFilesResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".MoveGroupFilesResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}succeeded\0\u{1}failures\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.succeeded) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.failures) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.succeeded != 0 {
+      try visitor.visitSingularUInt32Field(value: self.succeeded, fieldNumber: 1)
+    }
+    if !self.failures.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.failures, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_MoveGroupFilesResponse, rhs: Qqbridge_V1_MoveGroupFilesResponse) -> Bool {
+    if lhs.succeeded != rhs.succeeded {return false}
+    if lhs.failures != rhs.failures {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_RenameGroupFileResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RenameGroupFileResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_RenameGroupFileResponse, rhs: Qqbridge_V1_RenameGroupFileResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_DeleteGroupFolderResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeleteGroupFolderResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_DeleteGroupFolderResponse, rhs: Qqbridge_V1_DeleteGroupFolderResponse) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_GroupFileOpFailure: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GroupFileOpFailure"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}file_id\0\u{1}reason\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.fileID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.reason) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.fileID.isEmpty {
+      try visitor.visitSingularStringField(value: self.fileID, fieldNumber: 1)
+    }
+    if !self.reason.isEmpty {
+      try visitor.visitSingularStringField(value: self.reason, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_GroupFileOpFailure, rhs: Qqbridge_V1_GroupFileOpFailure) -> Bool {
+    if lhs.fileID != rhs.fileID {return false}
+    if lhs.reason != rhs.reason {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -1,7 +1,6 @@
-// 群资料里的群公告、群精华、群文件。列表打开时当场向 QQ 拉（QQ 掉线时看不了）；群文件点开时服务端先下载再用 QuickLook 打开。
+// 群资料里的群公告、群精华（群文件见 GroupFilesView.swift）。列表打开时当场向 QQ 拉（QQ 掉线时看不了）。
 import QQBridgeKit
 import QQBridgeProto
-import QuickLook
 import SwiftUI
 
 struct GroupEssenceView: View {
@@ -85,126 +84,6 @@ struct GroupEssenceView: View {
       state = .loaded
     } catch {
       state = .failed(LoadState.describe(error))
-    }
-  }
-}
-
-struct GroupFilesView: View {
-  let session: Session
-  let groupId: Int64
-  var folderId = ""
-  var title = "群文件"
-  @State private var folders: [Qqbridge_V1_GroupFolder] = []
-  @State private var files: [Qqbridge_V1_GroupFile] = []
-  @State private var state = LoadState.loading
-  @State private var opening: String?
-  @State private var preview: URL?
-  @State private var error: String?
-
-  var body: some View {
-    List {
-      ForEach(folders, id: \.id) { f in
-        NavigationLink {
-          GroupFilesView(session: session, groupId: groupId, folderId: f.id, title: f.name)
-        } label: {
-          Label {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(f.name)
-              Text("\(f.fileCount) 个文件").font(.caption).foregroundStyle(.secondary)
-            }
-          } icon: { Image(systemName: "folder.fill").foregroundStyle(.tint) }
-        }
-      }
-      ForEach(files, id: \.id) { f in
-        Button { Task { await open(f) } } label: {
-          HStack(spacing: 12) {
-            Image(systemName: Self.icon(f.name)).font(.title2).foregroundStyle(.tint).frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(f.name).lineLimit(2).foregroundStyle(.primary)
-              Text(detail(f)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer()
-            if opening == f.id {
-              ProgressView()
-            } else if !f.sha256.isEmpty {
-              Image(systemName: "checkmark.icloud").foregroundStyle(.secondary)
-            }
-          }
-        }
-        .tint(.primary)
-        .disabled(opening != nil)
-      }
-    }
-    .overlay { state.overlay(empty: folders.isEmpty && files.isEmpty, emptyText: "没有群文件", icon: "doc") }
-    .navigationTitle(title)
-    .navigationBarTitleDisplayMode(.inline)
-    .quickLookPreview($preview)
-    .alert("打不开", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in
-      Button("好") { error = nil }
-    } message: { Text($0) }
-    .refreshable { await load() }
-    .task { await load() }
-  }
-
-  private func detail(_ f: Qqbridge_V1_GroupFile) -> String {
-    var parts = [ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)]
-    if !f.uploaderName.isEmpty { parts.append(f.uploaderName) }
-    if f.modifyTime > 0 { parts.append(Format.date(f.modifyTime)) }
-    if f.deadTime > 0 { parts.append("\(Format.date(f.deadTime)) 过期") }
-    return parts.joined(separator: " · ")
-  }
-
-  private func load() async {
-    var req = Qqbridge_V1_ListGroupFilesRequest()
-    req.groupID = groupId
-    req.folderID = folderId
-    do {
-      let res = try await session.api.contacts.listGroupFiles(request: req, headers: session.api.headers).get()
-      folders = res.folders
-      files = res.files
-      state = .loaded
-    } catch {
-      state = .failed(LoadState.describe(error))
-    }
-  }
-
-  /// 服务端没有就先让它从 QQ 下载，再下到手机上用 QuickLook 打开（保存、分享在 QuickLook 里）。
-  private func open(_ f: Qqbridge_V1_GroupFile) async {
-    opening = f.id
-    defer { opening = nil }
-    do {
-      var sha = f.sha256
-      if sha.isEmpty {
-        var req = Qqbridge_V1_FetchGroupFileRequest()
-        req.groupID = groupId
-        req.fileID = f.id
-        req.busid = f.busid
-        req.name = f.name
-        sha = try await session.api.contacts.fetchGroupFile(request: req, headers: session.api.headers).get().sha256
-        if let i = files.firstIndex(where: { $0.id == f.id }) { files[i].sha256 = sha }
-      }
-      let cached = try await session.media.file(for: sha, chatId: nil)
-      let named = FileManager.default.temporaryDirectory.appendingPathComponent(f.name.isEmpty ? sha : f.name)
-      try? FileManager.default.removeItem(at: named)
-      try FileManager.default.copyItem(at: cached, to: named)
-      preview = named
-    } catch {
-      self.error = LoadState.describe(error)
-    }
-  }
-
-  static func icon(_ name: String) -> String {
-    switch (name as NSString).pathExtension.lowercased() {
-    case "jpg", "jpeg", "png", "gif", "heic", "webp": "photo"
-    case "mp4", "mov", "mkv", "avi": "film"
-    case "mp3", "m4a", "wav", "flac", "aac": "music.note"
-    case "zip", "rar", "7z", "tar", "gz": "doc.zipper"
-    case "pdf": "doc.richtext"
-    case "doc", "docx", "txt", "md", "pages": "doc.text"
-    case "xls", "xlsx", "csv", "numbers": "tablecells"
-    case "ppt", "pptx", "key": "rectangle.on.rectangle"
-    case "apk", "ipa", "exe", "dmg": "shippingbox"
-    default: "doc"
     }
   }
 }

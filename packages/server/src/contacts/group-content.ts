@@ -11,7 +11,7 @@ import type { UpstreamHub } from '../upstream/hub.ts';
 
 export class GroupContentError extends Error {
   constructor(
-    readonly code: 'not_found' | 'offline' | 'unavailable',
+    readonly code: 'not_found' | 'offline' | 'unavailable' | 'invalid' | 'failed',
     message: string,
   ) {
     super(message);
@@ -255,22 +255,9 @@ export class GroupContentService {
 
   async files(accountId: number, groupId: number, folderId: string): Promise<{ folders: GroupFolder[]; files: GroupFile[] }> {
     const qq = await this.qqAccountOf(accountId);
-    const res = folderId
-      ? await this.ob11<Ob11>(qq, 'get_group_files_by_folder', { group_id: String(groupId), folder_id: folderId, file_count: 1000 })
-      : await this.ob11<Ob11>(qq, 'get_group_root_files', { group_id: String(groupId), file_count: 1000 });
-    const rawFiles = (Array.isArray(res?.files) ? res.files : []) as Ob11[];
-    const rawFolders = (Array.isArray(res?.folders) ? res.folders : []) as Ob11[];
-    const ids = rawFiles.map((f) => String(f.file_id ?? '')).filter(Boolean);
-    const known = new Map<string, string>();
-    if (ids.length > 0) {
-      for (const r of await rows<{ file_id: string; sha256: string }>(
-        this.db,
-        sql`select g.file_id, g.sha256 from group_file_blobs g join blobs b on b.sha256 = g.sha256
-             where g.qq_account_id = ${qq} and g.group_id = ${groupId} and g.file_id in ${sqlList(ids)} and b.state = 'present'`,
-      )) {
-        known.set(r.file_id, r.sha256);
-      }
-    }
+    const { files: rawFiles, folders: rawFolders } = await this.rawList(qq, groupId, folderId);
+    // QQ 的 file_id 每次列出都不一样：下载过的按"文件名 + 大小"认。
+    const known = await this.knownByName(qq, groupId, rawFiles.map((f) => String(f.file_name ?? '')));
     return {
       folders: rawFolders.map((f) => ({
         id: String(f.folder_id ?? ''),
@@ -292,23 +279,147 @@ export class GroupContentService {
             uploaderId: int(f.uploader),
             uploaderName: String(f.uploader_name ?? ''),
             downloadCount: int(f.download_times),
-            sha256: known.get(id) ?? null,
+            sha256: known.get(fileKey(String(f.file_name ?? ''), int(f.file_size) || int(f.size))) ?? null,
           };
         })
         .sort((a, b) => b.modifyTime - a.modifyTime),
     };
   }
 
-  /** 下载群文件到服务端（同一个文件同时只下一次；下过的直接返回）。 */
-  async fetchFile(accountId: number, groupId: number, fileId: string, busid: number, name: string) {
+  /** 删除群文件（QQ 按权限判断）。服务端存过的内容不删。 */
+  async deleteFiles(accountId: number, groupId: number, fileIds: string[]): Promise<FileOpResult> {
     const qq = await this.qqAccountOf(accountId);
-    const done = await maybeOne<{ sha256: string; size: number; mime: string | null }>(
+    const result: FileOpResult = { succeeded: 0, failures: [] };
+    for (const id of fileIds) {
+      try {
+        const res = await this.ob11<Ob11>(qq, 'delete_group_file', { group_id: String(groupId), file_id: id });
+        const r = (res?.transGroupFileResult as { result?: { retCode?: number; retMsg?: string; clientWording?: string } } | undefined)?.result;
+        if (r && r.retCode !== 0) throw new Error(r.clientWording || r.retMsg || `retCode ${r.retCode}`);
+        if (res && typeof res.result === 'number' && res.result !== 0) throw new Error(String(res.errMsg ?? `result ${res.result}`));
+        result.succeeded++;
+      } catch (error) {
+        result.failures.push({ fileId: id, reason: reasonOf(error) });
+      }
+    }
+    return result;
+  }
+
+  /** 移动群文件到另一个文件夹（"" = 根目录）。下载过的按文件名 + 大小认，移动后不用改。 */
+  async moveFiles(accountId: number, groupId: number, fileIds: string[], from: string, to: string): Promise<FileOpResult> {
+    const qq = await this.qqAccountOf(accountId);
+    const result: FileOpResult = { succeeded: 0, failures: [] };
+    for (const id of fileIds) {
+      try {
+        await this.ob11(qq, 'move_group_file', {
+          group_id: String(groupId),
+          file_id: id,
+          current_parent_directory: from || '/',
+          target_parent_directory: to || '/',
+        });
+        result.succeeded++;
+      } catch (error) {
+        result.failures.push({ fileId: id, reason: reasonOf(error) });
+      }
+    }
+    return result;
+  }
+
+  /** 重命名；下载过的记录跟着改名（按原文件名 + 大小找）。 */
+  async renameFile(accountId: number, groupId: number, fileId: string, folderId: string, newName: string, oldName: string, size: number): Promise<void> {
+    const name = newName.trim();
+    if (!name) throw new GroupContentError('invalid', 'empty name');
+    const qq = await this.qqAccountOf(accountId);
+    try {
+      await this.ob11(qq, 'rename_group_file', { group_id: String(groupId), file_id: fileId, current_parent_directory: folderId || '/', new_name: name });
+    } catch (error) {
+      throw new GroupContentError('failed', reasonOf(error));
+    }
+    if (oldName && oldName !== name) {
+      await this.db.execute(
+        sql`update group_file_blobs g set name = ${name} from blobs b
+             where b.sha256 = g.sha256 and g.qq_account_id = ${qq} and g.group_id = ${groupId} and g.name = ${oldName}
+               ${size > 0 ? sql`and b.size = ${size}` : sql``}`,
+      );
+    }
+  }
+
+  async createFolder(accountId: number, groupId: number, name: string): Promise<GroupFolder> {
+    const folderName = name.trim();
+    if (!folderName) throw new GroupContentError('invalid', 'empty name');
+    const qq = await this.qqAccountOf(accountId);
+    let res: Ob11 | null;
+    try {
+      res = await this.ob11<Ob11>(qq, 'create_group_file_folder', { group_id: String(groupId), folder_name: folderName });
+    } catch (error) {
+      throw new GroupContentError('failed', reasonOf(error));
+    }
+    const r = res?.result as { retCode?: number; retMsg?: string; clientWording?: string } | undefined;
+    if (r && r.retCode !== 0) throw new GroupContentError('failed', r.clientWording || r.retMsg || `retCode ${r.retCode}`);
+    const info = ((res?.groupItem as Ob11 | undefined)?.folderInfo ?? {}) as Ob11;
+    return {
+      id: String(info.folderId ?? ''),
+      name: String(info.folderName ?? folderName),
+      fileCount: int(info.totalFileCount),
+      modifyTime: int(info.modifyTime) || int(info.createTime),
+      creatorName: String(info.creatorName ?? ''),
+    };
+  }
+
+  /** 删除文件夹（连同里面的文件，QQ 那边只有群主、管理员能删）。 */
+  async deleteFolder(accountId: number, groupId: number, folderId: string): Promise<void> {
+    if (!folderId) throw new GroupContentError('invalid', 'cannot delete the root folder');
+    const qq = await this.qqAccountOf(accountId);
+    let res: Ob11 | null;
+    try {
+      res = await this.ob11<Ob11>(qq, 'delete_group_folder', { group_id: String(groupId), folder_id: folderId });
+    } catch (error) {
+      throw new GroupContentError('failed', reasonOf(error));
+    }
+    if (res && typeof res.retCode === 'number' && res.retCode !== 0) {
+      throw new GroupContentError('failed', String(res.clientWording || res.retMsg || `retCode ${res.retCode}`));
+    }
+  }
+
+  /** 这些文件名里服务端存过的（文件名 + 大小 → sha256）。 */
+  private async knownByName(qq: number, groupId: number, names: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const uniq = [...new Set(names.filter(Boolean))];
+    if (uniq.length === 0) return out;
+    for (const r of await rows<{ name: string; size: number | string; sha256: string }>(
       this.db,
-      sql`select b.sha256, b.size, b.mime from group_file_blobs g join blobs b on b.sha256 = g.sha256
-           where g.qq_account_id = ${qq} and g.group_id = ${groupId} and g.file_id = ${fileId} and b.state = 'present'`,
-    );
+      sql`select g.name, b.size, g.sha256 from group_file_blobs g join blobs b on b.sha256 = g.sha256
+           where g.qq_account_id = ${qq} and g.group_id = ${groupId} and g.name in ${sqlList(uniq)} and b.state = 'present'`,
+    )) {
+      out.set(fileKey(r.name, Number(r.size)), r.sha256);
+    }
+    return out;
+  }
+
+  private async rawList(qq: number, groupId: number, folderId: string): Promise<{ files: Ob11[]; folders: Ob11[] }> {
+    const res = folderId
+      ? await this.ob11<Ob11>(qq, 'get_group_files_by_folder', { group_id: String(groupId), folder_id: folderId, file_count: 1000 })
+      : await this.ob11<Ob11>(qq, 'get_group_root_files', { group_id: String(groupId), file_count: 1000 });
+    return {
+      files: (Array.isArray(res?.files) ? res.files : []) as Ob11[],
+      folders: (Array.isArray(res?.folders) ? res.folders : []) as Ob11[],
+    };
+  }
+
+  /** 下载群文件到服务端（同一个文件同时只下一次；下过的直接返回）。 */
+  async fetchFile(accountId: number, groupId: number, fileId: string, busid: number, name: string, size = 0) {
+    const qq = await this.qqAccountOf(accountId);
+    // 下载过的按文件名 + 大小认（QQ 的 file_id 每次列出都不一样）。
+    const done = name
+      ? await maybeOne<{ sha256: string; size: number; mime: string | null }>(
+          this.db,
+          sql`select b.sha256, b.size, b.mime from group_file_blobs g join blobs b on b.sha256 = g.sha256
+               where g.qq_account_id = ${qq} and g.group_id = ${groupId} and g.name = ${name} and b.state = 'present'
+                 ${size > 0 ? sql`and b.size = ${size}` : sql``}
+               limit 1`,
+        )
+      : null;
     if (done) return done;
-    const key = `${qq}:${groupId}:${fileId}`;
+    const key = `${qq}:${groupId}:${name ? `${name}:${size}` : fileId}`;
     const running = this.fetching.get(key);
     if (running) return running;
     const task = this.download(qq, groupId, fileId, busid, name).finally(() => this.fetching.delete(key));
@@ -365,6 +476,19 @@ export class GroupContentService {
     if (!hub?.isConnected(qq)) throw new GroupContentError('offline', 'QQ is offline');
     return (await hub.call<T>(qq, 'ob11', { name, params }, 60_000)) ?? null;
   }
+}
+
+export interface FileOpResult {
+  succeeded: number;
+  failures: { fileId: string; reason: string }[];
+}
+
+function fileKey(name: string, size: number): string {
+  return `${name}\u0000${size}`;
+}
+
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function int(v: unknown): number {
