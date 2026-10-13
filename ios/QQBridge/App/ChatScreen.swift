@@ -56,6 +56,8 @@ struct ChatScreen: View {
   @State private var recorder = VoiceRecorder()
   @State private var photoItems: [PhotosPickerItem] = []
   @State private var showPhotos = false
+  /// 相机（拍照 / 录像）。
+  @State private var showCamera = false
   @State private var showFiles = false
   /// 正在上传的附件：名字和进度（0…1）。
   @State private var uploading: (name: String, progress: Double)?
@@ -330,6 +332,12 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .modifier(ReactionSheet(message: $reactingTo, react: actions.react))
+    .fullScreenCover(isPresented: $showCamera) {
+      CameraPicker { result in
+        Task { if let a = await AttachmentLoader.load(camera: result) { composer.attachments.append(a) } }
+      }
+      .ignoresSafeArea()
+    }
     .sheet(isPresented: $showAiVoice) {
       AiVoiceSheet(session: session, chatId: chatId, initialText: composer.text) { sent in
         if composer.text.trimmingCharacters(in: .whitespacesAndNewlines) == sent { composer.text = "" }
@@ -569,6 +577,9 @@ struct ChatScreen: View {
           // 左：附件（和 Telegram 一样是图标，不占大圆按钮）。
           Menu {
             // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
+            if CameraPicker.isAvailable {
+              Button("拍摄", systemImage: "camera") { showCamera = true }
+            }
             Button("照片或视频", systemImage: "photo.on.rectangle") { showPhotos = true }
             Button("文件", systemImage: "doc") { showFiles = true }
             if isGroup { Button("AI 语音", systemImage: "waveform") { showAiVoice = true } }
