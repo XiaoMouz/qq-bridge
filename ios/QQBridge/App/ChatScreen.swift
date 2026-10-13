@@ -84,7 +84,7 @@ struct ChatScreen: View {
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
   @State private var newestSeen: Int64 = 0
-  @FocusState private var inputFocused: Bool
+  @State private var inputFocused = false
 
   private var isGroup: Bool { dialog?.scene == .group }
 
@@ -569,10 +569,8 @@ struct ChatScreen: View {
           .tint(.secondary)
           // 中：输入框占满，右侧嵌着表情按钮。
           HStack(alignment: .bottom, spacing: 4) {
-            TextField("消息", text: $composer.text, axis: .vertical)
-              .lineLimit(1...6)
-              .focused($inputFocused)
-              .padding(.vertical, 10)
+            // 实体键盘（iPhone 镜像等）回车发送；粘贴图片、文件变成附件。见 ComposerField。
+            ComposerField(text: $composer.text, focused: $inputFocused, onSubmit: submitFromKeyboard, onPasteMedia: pasteMedia)
             Button { showStickers = true } label: {
               Image(systemName: "face.smiling").font(.title3).foregroundStyle(.secondary).frame(width: 30, height: 40)
             }
@@ -998,6 +996,29 @@ struct ChatScreen: View {
   }
 
   /// 点发送：先把附件逐个上传、发出（每个一条；第一条带回复），再发文字。
+  /// 实体键盘的回车：有字或有附件就发出去。
+  private func submitFromKeyboard() {
+    guard hasText || !composer.attachments.isEmpty, !recorder.recording else { return }
+    sendAll()
+  }
+
+  /// 粘贴（⌘V / 长按菜单）：图片直接放进附件；文件读出来后放进附件。返回 false 时照常粘贴文字。
+  private func pasteMedia() -> Bool {
+    if let a = AttachmentLoader.fromPasteboard() {
+      composer.attachments.append(a)
+      retirePasteHint()
+      return true
+    }
+    let pb = UIPasteboard.general
+    guard !pb.hasStrings, !pb.itemProviders.isEmpty else { return false }
+    retirePasteHint()
+    Task {
+      let files = await AttachmentLoader.filesFromPasteboard()
+      if files.isEmpty { show("剪贴板里的内容没法发送") } else { composer.attachments.append(contentsOf: files) }
+    }
+    return true
+  }
+
   private func sendAll() {
     let pending = composer.attachments.filter { if case .uploading = $0.state { false } else { true } }
     guard !pending.isEmpty else {

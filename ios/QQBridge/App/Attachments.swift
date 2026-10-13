@@ -53,6 +53,34 @@ enum AttachmentLoader {
     return Attachment(payload: .image(ChatScreen.jpeg(image) ?? image.pngData() ?? Data()), preview: thumbnail(image))
   }
 
+  /// 粘贴文件（例如 Mac 上在访达里复制、经 iPhone 镜像粘过来的）：每一项按文件读出来，图片、视频按图片、视频发，其他当文件发。
+  @MainActor static func filesFromPasteboard() async -> [Attachment] {
+    var out: [Attachment] = []
+    for provider in UIPasteboard.general.itemProviders {
+      let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
+      guard let type = types.first(where: { !$0.conforms(to: .text) && ($0.conforms(to: .data) || $0.conforms(to: .content)) }) else { continue }
+      guard let file = await copyFile(provider, type: type) else { continue }
+      if let a = await load(file: file) { out.append(a) }
+    }
+    return out
+  }
+
+  /// 把剪贴板里的一项存成临时文件（系统给的文件在回调结束后就删了，要当场拷走）。
+  private static func copyFile(_ provider: NSItemProvider, type: UTType) async -> URL? {
+    let name = provider.suggestedName.map { name in
+      (name as NSString).pathExtension.isEmpty ? name + "." + (type.preferredFilenameExtension ?? "dat") : name
+    }
+    return await withCheckedContinuation { (done: CheckedContinuation<URL?, Never>) in
+      _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
+        guard let url else { return done.resume(returning: nil) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("paste-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let copy = dir.appendingPathComponent(name ?? url.lastPathComponent)
+        done.resume(returning: (try? FileManager.default.copyItem(at: url, to: copy)) != nil ? copy : nil)
+      }
+    }
+  }
+
   static func thumbnail(_ image: UIImage) -> UIImage {
     image.preparingThumbnail(of: CGSize(width: 240, height: 240 * image.size.height / max(image.size.width, 1))) ?? image
   }
