@@ -10,10 +10,29 @@ final class NotificationService: UNNotificationServiceExtension {
   override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
     self.contentHandler = contentHandler
     original = request.content
-    contentHandler(CommunicationContent.make(request.content) ?? request.content)
+    // 通知扩展里没有并发访问这几个对象（同一条通知只在这里处理）。
+    nonisolated(unsafe) let content = request.content
+    nonisolated(unsafe) let handler = contentHandler
+    nonisolated(unsafe) let me = self
+    Task {
+      nonisolated(unsafe) let updated = await CommunicationContent.makeAsync(content)
+      me.finish(updated ?? content, handler)
+    }
   }
 
   override func serviceExtensionTimeWillExpire() {
-    if let original { contentHandler?(original) }
+    if let original, let handler = contentHandler { finish(original, handler) }
+  }
+
+  /// 只交一次（超时和正常完成可能前后脚到）。
+  private let lock = NSLock()
+  private var delivered = false
+
+  private func finish(_ content: UNNotificationContent, _ handler: (UNNotificationContent) -> Void) {
+    lock.lock()
+    let first = !delivered
+    delivered = true
+    lock.unlock()
+    if first { handler(content) }
   }
 }
