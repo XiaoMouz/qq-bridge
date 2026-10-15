@@ -1,0 +1,150 @@
+# UIKit on macOS uses Mac Catalyst. Generate with: xcodegen generate
+name: BetterChatMac
+options:
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "1.1"
+    CURRENT_PROJECT_VERSION: "2"
+packages:
+  QQBridgeKit:
+    path: ../../ios/QQBridgeKit
+  Lottie:
+    url: https://github.com/airbnb/lottie-spm
+    from: "4.5.0"
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: "2.0.0"
+schemes:
+  BetterChatMac:
+    build:
+      targets:
+        BetterChatMac: all
+    test:
+      config: Debug
+      targets: [BetterChatMacTests]
+      environmentVariables:
+        BETTERCHAT_STATE_TESTS: "1"
+targets:
+  BetterChatMacTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+      - ../../ios/QQBridge/Tests/Shared
+    dependencies:
+      - target: BetterChatMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.mac.tests
+        # target 名称与 App 产品名不同；Catalyst 宿主使用 macOS bundle 内的实际可执行路径。
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/BetterChat.app/Contents/MacOS/BetterChat
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        TARGETED_DEVICE_FAMILY: "2,6"
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+  BetterChatMac:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - path: ../../ios/QQBridge/App
+        excludes: [QQBridgeApp.swift, CameraPicker.swift, MarkupCanvas.swift, Info.plist, QQBridge.entitlements]
+      - path: ../../ios/QQBridge/Shared
+      - path: ../../ios/QQBridge/Resources/Assets.xcassets
+      # 关于页图标：引用资源目录里同一张原图作为普通资源（不复制文件），见 MacPageFactory.appIcon。
+      - path: ../../ios/QQBridge/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+        createIntermediateGroups: false
+        buildPhase: resources
+      - path: ../../ios/QQBridge/Resources/QQFaces
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: QQBridgeKit
+        product: QQBridgeKit
+      - package: QQBridgeKit
+        product: QQBridgeProto
+      - package: Lottie
+        product: Lottie
+      - package: LiveKit
+        product: LiveKit
+      - target: MacNotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.mac
+        PRODUCT_NAME: BetterChat
+        SUPPORTS_MACCATALYST: YES
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        TARGETED_DEVICE_FAMILY: "2,6"
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Resources/BetterChat.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: BetterChat
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
+        LSApplicationCategoryType: public.app-category.social-networking
+        ITSAppUsesNonExemptEncryption: false
+        NSMicrophoneUsageDescription: 录制语音消息和进行语音通话
+        NSCameraUsageDescription: 拍摄照片和进行视频通话
+        NSPhotoLibraryUsageDescription: 选择发送到聊天的照片和视频
+        NSPhotoLibraryAddUsageDescription: 保存聊天中的照片和视频
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Main
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).MacSceneDelegate
+              - UISceneConfigurationName: Media
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).MacMediaSceneDelegate
+        UILaunchScreen: {}
+        NSUserActivityTypes: [INSendMessageIntent]
+        UIBackgroundModes: [audio, voip]
+
+  MacNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../../ios/QQBridge/NotificationService
+        excludes: [Info.plist]
+      - path: ../../ios/QQBridge/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.mac.NotificationService
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        TARGETED_DEVICE_FAMILY: "2,6"
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Resources/NotificationService.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+    info:
+      path: Resources/NotificationService-Info.plist
+      properties:
+        CFBundleDisplayName: BetterChat 通知
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDevelopmentRegion: zh-Hans
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

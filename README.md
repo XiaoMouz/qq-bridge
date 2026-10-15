@@ -2,7 +2,7 @@
 
 个人自用的 QQ 存档与客户端系统：
 - **服务端**：基于 NapCat，按 Telegram 思路设计，负责存档消息和媒体（媒体按哈希去重），并为多设备提供增量同步。
-- **客户端**：自研原生 iOS App（iOS 27）。
+- **客户端**：自研原生 iOS App（iOS 27）和 [macOS 客户端](macos/README.md)（macOS 27，SwiftUI + UIKit / Mac Catalyst）。
 - **通话**：在 App 内桥接 QQNT 的语音和视频通话。
 
 完整设计见 [docs/design.md](docs/design.md)。**本项目不公开、不商用**：NapCat 的许可证禁止公开发布修改版，通话桥接部分又参考了 GPL-3.0 代码。

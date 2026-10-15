@@ -27,3 +27,8 @@ ios/.build-app/
 # APNs 密钥
 *.p8
 .tmp/
+
+# macOS Mac Catalyst generated project and build products
+macos/BetterChat/*.xcodeproj/
+macos/.build-app/
+macos/.build-signed/
