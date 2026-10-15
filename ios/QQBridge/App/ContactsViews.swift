@@ -12,6 +12,11 @@ enum ContactRoute: Hashable {
 
 struct ContactsView: View {
   let session: Session
+  var sidebarQuery: String? = nil
+  var onSelect: ((ContactRoute) -> Void)? = nil
+  var selectedRoute: ContactRoute? = nil
+  var refreshRequest: UUID? = nil
+  var onRefreshStateChange: ((Bool) -> Void)? = nil
   @State private var friends: [Qqbridge_V1_Peer] = []
   @State private var categories: [Qqbridge_V1_FriendCategory] = []
   @State private var groups: [Qqbridge_V1_Peer] = []
@@ -23,69 +28,105 @@ struct ContactsView: View {
   @State private var path = NavigationPath()
 
   var body: some View {
-    NavigationStack(path: $path) {
-      List {
-        Picker("", selection: $showGroups) {
-          Text("好友 \(friends.count)").tag(false)
-          Text("群聊 \(groups.count)").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .listRowSeparator(.hidden)
+    if onSelect != nil {
+      contactList
+    } else {
+      NavigationStack(path: $path) {
+        contactList
+          .navigationTitle("联系人")
+          .navigationDestination(for: ContactRoute.self) { route in
+            switch route {
+            case .user(let id):
+              UserProfileView(session: session, userId: id, groupMember: nil, contactActions: true, onDeleted: {
+                if !path.isEmpty { path.removeLast() }
+                Task { await load(refresh: false) }
+              })
+            case .group(let id):
+              ContactGroupView(session: session, groupId: id)
+            }
+          }
+      }
+    }
+  }
 
-        if showGroups {
-          ForEach(filter(groups), id: \.peerID) { groupRow($0) }
-        } else if !query.isEmpty || categories.isEmpty {
-          ForEach(filter(friends), id: \.peerID) { friendRow($0) }
-        } else {
-          ForEach(categories, id: \.id) { c in
-            DisclosureGroup(isExpanded: expandedBinding(c.id)) {
-              ForEach(c.userIds, id: \.self) { id in
-                if let p = friendsById[id] { friendRow(p) }
-              }
-            } label: {
-              HStack {
-                Text(c.name.isEmpty ? "未命名分组" : c.name).font(.headline)
-                Spacer()
-                Text("\(c.userIds.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-              }
+  private var contactList: some View {
+    List(selection: sidebarSelection) {
+      if onSelect == nil {
+        contactPicker.listRowSeparator(.hidden)
+      }
+
+      if showGroups {
+        ForEach(filter(groups), id: \.peerID) { groupRow($0) }
+      } else if !(sidebarQuery ?? query).isEmpty || categories.isEmpty {
+        ForEach(filter(friends), id: \.peerID) { friendRow($0) }
+      } else {
+        ForEach(categories, id: \.id) { c in
+          DisclosureGroup(isExpanded: expandedBinding(c.id)) {
+            ForEach(c.userIds, id: \.self) { id in
+              if let p = friendsById[id] { friendRow(p) }
             }
-          }
-          let ungrouped = friends.filter { !categorized.contains($0.peerID) }
-          if !ungrouped.isEmpty {
-            DisclosureGroup(isExpanded: expandedBinding(-1)) {
-              ForEach(ungrouped, id: \.peerID) { friendRow($0) }
-            } label: {
-              HStack {
-                Text("未分组").font(.headline)
-                Spacer()
-                Text("\(ungrouped.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-              }
-            }
+          } label: {
+            HStack {
+              Text(c.name.isEmpty ? "未命名分组" : c.name).font(.headline)
+              Spacer()
+              Text("\(c.userIds.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            }.padding(.leading, onSelect != nil ? 8 : 0)
           }
         }
-      }
-      .listStyle(.plain)
-      .navigationTitle("联系人")
-      .searchable(text: $query, prompt: showGroups ? "搜索群聊" : "搜索好友")
-      .navigationDestination(for: ContactRoute.self) { route in
-        switch route {
-        case .user(let id):
-          UserProfileView(session: session, userId: id, groupMember: nil, contactActions: true, onDeleted: {
-            if !path.isEmpty { path.removeLast() }
-            Task { await load(refresh: false) }
-          })
-        case .group(let id):
-          ContactGroupView(session: session, groupId: id)
-        }
-      }
-      .refreshable { await load(refresh: true) }
-      .task { await load(refresh: false) }
-      .overlay {
-        if let error, friends.isEmpty, groups.isEmpty {
-          ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(error))
+        let ungrouped = friends.filter { !categorized.contains($0.peerID) }
+        if !ungrouped.isEmpty {
+          DisclosureGroup(isExpanded: expandedBinding(-1)) {
+            ForEach(ungrouped, id: \.peerID) { friendRow($0) }
+          } label: {
+            HStack {
+              Text("未分组").font(.headline)
+              Spacer()
+              Text("\(ungrouped.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+            }.padding(.leading, onSelect != nil ? 8 : 0)
+          }
         }
       }
     }
+    .modifier(ContactListAppearance(sidebar: onSelect != nil))
+    .modifier(ContactSearchField(query: $query, showGroups: showGroups, enabled: onSelect == nil))
+    .modifier(ContactRefreshControl(enabled: onSelect == nil, refresh: { await load(refresh: true) }))
+    .task { await load(refresh: false) }
+    .task(id: refreshRequest) {
+      guard refreshRequest != nil else { return }
+      onRefreshStateChange?(true)
+      await load(refresh: true)
+      onRefreshStateChange?(false)
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if onSelect != nil {
+        contactPicker.padding(.horizontal, 12).padding(.bottom, 8)
+      }
+    }
+    .overlay {
+      if let error, friends.isEmpty, groups.isEmpty {
+        ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(error))
+      } else if onSelect != nil, let sidebarQuery,
+                !sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                filter(showGroups ? groups : friends).isEmpty {
+        ContentUnavailableView.search(text: sidebarQuery)
+          .allowsHitTesting(false)
+      }
+    }
+  }
+
+  private var contactPicker: some View {
+    Picker("联系人类型", selection: $showGroups) {
+      Text("好友 \(friends.count)").tag(false)
+      Text("群聊 \(groups.count)").tag(true)
+    }.pickerStyle(.segmented)
+  }
+
+  private var sidebarSelection: Binding<ContactRoute?>? {
+    guard let onSelect else { return nil }
+    // 让列表管理键盘与鼠标选择，右侧详情和行高亮使用同一份状态。
+    return Binding(get: { selectedRoute }, set: { route in
+      if let route { onSelect(route) }
+    })
   }
 
   private var friendsById: [Int64: Qqbridge_V1_Peer] {
@@ -102,7 +143,7 @@ struct ContactsView: View {
   }
 
   private func filter(_ list: [Qqbridge_V1_Peer]) -> [Qqbridge_V1_Peer] {
-    let q = query.trimmingCharacters(in: .whitespaces)
+    let q = (sidebarQuery ?? query).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty else { return list }
     return list.filter {
       $0.name.localizedCaseInsensitiveContains(q) || $0.remark.localizedCaseInsensitiveContains(q) || String($0.peerID).contains(q)
@@ -110,7 +151,7 @@ struct ContactsView: View {
   }
 
   private func friendRow(_ p: Qqbridge_V1_Peer) -> some View {
-    NavigationLink(value: ContactRoute.user(p.peerID)) {
+    ContactRowLink(route: .user(p.peerID), sidebar: onSelect != nil) {
       HStack(spacing: 12) {
         AvatarView(sha256: p.avatarSha256.isEmpty ? avatars.sha256[p.peerID] : p.avatarSha256, title: displayName(p), seed: p.peerID, size: 40)
         VStack(alignment: .leading, spacing: 2) {
@@ -123,7 +164,7 @@ struct ContactsView: View {
   }
 
   private func groupRow(_ p: Qqbridge_V1_Peer) -> some View {
-    NavigationLink(value: ContactRoute.group(p.peerID)) {
+    ContactRowLink(route: .group(p.peerID), sidebar: onSelect != nil) {
       HStack(spacing: 12) {
         AvatarView(sha256: p.avatarSha256.isEmpty ? avatars.groupSha256[p.peerID] : p.avatarSha256, title: displayName(p), seed: p.peerID, size: 40)
         VStack(alignment: .leading, spacing: 2) {
@@ -211,5 +252,45 @@ extension DialogActions {
     req.peerID = peerId
     req.viaGroupID = viaGroupId
     return try await session.api.dialogs.openChat(request: req, headers: session.api.headers).get().chatID
+  }
+}
+
+private struct ContactRowLink<Content: View>: View {
+  let route: ContactRoute
+  let sidebar: Bool
+  @ViewBuilder var content: () -> Content
+  var body: some View {
+    if sidebar {
+      content().frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).tag(route)
+    } else {
+      NavigationLink(value: route, label: content)
+    }
+  }
+}
+
+private struct ContactListAppearance: ViewModifier {
+  let sidebar: Bool
+  func body(content: Content) -> some View {
+    if sidebar { content.listStyle(.sidebar).scrollContentBackground(.hidden) }
+    else { content.listStyle(.plain) }
+  }
+}
+
+private struct ContactSearchField: ViewModifier {
+  @Binding var query: String
+  let showGroups: Bool
+  let enabled: Bool
+  func body(content: Content) -> some View {
+    if enabled { content.searchable(text: $query, prompt: showGroups ? "搜索群聊" : "搜索好友") }
+    else { content }
+  }
+}
+
+private struct ContactRefreshControl: ViewModifier {
+  let enabled: Bool
+  let refresh: @Sendable () async -> Void
+  func body(content: Content) -> some View {
+    if enabled { content.platformRefreshable { await refresh() } }
+    else { content }
   }
 }

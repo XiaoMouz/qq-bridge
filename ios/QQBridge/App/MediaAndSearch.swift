@@ -6,12 +6,43 @@ import SwiftUI
 
 // MARK: - 大图与视频
 
+@Observable @MainActor
+final class VideoPreviewModel {
+  private(set) var player: AVPlayer?
+  #if targetEnvironment(macCatalyst)
+  let videoPlayback = VideoPlayback()
+  #else
+  let videoPlayback = VideoPlayback.shared
+  #endif
+  private var generation = 0
+
+  func load(_ resolveURL: () async -> URL?) async {
+    close()
+    let request = generation
+    let url = await resolveURL()
+    // 关闭动画先于 SwiftUI task 取消；两者都必须阻止迟到的链接启动播放。
+    guard request == generation, !Task.isCancelled, let url else { return }
+    let player = AVPlayer(url: url)
+    self.player = player
+    player.play()
+  }
+
+  func close() {
+    generation += 1
+    videoPlayback.previewClosed(player)
+    player = nil
+  }
+}
+
 struct MediaViewer: View {
   let target: MediaTarget
   let session: Session
   let chatId: Int64
   @Environment(\.dismiss) private var dismiss
-  @State private var player: AVPlayer?
+  #if targetEnvironment(macCatalyst)
+  @Environment(\.macMediaWindow) private var mediaWindow
+  #endif
+  @State private var playback = VideoPreviewModel()
   /// 放不了时的说明（过期、下载失败）。
   @State private var videoMessage: String?
   @State private var fetching = false
@@ -37,7 +68,7 @@ struct MediaViewer: View {
         .ignoresSafeArea()
       VStack(spacing: 8) {
         // 关闭按钮单独一行，不压在播放器自带的按钮（全屏、静音）上。
-        HStack {
+        if showsCloseButton { HStack {
           Spacer()
           Button(action: close) {
             Image(systemName: "xmark")
@@ -48,13 +79,23 @@ struct MediaViewer: View {
           }
           .buttonStyle(.plain)
           .accessibilityLabel("关闭")
+          #if targetEnvironment(macCatalyst)
+          .help("关闭（Esc）")
+          #endif
         }
         .padding(.horizontal, 16)
         .opacity(dragProgress == 0 ? 1 : 0)
+        }
         ZStack {
-          if let player {
+          if let player = playback.player {
             // 系统播放器：自带全屏、画中画、隔空播放、静音、进度。
-            InlineVideoPlayer(player: player, onDrag: { dragProgress = $0 }, onDismiss: close)
+            InlineVideoPlayer(player: player, onDrag: { dragProgress = $0 }, onDismiss: close, playback: playback.videoPlayback)
+              #if targetEnvironment(macCatalyst)
+              .overlay(alignment: .bottomTrailing) {
+                MacVideoControlsButton(player: player, controllerProvider: { playback.videoPlayback.fullScreenController(for: $0) })
+                  .frame(width: 40, height: 40).padding(16)
+              }
+              #endif
           } else if let videoMessage {
             Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
           } else {
@@ -72,11 +113,19 @@ struct MediaViewer: View {
       .opacity(visible ? 1 : 0)
     }
     .onAppear { withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true } }
-    .task { await loadVideo() }
-    .onDisappear { VideoPlayback.shared.previewClosed(player) }
+    .task { await playback.load { await videoURL() } }
+    .onDisappear { playback.close() }
+    #if targetEnvironment(macCatalyst)
+    .background(MacMediaKeyboard(close: close))
+    .onAppear { mediaWindow?.registerCleanup("video", action: playback.close) }
+    #endif
   }
 
   private func close() {
+    playback.close()
+    #if targetEnvironment(macCatalyst)
+    if let mediaWindow { mediaWindow.close(); return }
+    #endif
     withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
       var t = Transaction()
       t.disablesAnimations = true
@@ -84,22 +133,30 @@ struct MediaViewer: View {
     }
   }
 
+  private var showsCloseButton: Bool {
+    #if targetEnvironment(macCatalyst)
+    mediaWindow == nil
+    #else
+    true
+    #endif
+  }
+
   /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
-  private func loadVideo() async {
+  private func videoURL() async -> URL? {
     var media = target.media
     if media.state != .stored && media.state != .purged, let f = target.forward {
-      // 聊天记录里的视频：服务端正在下载，等它下好（每 2 秒看一次，最多 10 分钟）。
+      // 聊天记录里的视频：等待服务端的 mediaReady 推送，再取最新状态。
       fetching = true
       defer { fetching = false }
       guard let ready = await waitForwardMedia(f, ord: media.ord) else {
         videoMessage = "视频下载失败，QQ 上可能已经过期了"
-        return
+        return nil
       }
       media = ready
     } else if media.state != .stored && media.state != .purged {
       guard target.seq > 0 else {
         videoMessage = "视频还没下载好"
-        return
+        return nil
       }
       fetching = true
       var ref = Qqbridge_V1_MediaRef()
@@ -113,7 +170,7 @@ struct MediaViewer: View {
       let watch = MediaReady.shared.watch(chatId: target.chatId, seq: target.seq, ord: media.ord, thumb: false)
       var got: Qqbridge_V1_MediaInfo?
       for _ in 0..<6 {
-        if Task.isCancelled { return }
+        if Task.isCancelled { return nil }
         if let m = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get().media.first {
           if m.state == .stored, !m.sha256.isEmpty {
             got = m
@@ -126,7 +183,7 @@ struct MediaViewer: View {
       fetching = false
       guard let got else {
         videoMessage = "视频已过期，QQ 上也拿不到了"
-        return
+        return nil
       }
       media = got
     }
@@ -135,15 +192,14 @@ struct MediaViewer: View {
       // 原件已清理：先让服务端从 QQ 取回（取回前播放器拿不到内容），拿不到就提示。
       guard (try? await session.media.file(for: sha, chatId: chatId)) != nil else {
         videoMessage = "视频已过期，QQ 上也拿不到了"
-        return
+        return nil
       }
     }
     if let url = try? await session.media.streamURL(for: sha) {
-      let p = AVPlayer(url: url)
-      player = p
-      p.play()
+      return url
     } else {
       videoMessage = "视频打不开"
+      return nil
     }
   }
 
@@ -273,7 +329,7 @@ struct ForwardSegmentView: View {
       .frame(maxWidth: 140, maxHeight: 140)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId)
-        .onTapGesture { media = MediaTarget(kind: .image, media: i.media) }
+        .modifier(MessageBlockAction(title: "打开图片") { media = MediaTarget(kind: .image, media: i.media) })
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId)
@@ -293,10 +349,10 @@ struct ForwardSegmentView: View {
             Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white)
           }
         }
-        .onTapGesture {
+        .modifier(MessageBlockAction(title: "播放视频", value: v.durationSec > 0 ? Format.duration(Int(v.durationSec)) : "") {
           let node = Int(path.last ?? 0)
           media = MediaTarget(kind: .video, media: v.media, chatId: chatId, forward: ForwardRef(seq: seq, path: Array(path.dropLast()), node: node))
-        }
+        })
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .forward(let f):
       NavigationLink { ForwardView(session: session, chatId: chatId, seq: seq, path: path) } label: {
@@ -393,7 +449,7 @@ struct StickerPanel: View {
           if let error { ContentUnavailableView("表情加载失败", systemImage: "face.dashed", description: Text(error)) } else if stickers.isEmpty { ProgressView() }
         }
       }
-      .refreshable { await load(refresh: true) }
+      .platformRefreshable { await load(refresh: true) }
       .task { await load(refresh: false) }
     }
   }

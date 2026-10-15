@@ -38,6 +38,7 @@ struct ChatSearchView: View {
   let chatId: Int64
   @Environment(AppModel.self) private var model
   @State private var query = ""
+  @State private var searchPresented = false
   @State private var pager: MessageSearchPager
 
   init(session: Session, chatId: Int64) {
@@ -47,9 +48,14 @@ struct ChatSearchView: View {
   }
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacChatHistoryView(session: session, chatId: chatId)
+    #else
     List {
       ForEach(pager.results, id: \.searchKey) { m in
         Button {
+          // Mac 返回聊天后不能让原搜索控制器继续占着导航栏和焦点（2026-10-14 多选取消时复现）。
+          searchPresented = false
           model.openMessage(chatId: chatId, seq: m.seq)
         } label: {
           VStack(alignment: .leading, spacing: 4) {
@@ -69,7 +75,8 @@ struct ChatSearchView: View {
       }
     }
     .listStyle(.plain)
-    .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
+    .searchable(text: $query, isPresented: $searchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
+    .onDisappear { searchPresented = false }
     .onSubmit(of: .search) { Task { await pager.search(query) } }
     .onChange(of: query) { _, q in
       if q.trimmingCharacters(in: .whitespaces).isEmpty { pager.reset() }
@@ -87,6 +94,7 @@ struct ChatSearchView: View {
         ContentUnavailableView("输入关键词后按搜索", systemImage: "magnifyingglass", description: Text("在服务器上保存的全部聊天记录里查找，点结果回到聊天里的那条消息"))
       }
     }
+    #endif
   }
 
   private func highlighted(_ text: String) -> AttributedString {
@@ -146,11 +154,22 @@ struct SharedMediaView: View {
 
   @State private var tab = Tab.media
   @State private var sort = Sort.newest
+  #if targetEnvironment(macCatalyst)
+  @State private var mediaList: MacSharedMediaViewModel
+  private var items: [Qqbridge_V1_SharedMedia] { mediaList.items }
+
+  init(session: Session, chatId: Int64, mediaService: (any MacSharedMediaService)? = nil) {
+    self.session = session
+    self.chatId = chatId
+    _mediaList = State(initialValue: MacSharedMediaViewModel(service: mediaService ?? MacSessionSharedMediaService(session: session, chatID: chatId)))
+  }
+  #else
   @State private var items: [Qqbridge_V1_SharedMedia] = []
   @State private var nextBefore: Int64 = 0
   @State private var nextOffset: Int32 = 0
   @State private var done = false
   @State private var loading = false
+  #endif
   @State private var target: MediaTarget?
   @State private var fileURL: URL?
   @State private var opening: String?
@@ -184,6 +203,9 @@ struct SharedMediaView: View {
         }
       }
     }
+    #if targetEnvironment(macCatalyst)
+    .overlay { MacSharedMediaEmptyState(model: mediaList, files: tab == .files) }
+    #else
     .overlay {
       if items.isEmpty, loading {
         ProgressView()
@@ -191,12 +213,21 @@ struct SharedMediaView: View {
         ContentUnavailableView(tab == .media ? "没有图片和视频" : "没有文件", systemImage: tab == .media ? "photo.on.rectangle" : "doc")
       }
     }
+    #endif
     .mediaViewer(item: $target, session: session, chatId: chatId)
     .quickLookPreview($fileURL)
     .alert("打不开", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in
       Button("好") { error = nil }
     } message: { Text($0) }
+    #if targetEnvironment(macCatalyst)
+    .onChange(of: "\(tab.rawValue)|\(sort.rawValue)", initial: true) { _, _ in
+      mediaList.select(MacSharedMediaQuery(files: tab == .files, sort: sort.api))
+    }
+    .onAppear { mediaList.select(MacSharedMediaQuery(files: tab == .files, sort: sort.api)) }
+    .onDisappear { mediaList.cancel() }
+    #else
     .task(id: "\(tab.rawValue)|\(sort.rawValue)") { await reload() }
+    #endif
   }
 
   // MARK: 列表
@@ -229,12 +260,11 @@ struct SharedMediaView: View {
         ForEach(sections, id: \.title) { section in
           Section {
             ForEach(section.items, id: \.key) { item in
-              SharedMediaTile(item: item, chatId: chatId, session: session, requester: requester, showSize: sort == .largest)
-                .onTapGesture { open(item) }
+              mediaTile(item)
                 .contextMenu {
                   Button("在聊天中查看", systemImage: "text.bubble") { model.openMessage(chatId: chatId, seq: item.seq) }
                 }
-                .onAppear { if item.key == items.last?.key { Task { await loadMore() } } }
+                .onAppear { reached(item) }
             }
           } header: {
             if !section.title.isEmpty {
@@ -246,19 +276,54 @@ struct SharedMediaView: View {
           }
         }
       }
+      #if targetEnvironment(macCatalyst)
+      MacSharedMediaPagination(model: mediaList)
+      #endif
     }
+  }
+
+  @ViewBuilder private func mediaTile(_ item: Qqbridge_V1_SharedMedia) -> some View {
+    #if targetEnvironment(macCatalyst)
+    Button { open(item) } label: {
+      SharedMediaTile(item: item, chatId: chatId, session: session, requester: requester, showSize: sort == .largest)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(item.kind == .video ? "打开视频" : "查看图片")
+    .accessibilityValue("\(senderName(item.senderID)) · \(Format.date(item.time))")
+    .help("在独立窗口打开")
+    #else
+    SharedMediaTile(item: item, chatId: chatId, session: session, requester: requester, showSize: sort == .largest)
+      .onTapGesture { open(item) }
+    #endif
+  }
+
+  private func reached(_ item: Qqbridge_V1_SharedMedia) {
+    #if targetEnvironment(macCatalyst)
+    mediaList.reached(item)
+    #else
+    if item.key == items.last?.key { Task { await loadMore() } }
+    #endif
   }
 
   private var fileList: some View {
     List {
       ForEach(sections, id: \.title) { section in
-        Section(section.title) {
+        Section {
           ForEach(section.items, id: \.key) { item in
             fileRow(item)
-              .onAppear { if item.key == items.last?.key { Task { await loadMore() } } }
+              .onAppear { reached(item) }
           }
+        } header: {
+          #if targetEnvironment(macCatalyst)
+          if !section.title.isEmpty { Text(section.title) }
+          #else
+          Text(section.title)
+          #endif
         }
       }
+      #if targetEnvironment(macCatalyst)
+      MacSharedMediaPagination(model: mediaList)
+      #endif
     }
     .listStyle(.plain)
   }
@@ -334,6 +399,11 @@ struct SharedMediaView: View {
         }
       }
     }
+    #if targetEnvironment(macCatalyst)
+    guard !sha.isEmpty else { error = "文件已经过期，QQ 上也拿不到了"; return }
+    do { fileURL = try await MacDownloads.shared.file(sha: sha, name: f.name, session: session) }
+    catch { self.error = error.localizedDescription }
+    #else
     guard !sha.isEmpty, let cached = try? await session.media.file(for: sha, chatId: chatId) else {
       error = "文件已经过期，QQ 上也拿不到了"
       return
@@ -342,6 +412,7 @@ struct SharedMediaView: View {
     try? FileManager.default.removeItem(at: named)
     try? FileManager.default.copyItem(at: cached, to: named)
     fileURL = named
+    #endif
   }
 
   // MARK: 加载
@@ -357,6 +428,7 @@ struct SharedMediaView: View {
     return n
   }
 
+  #if !targetEnvironment(macCatalyst)
   private func reload() async {
     items = []
     nextBefore = 0
@@ -388,6 +460,7 @@ struct SharedMediaView: View {
       done = res.nextOffset == 0
     }
   }
+  #endif
 }
 
 /// 共享媒体的一格：有缩略图就显示；没有就向服务端要，下好后（隔一会儿拉一次这条消息）自动换上。
@@ -514,10 +587,39 @@ enum FileIcon {
 struct GroupNoticesView: View {
   let session: Session
   let groupId: Int64
+  #if targetEnvironment(macCatalyst)
+  var body: some View {
+    MacGroupListPage(service: MacGroupNoticesService(session: session, groupID: groupId),
+                     title: "群公告", emptyText: "没有群公告", icon: "megaphone") { notices in
+      content(notices)
+    }
+  }
+  #else
   @State private var notices: [Qqbridge_V1_GroupNotice] = []
   @State private var state = LoadState.loading
 
   var body: some View {
+    content(notices)
+    .overlay { state.overlay(empty: notices.isEmpty, emptyText: "没有群公告", icon: "megaphone") }
+    .navigationTitle("群公告")
+    .navigationBarTitleDisplayMode(.inline)
+    .platformRefreshable { await load() }
+    .task { await load() }
+  }
+
+  private func load() async {
+    var req = Qqbridge_V1_ListGroupNoticesRequest()
+    req.groupID = groupId
+    do {
+      notices = try await session.api.contacts.listGroupNotices(request: req, headers: session.api.headers).get().notices
+      state = .loaded
+    } catch {
+      state = .failed(LoadState.describe(error))
+    }
+  }
+  #endif
+
+  private func content(_ notices: [Qqbridge_V1_GroupNotice]) -> some View {
     List(notices, id: \.id) { n in
       NavigationLink { NoticeDetailView(session: session, notice: n) } label: {
         VStack(alignment: .leading, spacing: 6) {
@@ -541,22 +643,6 @@ struct GroupNoticesView: View {
       }
     }
     .listStyle(.plain)
-    .overlay { state.overlay(empty: notices.isEmpty, emptyText: "没有群公告", icon: "megaphone") }
-    .navigationTitle("群公告")
-    .navigationBarTitleDisplayMode(.inline)
-    .refreshable { await load() }
-    .task { await load() }
-  }
-
-  private func load() async {
-    var req = Qqbridge_V1_ListGroupNoticesRequest()
-    req.groupID = groupId
-    do {
-      notices = try await session.api.contacts.listGroupNotices(request: req, headers: session.api.headers).get().notices
-      state = .loaded
-    } catch {
-      state = .failed(LoadState.describe(error))
-    }
   }
 }
 
@@ -620,7 +706,9 @@ struct NoticeDetailView: View {
           RemoteImage(url: URL(string: url), maxPixel: 1200, fit: true)
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .onTapGesture { gallery = URLGallery(items: notice.imageUrls.compactMap { URL(string: $0) }.map { .image($0) }, index: i) }
+            .modifier(MessageBlockAction(title: "查看公告图片 \(i + 1)", value: "共 \(notice.imageUrls.count) 张") {
+              gallery = URLGallery(items: notice.imageUrls.compactMap { URL(string: $0) }.map { .image($0) }, index: i)
+            })
         }
         Divider()
         NoticeStatus(notice: notice)
@@ -634,9 +722,13 @@ struct NoticeDetailView: View {
     .navigationBarTitleDisplayMode(.inline)
     .urlGallery($gallery)
     .modifier(NumberActions(number: $number, onProfile: { profile = ProfileTarget(userId: $0) }, onCopied: { toast = "已复制" }))
-    .sheet(item: $profile) { t in
-      NavigationStack { UserProfileView(session: session, userId: t.userId, groupMember: nil, asCard: true) }
+    .profileCard(item: $profile) { t in
+      NavigationStack { UserProfileView(session: session, userId: t.userId, groupMember: nil, asCard: true, onClose: { profile = nil }) }
+        #if targetEnvironment(macCatalyst)
+        .presentationSizing(.form)
+        #else
         .presentationDetents([.medium, .large])
+        #endif
     }
     .overlay(alignment: .top) {
       if let toast {
@@ -652,10 +744,39 @@ struct NoticeDetailView: View {
 struct GroupAlbumsView: View {
   let session: Session
   let groupId: Int64
+  #if targetEnvironment(macCatalyst)
+  var body: some View {
+    MacGroupListPage(service: MacGroupAlbumsService(session: session, groupID: groupId),
+                     title: "群相册", emptyText: "没有群相册", icon: "photo.on.rectangle.angled") { albums in
+      content(albums)
+    }
+  }
+  #else
   @State private var albums: [Qqbridge_V1_GroupAlbum] = []
   @State private var state = LoadState.loading
 
   var body: some View {
+    content(albums)
+    .overlay { state.overlay(empty: albums.isEmpty, emptyText: "没有群相册", icon: "photo.on.rectangle.angled") }
+    .navigationTitle("群相册")
+    .navigationBarTitleDisplayMode(.inline)
+    .platformRefreshable { await load() }
+    .task { await load() }
+  }
+
+  private func load() async {
+    var req = Qqbridge_V1_ListGroupAlbumsRequest()
+    req.groupID = groupId
+    do {
+      albums = try await session.api.contacts.listGroupAlbums(request: req, headers: session.api.headers).get().albums
+      state = .loaded
+    } catch {
+      state = .failed(LoadState.describe(error))
+    }
+  }
+  #endif
+
+  private func content(_ albums: [Qqbridge_V1_GroupAlbum]) -> some View {
     ScrollView {
       LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
         ForEach(albums, id: \.id) { a in
@@ -673,22 +794,6 @@ struct GroupAlbumsView: View {
       }
       .padding()
     }
-    .overlay { state.overlay(empty: albums.isEmpty, emptyText: "没有群相册", icon: "photo.on.rectangle.angled") }
-    .navigationTitle("群相册")
-    .navigationBarTitleDisplayMode(.inline)
-    .refreshable { await load() }
-    .task { await load() }
-  }
-
-  private func load() async {
-    var req = Qqbridge_V1_ListGroupAlbumsRequest()
-    req.groupID = groupId
-    do {
-      albums = try await session.api.contacts.listGroupAlbums(request: req, headers: session.api.headers).get().albums
-      state = .loaded
-    } catch {
-      state = .failed(LoadState.describe(error))
-    }
   }
 }
 
@@ -698,6 +803,11 @@ struct AlbumMediaView: View {
   let groupId: Int64
   let albumId: String
   var title: String = ""
+  #if targetEnvironment(macCatalyst)
+  var body: some View {
+    MacAlbumMediaView(service: MacSessionAlbumMediaService(session: session, groupID: groupId, albumID: albumId), title: title)
+  }
+  #else
   @State private var media: [Qqbridge_V1_GroupAlbumMedia] = []
   @State private var cursor = ""
   @State private var hasMore = true
@@ -721,13 +831,7 @@ struct AlbumMediaView: View {
         ForEach(sections, id: \.day) { section in
           Section {
             ForEach(section.items, id: \.media.id) { entry in
-              Color.clear.aspectRatio(1, contentMode: .fit)
-                .overlay { RemoteImage(url: URL(string: entry.media.thumbURL), maxPixel: 400) }
-                .clipped()
-                .overlay(alignment: .bottomLeading) {
-                  if entry.media.isVideo { Image(systemName: "play.fill").font(.caption).foregroundStyle(.white).shadow(radius: 2).padding(6) }
-                }
-                .contentShape(Rectangle())
+              mediaTile(entry.media)
                 .onTapGesture { gallery = URLGallery(items: media.map(Self.galleryItem), index: entry.index) }
                 .onAppear { if entry.media.id == media.last?.id { Task { await loadMore() } } }
             }
@@ -752,9 +856,14 @@ struct AlbumMediaView: View {
     .task { await loadMore() }
   }
 
-  static func galleryItem(_ m: Qqbridge_V1_GroupAlbumMedia) -> URLGallery.Item {
-    if m.isVideo, let v = URL(string: m.videoURL), !m.videoURL.isEmpty { return .video(v) }
-    return .image(URL(string: m.url.isEmpty ? m.thumbURL : m.url) ?? URL(string: "about:blank")!)
+  private func mediaTile(_ item: Qqbridge_V1_GroupAlbumMedia) -> some View {
+    Color.clear.aspectRatio(1, contentMode: .fit)
+      .overlay { RemoteImage(url: URL(string: item.thumbURL), maxPixel: 400) }
+      .clipped()
+      .overlay(alignment: .bottomLeading) {
+        if item.isVideo { Image(systemName: "play.fill").font(.caption).foregroundStyle(.white).shadow(radius: 2).padding(6) }
+      }
+      .contentShape(Rectangle())
   }
 
   private func loadMore() async {
@@ -777,6 +886,12 @@ struct AlbumMediaView: View {
       if media.isEmpty { state = .failed(LoadState.describe(error)) }
       hasMore = false
     }
+  }
+  #endif
+
+  static func galleryItem(_ m: Qqbridge_V1_GroupAlbumMedia) -> URLGallery.Item {
+    if m.isVideo, let v = URL(string: m.videoURL), !m.videoURL.isEmpty { return .video(v) }
+    return .image(URL(string: m.url.isEmpty ? m.thumbURL : m.url) ?? URL(string: "about:blank")!)
   }
 }
 
@@ -840,57 +955,184 @@ struct URLGallery: Identifiable {
 
 extension View {
   func urlGallery(_ gallery: Binding<URLGallery?>) -> some View {
-    fullScreenCover(item: gallery) { g in
+    #if targetEnvironment(macCatalyst)
+    onChange(of: gallery.wrappedValue?.id, initial: true) { _, _ in
+      guard let value = gallery.wrappedValue else { return }
+      MacMediaWindows.shared.open(.gallery(value))
+      gallery.wrappedValue = nil
+    }
+    #else
+    platformFullScreenCover(item: gallery) { g in
       URLGalleryView(gallery: g)
         .presentationBackground(.black)
     }
+    #endif
   }
 }
 
 struct URLGalleryView: View {
   let gallery: URLGallery
   @Environment(\.dismiss) private var dismiss
-  @State private var current = 0
+  #if targetEnvironment(macCatalyst)
+  @Environment(\.macMediaWindow) private var mediaWindow
+  #endif
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  /// 初始页在构造时就定好（越界时夹到有效范围），不在 onAppear 里改，避免先闪一下第一张。
+  @State private var current: Int
   @State private var chrome = true
+  /// 同页重算保留播放器，翻页或关闭立即释放旧页播放器。
+  @State private var playback = URLGalleryPlayback()
+
+  init(gallery: URLGallery) {
+    self.gallery = gallery
+    _current = State(initialValue: min(max(gallery.index, 0), max(gallery.items.count - 1, 0)))
+  }
 
   var body: some View {
     TabView(selection: $current) {
       ForEach(Array(gallery.items.enumerated()), id: \.offset) { i, item in
         Group {
           switch item {
-          case .image(let url): URLImagePage(url: url, onTap: { withAnimation { chrome.toggle() } }, onDismiss: { dismiss() })
-          case .video(let url): VideoPlayer(player: AVPlayer(url: url))
+          case .image(let url): URLImagePage(url: url, onTap: { withAnimation { chrome.toggle() } }, onDismiss: close)
+          // 不自动播放；非当前页不给播放器，翻走即由 playback 暂停并释放。
+          // 播放器从工具栏下方开始，系统播放器自带的顶部按钮（静音、画中画等）不会被画廊工具栏压住。
+          case .video:
+            VideoPlayer(player: i == current ? playback.player : nil)
+              #if targetEnvironment(macCatalyst)
+              .overlay(alignment: .bottomTrailing) {
+                if i == current, let player = playback.player {
+                  MacVideoControlsButton(player: player).frame(width: 40, height: 40).padding(16)
+                }
+              }
+              #endif
+              .padding(.top, toolbarHeight)
           }
         }
         .tag(i)
       }
     }
     .tabViewStyle(.page(indexDisplayMode: .never))
+    .background(.black, ignoresSafeAreaEdges: .bottom)
+    #if targetEnvironment(macCatalyst)
+    .ignoresSafeArea(edges: .bottom)
+    #else
     .ignoresSafeArea()
+    #endif
     .overlay(alignment: .top) {
-      if chrome {
-        HStack {
+      if showsChrome && toolbarHeight > 0 {
+        HStack(spacing: 8) {
           if gallery.items.count > 1 {
+            #if targetEnvironment(macCatalyst)
+            circleButton("chevron.left", label: "上一张", help: "上一张（←）", disabled: current == 0) { move(-1) }
+            #endif
             Text("\(current + 1) / \(gallery.items.count)")
               .font(.subheadline.monospacedDigit().weight(.medium)).foregroundStyle(.white)
-              .padding(.horizontal, 12).padding(.vertical, 6)
-              .background(Capsule().fill(.black.opacity(0.45)))
+              .padding(.horizontal, 12).frame(height: 32)
+              .background(Capsule().fill(.black.opacity(0.55)))
+              .overlay(Capsule().strokeBorder(.white.opacity(0.2)))
+              .fixedSize()
+            #if targetEnvironment(macCatalyst)
+            circleButton("chevron.right", label: "下一张", help: "下一张（→）", disabled: current >= gallery.items.count - 1) { move(1) }
+            #endif
           }
           Spacer()
-          Button { dismiss() } label: {
-            Image(systemName: "xmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
-              .frame(width: 40, height: 40).background(Circle().fill(.black.opacity(0.55)))
+          #if targetEnvironment(macCatalyst)
+          if mediaWindow == nil {
+            circleButton("xmark", label: "关闭", help: "关闭（Esc）", disabled: false, action: close)
           }
-          .buttonStyle(.plain)
-          .accessibilityLabel("关闭")
+          #else
+          circleButton("xmark", label: "关闭", help: "关闭（Esc）", disabled: false, action: close)
+          #endif
         }
         .padding(.horizontal, 16)
+        .frame(height: toolbarHeight)
         .transition(.opacity)
       }
     }
-    .statusBarHidden(!chrome)
-    .onAppear { current = gallery.index }
+    .statusBarHidden(!showsChrome)
+    #if targetEnvironment(macCatalyst)
+    // 与图片 / 视频查看器相同：Esc 关闭，←/→ 翻页（视频页上方向键用于翻页，不再快进快退）。
+    // 只有当前页是视频（playback 持有播放器）时才接管空格，图片页不受影响。
+    .background(mediaKeyboard)
+    .onAppear { mediaWindow?.registerCleanup("gallery", action: playback.close) }
+    #endif
+    .onChange(of: current, initial: true) { _, index in
+      guard gallery.items.indices.contains(index) else { playback.close(); return }
+      if case .video(let url) = gallery.items[index] { playback.select(index: index, url: url) }
+      else { playback.select(index: index, url: nil) }
+    }
+    .onDisappear { playback.close() }
   }
+
+  /// 工具栏一行的高度：40 点圆形按钮上下各留 8 点。
+  private var toolbarHeight: CGFloat {
+    #if targetEnvironment(macCatalyst)
+    mediaWindow != nil && gallery.items.count <= 1 ? 0 : 56
+    #else
+    56
+    #endif
+  }
+
+  /// 图片页单击可以隐藏工具栏沉浸查看；视频页没有这个手势（点击交给播放器），
+  /// 所以视频页始终显示页码、翻页与关闭，鼠标用户不会因为从隐藏状态翻过来而找不到出口。
+  private var showsChrome: Bool {
+    guard gallery.items.indices.contains(current) else { return chrome }
+    if case .video = gallery.items[current] { return true }
+    return chrome
+  }
+
+  /// 画廊的圆形按钮：与关闭按钮同尺寸、同底色，细白描边保证在纯黑背景上也能看到按钮边界。
+  private func circleButton(_ symbol: String, label: String, help: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      Image(systemName: symbol).font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+        .frame(width: 40, height: 40)
+        .background(Circle().fill(.black.opacity(0.55)))
+        .overlay(Circle().strokeBorder(.white.opacity(0.2)))
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .opacity(disabled ? 0.35 : 1)
+    .accessibilityLabel(label)
+    #if targetEnvironment(macCatalyst)
+    .help(help)
+    #endif
+  }
+
+  private func close() {
+    playback.close()
+    #if targetEnvironment(macCatalyst)
+    if let mediaWindow { mediaWindow.close(); return }
+    #endif
+    dismiss()
+  }
+
+  #if targetEnvironment(macCatalyst)
+  private var mediaKeyboard: some View {
+    let toggle: (() -> Void)? = playback.player == nil ? nil : { togglePlayback() }
+    return MacMediaKeyboard(close: close, previous: { move(-1) }, next: { move(1) }, togglePlayback: toggle)
+  }
+
+  /// 空格播放 / 暂停当前视频；播完停在末尾时从头播放。不自动播放，只响应用户按键。
+  private func togglePlayback() {
+    guard let player = playback.player else { return }
+    if player.timeControlStatus == .paused {
+      if let item = player.currentItem, item.duration.isNumeric, player.currentTime() >= item.duration {
+        player.seek(to: .zero)
+      }
+      player.play()
+    } else {
+      player.pause()
+    }
+  }
+
+  private func move(_ offset: Int) {
+    let next = current + offset
+    guard gallery.items.indices.contains(next) else { return }
+    if reduceMotion { current = next }
+    else { withAnimation(.easeInOut(duration: 0.2)) { current = next } }
+  }
+  #endif
 }
 
 struct URLImagePage: View {

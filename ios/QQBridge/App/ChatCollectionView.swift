@@ -36,6 +36,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   /// 用户在滚动时，屏幕最上面那条的时间（顶部日期徽章用）；停下后 nil。
   var onScrollDate: (Int64?) -> Void = { _ in }
   var scrollRequest: ChatScrollRequest?
+  var onFileDrop: (([NSItemProvider]) -> Void)?
+  var onDropTargeted: ((Bool) -> Void)?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
     ChatCollectionController()
@@ -47,6 +49,10 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.onBottomChange = onBottomChange
     controller.onVisibleSeqs = onVisibleSeqs
     controller.onScrollDate = onScrollDate
+    #if targetEnvironment(macCatalyst)
+    controller.fileDropReceiver.onDrop = onFileDrop
+    controller.fileDropReceiver.onTargeted = onDropTargeted
+    #endif
     controller.request(scrollRequest)
     controller.apply(items, version: version)
   }
@@ -63,6 +69,9 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var reportedVisible: Set<Int64> = []
 
   private var collectionView: UICollectionView!
+  #if targetEnvironment(macCatalyst)
+  let fileDropReceiver = MacChatFileDropReceiver()
+  #endif
   private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
   private var byId: [String: ChatItem] = [:]
   /// 每一项的前一项（时间上更早的那条）：显示时间、发送者头像时要用，提交数据时一次算好。
@@ -71,13 +80,10 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var handledRequest: UUID?
   /// 还没执行的滚动请求（目标消息还没进列表时先等着）。
   private var pendingRequest: ChatScrollRequest?
-  /// 正在执行的跳转：滚动结束后再按真实高度校正一次。
-  private var jumpTarget: String?
   /// 正在执行的滚动动画（回到底部 / 跳到某条）：期间不按锚点校正位置（直接设偏移量会把动画打断，停在半路）。
   private var animatingTo: ChatScrollRequest.Target?
   /// 往上翻着看历史时正在看的那条（及它在屏幕上的位置）：内容高度一变（新消息插到底下、单元格算出真实高度）就把它放回原处。
   private var keptAnchor: (id: String, offset: CGFloat)?
-  private var sizeObservation: NSKeyValueObservation?
   private var restoring = false
 
   private static let flip = CGAffineTransform(scaleX: 1, y: -1)
@@ -88,11 +94,16 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     config.showsSeparators = false
     config.backgroundColor = .clear
     let layout = UICollectionViewCompositionalLayout.list(using: config)
-    collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+    let chatCollection = ChatLayoutCollectionView(frame: view.bounds, collectionViewLayout: layout)
+    collectionView = chatCollection
     collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     collectionView.backgroundColor = .systemBackground
     collectionView.keyboardDismissMode = .interactive
     collectionView.delegate = self
+    #if targetEnvironment(macCatalyst)
+    // Mac 的真实消息区域由 UIKit 命中，直接使用列表的接收协议，避免依赖外层 SwiftUI 转发。
+    collectionView.dropDelegate = fileDropReceiver
+    #endif
     collectionView.selfSizingInvalidation = .enabledIncludingConstraints
     collectionView.transform = Self.flip
     // 翻转后系统自动加的安全区内边距方向是反的：自己按翻转后的方向设。
@@ -101,11 +112,9 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     // 点状态栏回顶：翻转后会滚到最新的消息，不对，关掉。
     collectionView.scrollsToTop = false
     view.addSubview(collectionView)
-    // 内容高度变了：不在底部时按锚点把正在看的内容放回原处（同一次布局里完成，不会先画出跳动的一帧）。
-    sizeObservation = collectionView.observe(\.contentSize, options: [.old, .new]) { [weak self] _, change in
-      guard change.oldValue != change.newValue else { return }
-      MainActor.assumeIsolated { self?.contentSizeChanged() }
-    }
+    // 2026-10-14 Mac 实测：contentSize 的 KVO 可能发生在单元格出队途中，此时强制布局会触发 UIKit 断言。
+    // 等 super.layoutSubviews 完成后再校正，仍在绘制前完成，不从 KVO 重入列表布局。
+    chatCollection.contentSizeDidLayout = { [weak self] in self?.contentSizeChanged() }
 
     let cell = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
       guard let self, let item = self.byId[id], let context = self.messageContext else { return }
@@ -139,7 +148,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
   private enum PanMode {
     /// 拖正在播放的语音的进度。
-    case scrub
+    case scrub(request: UUID)
     case reply(cell: UICollectionViewCell, message: Qqbridge_V1_Message)
   }
 
@@ -159,12 +168,18 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     guard !selecting else { return false }
     let v = pan.velocity(in: collectionView)
     // 正在播的语音：在波形上左右拖 = 拖播放进度的白线（两个方向都认，要抢在系统的返回手势前面）。
-    if abs(v.x) > abs(v.y), let voice = messageContext?.voice, voice.playing != nil, let wave = voice.waveFrame,
+    #if targetEnvironment(macCatalyst)
+    let canScrubDirection = true
+    #else
+    let canScrubDirection = abs(v.x) > abs(v.y)
+    #endif
+    if canScrubDirection, let voice = messageContext?.voice, voice.playing != nil, let wave = voice.waveFrame,
       let window = collectionView.window
     {
       let p = pan.location(in: window)
       if p.x >= wave.minX - 16, p.x <= wave.maxX + 16, p.y >= wave.minY - 24, p.y <= wave.maxY + 24 {
-        panMode = .scrub
+        guard !voice.isLoading, voice.duration > 0 else { return false }
+        panMode = .scrub(request: voice.playbackRequest)
         return true
       }
     }
@@ -189,14 +204,16 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     guard let mode = panMode else { return }
     let dx = min(0, pan.translation(in: collectionView).x)
     switch mode {
-    case .scrub:
+    case .scrub(let request):
+      guard messageContext?.voice.playbackRequest == request else { panMode = nil; return }
       guard let voice = messageContext?.voice, let wave = voice.waveFrame, let window = collectionView.window, wave.width > 0 else {
+        messageContext?.voice.cancelScrub()
         panMode = nil
         return
       }
       voice.scrub(to: Double((pan.location(in: window).x - wave.minX) / wave.width))
       if pan.state != .began, pan.state != .changed {
-        voice.endScrub()
+        if pan.state == .ended { voice.endScrub() } else { voice.cancelScrub() }
         panMode = nil
       }
     case .reply(let cell, let message):
@@ -282,7 +299,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
   private func contentSizeChanged() {
     guard !restoring, animatingTo == nil, let anchor = keptAnchor, !isAtBottom || selecting else { return }
-    restore(anchor)
+    restore(anchor, needsLayout: false)
   }
 
   /// 记下正在看的位置（不在底部时）。
@@ -302,11 +319,11 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     return (best.0, best.1.minY - collectionView.contentOffset.y)
   }
 
-  private func restore(_ anchor: (id: String, offset: CGFloat)) {
+  private func restore(_ anchor: (id: String, offset: CGFloat), needsLayout: Bool = true) {
     guard let indexPath = dataSource.indexPath(for: anchor.id) else { return }
     restoring = true
     defer { restoring = false }
-    collectionView.layoutIfNeeded()
+    if needsLayout { collectionView.layoutIfNeeded() }
     guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else { return }
     let target = attrs.frame.minY - anchor.offset
     // 差不到半个点就不动（直接设 contentOffset 会打断正在进行的惯性滚动）。
@@ -334,16 +351,13 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     case .item(let id):
       guard let indexPath = dataSource.indexPath(for: id) else { return }
       pendingRequest = nil
-      jumpTarget = id
       animatingTo = r.target
       collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
     }
   }
 
   /// 跳转时目标附近的单元格是按估算高度排的：滚完后它们算出了真实高度，目标可能偏了，再无动画校正一次。
-  private func finishJump() {
-    guard let id = jumpTarget else { return }
-    jumpTarget = nil
+  private func finishJump(to id: String) {
     guard let indexPath = dataSource.indexPath(for: id) else { return }
     collectionView.layoutIfNeeded()
     collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
@@ -413,12 +427,30 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
   func scrollViewDidEndScrollingAnimation(_: UIScrollView) {
     // 动画途中底下又来了消息、高度变了：落到真正的最底部。
-    if animatingTo == .bottom { scrollToBottom(animated: false) }
+    // 2026-10-14 Mac 实测：消息跳转被手动滚动打断后，旧目标不能在下一次回到底部时再次执行。
+    // 只校正当前动画的目标，拖动取消或新请求替换后不保留另一份消息目标。
+    switch animatingTo {
+    case .bottom: scrollToBottom(animated: false)
+    case .item(let id): finishJump(to: id)
+    case nil: break
+    }
     animatingTo = nil
-    finishJump()
     captureAnchor()
     reportPosition()
   }
 
   func collectionView(_: UICollectionView, shouldSelectItemAt _: IndexPath) -> Bool { false }
+}
+
+/// 自适应气泡高度稳定后再通知控制器；不能在 contentSize 的同步 KVO 回调里强制布局。
+private final class ChatLayoutCollectionView: UICollectionView {
+  var contentSizeDidLayout: (() -> Void)?
+  private var laidOutSize: CGSize?
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard laidOutSize != contentSize else { return }
+    laidOutSize = contentSize
+    contentSizeDidLayout?()
+  }
 }

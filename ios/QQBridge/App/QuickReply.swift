@@ -12,6 +12,9 @@ struct InAppBannerView: View {
   @Environment(\.session) private var session
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacMessageBanner(banner: banner, onOpen: onTap, onDismiss: onDismiss) { avatar }
+    #else
     HStack(spacing: 10) {
       avatar
       VStack(alignment: .leading, spacing: 2) {
@@ -34,6 +37,7 @@ struct InAppBannerView: View {
           if v.translation.height < -30 { onDismiss() } else { withAnimation(.spring) { drag = 0 } }
         }
     )
+    #endif
   }
 
   /// 左边：发送者头像（推送里带的）；没有就用会话的头像（群头像 / 好友头像）。
@@ -61,13 +65,36 @@ struct AppToastView: View {
   let onOpen: () -> Void
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    if toast.chatId != nil {
+      Button(action: onOpen) { toastContent }
+        .buttonStyle(.plain)
+        .accessibilityLabel("查看会话")
+        .accessibilityValue(toast.text)
+        .help("打开提示中的会话")
+    } else {
+      toastContent
+    }
+    #else
+    toastContent.onTapGesture { if toast.chatId != nil { onOpen() } }
+    #endif
+  }
+
+  private var toastContent: some View {
     HStack(spacing: 10) {
       Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
       Text(toast.text).font(.subheadline).lineLimit(2)
       if toast.chatId != nil {
         Spacer(minLength: 4)
-        Text("查看").font(.subheadline.bold()).foregroundStyle(.tint)
-        Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tint)
+        Group {
+          Text("查看").font(.subheadline.bold())
+          Image(systemName: "chevron.right").font(.caption.bold())
+        }
+        #if targetEnvironment(macCatalyst)
+        .foregroundStyle(.primary)
+        #else
+        .foregroundStyle(.tint)
+        #endif
       }
     }
     .padding(.horizontal, 16)
@@ -75,6 +102,5 @@ struct AppToastView: View {
     .glassEffect(.regular.interactive(), in: Capsule())
     .padding(.horizontal, 16)
     .contentShape(Capsule())
-    .onTapGesture { if toast.chatId != nil { onOpen() } }
   }
 }

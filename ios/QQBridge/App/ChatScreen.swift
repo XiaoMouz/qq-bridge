@@ -12,21 +12,24 @@ struct ChatScreen: View {
   let chatId: Int64
   /// 作为快速回复浮层打开（App 内横幅点进来）：左上角关闭，右上角多一个"打开完整会话"。
   var onExpand: (() -> Void)? = nil
+  /// 桌面复用聊天页时，用新的请求返回消息内容，保留输入草稿与已加载的历史。
+  var navigationRequest: UUID? = nil
+  var suppliedComposer: Composer? = nil
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
   /// 这个聊天页在「正在看的会话」里的登记号（同一个会话可能同时有两页，例如快速回复浮层）。
   @State private var visibleToken = UUID()
   @State private var items: [ChatItem] = []
-  @State private var limit = 60
+  @State private var history = ChatHistoryPagination()
+  @State private var latestRequest = UUID()
+  @State private var latestError: String?
+  @State private var messageObservation = ChatMessageObservation()
   @State private var dialog: Qqbridge_V1_Dialog?
   @State private var peer: Qqbridge_V1_Peer?
   @State private var selfUin: Int64 = 0
-  @State private var loadingOlder = false
-  /// 正在向服务端要更早的消息（顶部显示加载中）。
-  @State private var fetchingOlder = false
   /// 正在往上找某条消息（跳到 @、回复引用）。
-  @State private var searchingFor: Int64?
-  @State private var reachedStart = false
+  @State private var messageJump = ChatMessageJump()
+  private var searchingFor: Int64? { messageJump.target }
   @State private var composer = Composer()
   @State private var members = GroupMembers()
   @State private var avatars = AvatarBook()
@@ -54,6 +57,7 @@ struct ChatScreen: View {
   /// 正在选回应的消息（完整的回应面板）。
   @State private var reactingTo: Qqbridge_V1_Message?
   @State private var recorder = VoiceRecorder()
+  @State private var recordingStartTask: Task<Void, Never>?
   @State private var photoItems: [PhotosPickerItem] = []
   @State private var showPhotos = false
   /// 相机（拍照 / 录像）。
@@ -83,7 +87,7 @@ struct ChatScreen: View {
   @State private var pasteHintTimer: Task<Void, Never>?
   /// 在这之前获得的焦点是关掉弹窗后系统自动还回来的：不提示粘贴。
   @State private var pasteQuietUntil = Date.distantPast
-  /// 有东西拖到聊天页上方：显示"松手发送"。
+  /// 拖放提示跟随平台：Mac 先预览附件，iOS 保留松手发送。
   @State private var dropTargeted = false
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
@@ -92,6 +96,9 @@ struct ChatScreen: View {
   @State private var inputFocused = false
 
   private var isGroup: Bool { dialog?.scene == .group }
+  private var callUsesAudio: Bool {
+    model.calls.joining || model.calls.joined || model.calls.isDialing || model.calls.isRinging || model.calls.answeredHere
+  }
 
   private var title: String {
     if let p = peer {
@@ -102,6 +109,33 @@ struct ChatScreen: View {
   }
 
   var body: some View {
+    chatContent.onChange(of: navigationRequest) { _, _ in
+      showInfo = false
+      profileUser = nil
+      latestRequest = UUID()
+      if messageObservation.error != nil { messageObservation.restart() }
+    }
+    .task(id: latestRequest) { await refreshLatestMessages() }
+    .onChange(of: model.connection == .online) { _, online in
+      // 重连完成后补当前聊天；它可能不在启动时预取的最近 30 个会话中。
+      if online {
+        latestRequest = UUID()
+        if messageObservation.error != nil { messageObservation.restart() }
+      }
+    }
+    .modifier(AttachmentImportAlert(error: attachmentImportError))
+    .modifier(AttachmentOutboxObserver(composer: composer, store: session.store, chatId: chatId))
+    .onChange(of: callUsesAudio) { _, busy in if busy { voice.stop() } }
+    .onChange(of: suppliedComposer.map(ObjectIdentifier.init), initial: true) { _, _ in
+      if let suppliedComposer { composer = suppliedComposer }
+    }
+    .onChange(of: history.isLoading) { _, loading in
+      if !loading, atBottom { trimIfStillAtBottom() }
+    }
+  }
+
+  // 将桌面导航请求隔在独立表达式，避免继续扩大聊天内容的类型推断范围。
+  private var chatContent: some View {
     ChatCollectionView(
       items: items,
       version: itemsVersion,
@@ -131,11 +165,17 @@ struct ChatScreen: View {
       },
       onVisibleSeqs: { visible in mentionsSeen(visible) },
       onScrollDate: { time in showScrollDay(time) },
-      scrollRequest: scrollRequest
+      scrollRequest: scrollRequest,
+      onFileDrop: { providers in
+        #if targetEnvironment(macCatalyst)
+        MacDroppedProviders.enqueue(providers, into: composer.attachmentQueue)
+        #endif
+      },
+      onDropTargeted: { dropTargeted = $0 }
     )
     // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
-      if fetchingOlder || searchingFor != nil, notice == nil {
+      if history.isLoading || searchingFor != nil, notice == nil {
         HStack(spacing: 6) {
           ProgressView().controlSize(.small)
           Text(searchingFor != nil ? "正在往上查找消息…" : "正在加载更早的消息").font(.footnote)
@@ -146,7 +186,7 @@ struct ChatScreen: View {
         .padding(.top, 6)
         .transition(.opacity)
         .allowsHitTesting(false)
-      } else if let scrollDay, notice == nil {
+      } else if let scrollDay, notice == nil, history.error == nil, messageJump.failure == nil {
         Text(scrollDay)
           .font(.footnote.weight(.medium))
           .padding(.horizontal, 12)
@@ -157,6 +197,7 @@ struct ChatScreen: View {
           .allowsHitTesting(false)
       }
     }
+    .safeAreaInset(edge: .top, spacing: 0) { historyFailure }
     .animation(.easeOut(duration: 0.2), value: scrollDay)
     .overlay(alignment: .top) {
       if let notice {
@@ -203,6 +244,7 @@ struct ChatScreen: View {
         ZStack {
           if !atBottom {
             FloatingChatButton(systemImage: "chevron.down", count: newMessageCount) {
+              messageJump.cancel()
               bottomMark = items.lastMessageSeq ?? bottomMark
               scrollRequest = ChatScrollRequest(target: .bottom)
             }
@@ -216,14 +258,19 @@ struct ChatScreen: View {
       .animation(.snappy, value: atBottom)
       .animation(.snappy, value: mentions.count)
     }
-    // 拖进来的照片、视频、文件：松手直接发送。
+    #if !targetEnvironment(macCatalyst)
     .dropDestination(for: DroppedItem.self) { items, _ in
-      Task {
-        for item in items { if let a = await AttachmentLoader.load(file: item.url) { composer.attachments.append(a) } }
-        sendAll()
+      let queue = composer.attachmentQueue
+      queue.enqueueImport({ await AttachmentLoader.load(drops: items) }) { succeeded in
+        // 草稿已移交或页面已离开时保留预览，不让迟到的拖放结果发出另一份草稿。
+        if succeeded, queue.pendingImports == 0, queue.importError == nil, composer.attachmentQueue === queue,
+           model.visibleChats.last?.token == visibleToken { sendAll() }
       }
       return !items.isEmpty
-    } isTargeted: { dropTargeted = $0 }
+    } isTargeted: {
+      dropTargeted = $0
+    }
+    #endif
     .overlay { if dropTargeted { DropHint().transition(.opacity) } }
     .animation(.easeOut(duration: 0.15), value: dropTargeted)
     .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
@@ -256,14 +303,20 @@ struct ChatScreen: View {
         Task { await forward(pending, to: target) }
       }
     }
+    #if !targetEnvironment(macCatalyst)
     .toolbar(.hidden, for: .tabBar)
+    #endif
     .navigationBarTitleDisplayMode(.inline)
+    #if targetEnvironment(macCatalyst)
+    .modifier(MacChatTitle(title: title, memberCount: isGroup ? peer?.memberCount : nil, typingUntil: model.typing[chatId]))
+    #endif
     .toolbar {
       if onExpand != nil {
         ToolbarItem(placement: .topBarLeading) {
           Button("关闭", systemImage: "xmark") { dismiss() }
         }
       }
+      #if !targetEnvironment(macCatalyst)
       ToolbarItem(placement: .principal) {
         Button { showInfo = true } label: {
           VStack(spacing: 0) {
@@ -273,10 +326,15 @@ struct ChatScreen: View {
         }
         .buttonStyle(.plain)
       }
+      #endif
       ToolbarItem(placement: .topBarTrailing) {
         if selection.active {
           Button("取消") { selection.end() }
         } else {
+          #if targetEnvironment(macCatalyst)
+          Button(isGroup ? "群资料" : "资料", systemImage: "info.circle") { showInfo = true }
+            .disabled(dialog == nil)
+          #else
           if let d = dialog {
             // 右上角显示对方 / 群的头像，点开是资料页 / 群资料。
             let known = peer.flatMap { $0.avatarSha256.isEmpty ? nil : $0.avatarSha256 }
@@ -289,6 +347,7 @@ struct ChatScreen: View {
             }
             .accessibilityLabel(isGroup ? "群资料" : "资料")
           }
+          #endif
         }
       }
       if let onExpand, !selection.active {
@@ -304,17 +363,25 @@ struct ChatScreen: View {
           actions.mention(id)
         })
       } else if let dialog {
+        #if targetEnvironment(macCatalyst)
+        UserProfileView(session: session, userId: dialog.peerID, groupMember: nil, conversationID: chatId)
+        #else
         UserProfileView(session: session, userId: dialog.peerID, groupMember: nil)
+        #endif
       }
     }
-    .sheet(item: $profileUser) { target in
+    .profileCard(item: $profileUser) { target in
       NavigationStack {
         UserProfileView(session: session, userId: target.userId, groupMember: members.byId[target.userId], onMention: isGroup ? {
           profileUser = nil
           actions.mention(target.userId)
-        } : nil, viaGroupId: isGroup ? (dialog?.peerID ?? 0) : 0, asCard: true)
+        } : nil, viaGroupId: isGroup ? (dialog?.peerID ?? 0) : 0, asCard: true, onClose: { profileUser = nil })
       }
+      #if targetEnvironment(macCatalyst)
+      .presentationSizing(.form)
+      #else
       .presentationDetents([.medium, .large])
+      #endif
     }
     .mediaViewer(item: $mediaTarget, session: session, chatId: chatId)
     .quickLookPreview($fileURL)
@@ -332,14 +399,17 @@ struct ChatScreen: View {
       .presentationDetents([.medium, .large])
     }
     .modifier(ReactionSheet(message: $reactingTo, react: actions.react))
-    .fullScreenCover(isPresented: $showCamera) {
+    .platformFullScreenCover(isPresented: $showCamera) {
       CameraPicker { result in
-        Task { if let a = await AttachmentLoader.load(camera: result) { composer.attachments.append(a) } }
+        composer.attachmentQueue.enqueueImport {
+          if let attachment = await AttachmentLoader.load(camera: result) { return .init(attachments: [attachment]) }
+          return .init(failures: ["无法读取拍摄结果，请重新拍摄"])
+        }
       }
       .ignoresSafeArea()
     }
     .sheet(isPresented: $showAiVoice) {
-      AiVoiceSheet(session: session, chatId: chatId, initialText: composer.text) { sent in
+      AiVoiceSheet(session: session, chatId: chatId, initialText: composer.text, calls: model.calls) { sent in
         if composer.text.trimmingCharacters(in: .whitespacesAndNewlines) == sent { composer.text = "" }
       }
       .presentationDetents([.medium, .large])
@@ -353,6 +423,7 @@ struct ChatScreen: View {
     }
     .task { await open() }
     .onAppear {
+      if searchingFor == nil { history.resume(using: SessionChatHistoryPagingService(session: session, chatId: chatId)) }
       // 从下一级页面（群资料、个人资料）返回：焦点是系统还回来的。
       pasteQuietUntil = Date().addingTimeInterval(1.2)
       model.chatAppeared(visibleToken, chatId: chatId)
@@ -367,20 +438,22 @@ struct ChatScreen: View {
     }
     .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
     #endif
-    .task(id: limit) {
-      do {
-        if selfUin == 0, let d = try? session.store.dialog(chatId: chatId) {
-          selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
-        }
-        for try await list in session.store.observeChat(chatId: chatId, limit: limit) {
+    .task(id: ChatMessageObservation.Request(limit: history.limit, retry: messageObservation.retry)) {
+      if selfUin == 0, let d = try? session.store.dialog(chatId: chatId) {
+        selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
+      }
+      let observedLimit = history.limit
+      await messageObservation.observe(limit: observedLimit,
+        using: SessionChatMessageObservationService(session: session, chatId: chatId)) { list in
+          guard observedLimit == history.limit else { return }
           // 群名片变化不显示（旧数据里存过的也藏掉）。
           items = list.filter { if case .event(let e) = $0 { e.kind != "card_change" } else { true } }
           lookup.update(items)
           itemsVersion += 1
+          messageJump.updateRendered(Set(items.compactMap { if case .message(let m) = $0 { m.seq } else { nil } }), limit: observedLimit)
           noteNewMessages()
           markReadIfNeeded()
         }
-      } catch {}
     }
     .task {
       guard let d = try? session.store.dialog(chatId: chatId) else { return }
@@ -388,28 +461,45 @@ struct ChatScreen: View {
         for try await p in session.store.observePeer(for: d) { peer = p }
       } catch {}
     }
-    .onChange(of: composer.text) { old, new in
-      composer.textChanged(from: old, to: new)
+    #if targetEnvironment(macCatalyst)
+    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+      markReadIfNeeded()
+    }
+    #endif
+    .onChange(of: ComposerText(composer)) { old, new in
+      // 完整草稿移交不是删字，不能据旧页面的文字删除新草稿中的 @。
+      guard old.identity == new.identity else { return }
+      composer.textChanged(from: old.text, to: new.text)
       // 群里输入 "@"：弹出选人。
-      if isGroup, new.hasSuffix("@"), new.count == old.count + 1 { composer.pickingMention = true }
+      if isGroup, new.text.hasSuffix("@"), new.text.count == old.text.count + 1 { composer.pickingMention = true }
       // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
     }
     // 一次最多选 20 张 / 个，按选择的顺序逐条发出。
     .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 20, selectionBehavior: .ordered, matching: .any(of: [.images, .videos]))
     .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-      guard case .success(let urls) = result else { return }
-      Task { for url in urls { if let a = await AttachmentLoader.load(file: url) { composer.attachments.append(a) } } }
+      let queue = composer.attachmentQueue
+      switch result {
+      case .success(let urls): queue.enqueueImport { await AttachmentLoader.load(files: urls) }
+      case .failure(let error):
+        if (error as? CocoaError)?.code != .userCancelled { queue.importError = error.localizedDescription }
+      }
     }
     .onChange(of: photoItems) { _, items in
       guard !items.isEmpty else { return }
       photoItems = []
       // 选好的先放进输入框上方，点发送才发。
-      Task { for item in items { if let a = await AttachmentLoader.load(item) { composer.attachments.append(a) } } }
+      composer.attachmentQueue.enqueueImport { await AttachmentLoader.load(photos: items) }
     }
     .onDisappear {
+      messageObservation.cancel()
+      messageJump.cancel()
+      history.cancel()
       retirePasteHint()
       model.chatDisappeared(visibleToken)
       voice.stop()
+      recordingStartTask?.cancel()
+      recordingStartTask = nil
+      recorder.cancel()
       let previous = model.openChatId
       Task { await setActive(false, restoring: previous) }
     }
@@ -427,8 +517,7 @@ struct ChatScreen: View {
       showInfo = false
       profileUser = nil
       Task {
-        try? await Task.sleep(for: .milliseconds(items.isEmpty ? 1200 : 500))
-        _ = await jump(to: seq)
+        _ = await jump(to: seq, delay: .milliseconds(items.isEmpty ? 1200 : 500))
       }
     })
     .sheet(item: $albumTarget) { a in
@@ -437,9 +526,22 @@ struct ChatScreen: View {
           .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { albumTarget = nil } } }
       }
     }
-    .alert("发送失败", isPresented: .constant(sendError != nil), presenting: sendError) { _ in
-      Button("好") { sendError = nil }
+    .alert("发送失败", isPresented: .constant(sendFailure != nil), presenting: sendFailure) { _ in
+      Button("好") { sendError = nil; composer.attachmentQueue.error = nil }
     } message: { Text($0) }
+  }
+
+  private var attachmentImportError: Binding<String?> {
+    Binding(get: {
+      model.visibleChats.last?.token == visibleToken ? composer.attachmentQueue.importError : nil
+    }, set: { error in
+      if model.visibleChats.last?.token == visibleToken { composer.attachmentQueue.importError = error }
+    })
+  }
+
+  private var sendFailure: String? {
+    guard model.visibleChats.last?.token == visibleToken else { return nil }
+    return sendError ?? composer.attachmentQueue.error
   }
 
   private var subtitle: String? {
@@ -532,6 +634,10 @@ struct ChatScreen: View {
           .padding(.horizontal, 10).padding(.vertical, 4)
           .glassEffect(.regular, in: Capsule())
       }
+      if composer.attachmentQueue.pendingImports > 0 {
+        ProgressView("正在添加附件…").font(.caption).controlSize(.small)
+          .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
+      }
       if let up = uploading {
         HStack(spacing: 8) {
           ProgressView(value: up.progress).frame(width: 80)
@@ -566,6 +672,10 @@ struct ChatScreen: View {
           }
           Spacer()
           Button { composer.replyTo = nil } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+            #if targetEnvironment(macCatalyst)
+            .accessibilityLabel("取消回复")
+            .help("取消回复")
+            #endif
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
@@ -574,6 +684,9 @@ struct ChatScreen: View {
         if recorder.recording {
           RecordingBar(recorder: recorder)
         } else {
+          #if targetEnvironment(macCatalyst)
+          MacComposerMenu(menu: macAttachmentMenu).frame(width: 36, height: 40)
+          #else
           // 左：附件（和 Telegram 一样是图标，不占大圆按钮）。
           Menu {
             // PhotosPicker 直接放进 Menu 不会弹出，改由按钮打开。
@@ -591,17 +704,30 @@ struct ChatScreen: View {
             Image(systemName: "plus").font(.title3.weight(.medium)).frame(width: 36, height: 40)
           }
           .tint(.secondary)
+          #endif
           // 中：输入框占满，右侧嵌着表情按钮。
           HStack(alignment: .bottom, spacing: 4) {
             // 实体键盘（iPhone 镜像等）回车发送；粘贴图片、文件变成附件。见 ComposerField。
             ComposerField(text: $composer.text, focused: $inputFocused, onSubmit: submitFromKeyboard, onPasteMedia: pasteMedia)
             Button { showStickers = true } label: {
+              #if targetEnvironment(macCatalyst)
+              Image(systemName: "face.smiling").font(.system(size: 17, weight: .medium)).foregroundStyle(.secondary).frame(width: 36, height: 40)
+              #else
               Image(systemName: "face.smiling").font(.title3).foregroundStyle(.secondary).frame(width: 30, height: 40)
+              #endif
             }
+            #if targetEnvironment(macCatalyst)
+            .buttonStyle(.plain).accessibilityLabel("表情与贴纸").help("表情与贴纸")
+            #endif
           }
           .padding(.leading, 14)
           .padding(.trailing, 6)
+          #if targetEnvironment(macCatalyst)
+          .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
+          .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(.quaternary, lineWidth: 1).allowsHitTesting(false) }
+          #else
           .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
+          #endif
         }
         // 右：有字时发送，没字时按住录语音。
         if hasText, !recorder.recording {
@@ -612,6 +738,11 @@ struct ChatScreen: View {
           }
           .buttonStyle(.plain)
           .frame(width: 36, height: 40)
+          .disabled(composer.attachmentQueue.isSending || composer.attachmentQueue.pendingImports > 0)
+          .accessibilityLabel("发送消息")
+          #if targetEnvironment(macCatalyst)
+          .help("发送消息（Return）")
+          #endif
         } else {
           MicButton(recorder: recorder, onStart: startRecording, onFinish: finishRecording)
         }
@@ -622,6 +753,25 @@ struct ChatScreen: View {
   }
 
   // MARK: 打开与已读
+
+  #if targetEnvironment(macCatalyst)
+  private var macAttachmentMenu: UIMenu {
+    var items: [UIMenuElement] = []
+    if CameraPicker.isAvailable {
+      items.append(UIAction(title: "拍摄", image: UIImage(systemName: "camera")) { _ in showCamera = true })
+    }
+    items.append(UIAction(title: "照片或视频", image: UIImage(systemName: "photo.on.rectangle")) { _ in showPhotos = true })
+    items.append(UIAction(title: "文件", image: UIImage(systemName: "doc")) { _ in showFiles = true })
+    if isGroup {
+      items.append(UIAction(title: "AI 语音", image: UIImage(systemName: "waveform")) { _ in showAiVoice = true })
+      items.append(UIAction(title: "@某人", image: UIImage(systemName: "at")) { _ in composer.text += "@" })
+    }
+    if let d = dialog, d.scene == .friend {
+      items.append(UIAction(title: "语音通话", image: UIImage(systemName: "phone")) { _ in Task { await model.calls.startCall(peerUin: d.peerID) } })
+    }
+    return UIMenu(children: items)
+  }
+  #endif
 
   private func open() async {
     dialog = try? session.store.dialog(chatId: chatId)
@@ -635,11 +785,23 @@ struct ChatScreen: View {
       let pending = d.unreadMentions + d.unreadReplies + (d.mentionAllNotify ? d.unreadMentionAll : 0)
       if pending > 0 { Task { await loadMentions(after: d.readInboxMaxSeq, includeAll: d.mentionAllNotify) } }
     }
-    async let catchUp: Void = { try? await session.sync.openChat(chatId) }()
     async let active: Void = setActive(true)
     if let d = dialog, d.scene == .group { await members.load(session: session, groupId: d.peerID) }
-    _ = await (catchUp, active)
+    await active
     markReadIfNeeded()
+  }
+
+  private func refreshLatestMessages() async {
+    latestError = nil
+    do {
+      try await session.sync.openChat(chatId)
+      guard !Task.isCancelled else { return }
+      markReadIfNeeded()
+    } catch {
+      // 离开页面或重连触发的新任务会取消旧任务，旧错误不能覆盖当前请求。
+      guard !Task.isCancelled else { return }
+      latestError = LoadState.describe(error)
+    }
   }
 
   // MARK: 有人@我、回到底部
@@ -686,11 +848,13 @@ struct ChatScreen: View {
         return MentionTarget(seq: m.seq, flags: m.flags, includeAll: includeAll)
       }
       mentions = (fresh + mentions).sorted { $0.seq > $1.seq }
-      // 在往上翻着看历史：窗口跟着放大，最上面正在看的旧消息不会因为底下来了新的被挤出列表。
-      let arrived = items.reduce(0) { n, item in if case .message(let m) = item, m.seq > newestSeen { n + 1 } else { n } }
-      if arrived > 0 { limit += arrived }
     } else {
       bottomMark = last
+    }
+    // 定位尚未滚动时可能仍在底部，也要保住正在等待显示的目标。
+    if !atBottom || searchingFor != nil {
+      let arrived = items.reduce(0) { n, item in if case .message(let m) = item, m.seq > newestSeen { n + 1 } else { n } }
+      if arrived > 0 { history.includeNewMessages(arrived) }
     }
     newestSeen = last
   }
@@ -709,6 +873,9 @@ struct ChatScreen: View {
   /// 看到了的 @：从"有人@我"里移掉，并告诉服务端（不再算未读 @，已读位置不动）。
   /// force：不管在不在屏幕上（点按钮跳过去、全部标为已看）。
   private func mentionsSeen(_ seqs: Set<Int64>, force: Bool = false) {
+    #if targetEnvironment(macCatalyst)
+    guard force || (UIApplication.shared.applicationState == .active && model.openChatId == chatId) else { return }
+    #endif
     let hits = force ? seqs : Set(mentions.map(\.seq)).intersection(seqs)
     if !force { mentions.removeAll { hits.contains($0.seq) } }
     let fresh = hits.subtracting(seenMentions)
@@ -727,7 +894,7 @@ struct ChatScreen: View {
       canPaste = false
       return
     }
-    canPaste = pb.hasImages || pb.contains(pasteboardTypes: [MediaPasteboard.type])
+    canPaste = (!PasteboardMedia.hasFileURLs && pb.hasImages) || pb.contains(pasteboardTypes: [MediaPasteboard.type])
     guard canPaste else { return }
     pasteHintTimer?.cancel()
     pasteHintTimer = Task {
@@ -815,6 +982,22 @@ struct ChatScreen: View {
     }
   }
 
+  @ViewBuilder private var historyFailure: some View {
+    if let error = messageObservation.error {
+      ChatHistoryFailure(title: "消息列表更新中断", message: error, retry: messageObservation.restart, retryLabel: "重新订阅消息列表")
+        .padding(.bottom, 6)
+    } else if let error = latestError {
+      ChatHistoryFailure(title: "最新消息同步失败", message: error, retry: { latestRequest = UUID() }, retryLabel: "重新同步最新消息")
+        .padding(.bottom, 6)
+    } else if let failure = messageJump.failure, notice == nil {
+      ChatHistoryFailure(title: "无法定位消息", message: failure.message, retry: { Task { await jump(to: failure.seq) } }, dismiss: messageJump.dismissFailure, retryLabel: "重新定位消息")
+        .padding(.bottom, 6)
+    } else if let error = history.error, !history.isLoading, searchingFor == nil, notice == nil {
+      ChatHistoryFailure(message: error, retry: retryHistory)
+        .padding(.bottom, 6)
+    }
+  }
+
   private func show(_ text: String) {
     notice = text
     Task {
@@ -825,59 +1008,29 @@ struct ChatScreen: View {
 
   /// 回到底部、停了一会儿：把翻页时加载的大量旧消息收回到最近一屏，免得列表越翻越重。
   private func trimIfStillAtBottom() {
-    guard limit > 120 else { return }
+    guard history.limit > 120 else { return }
     Task {
       try? await Task.sleep(for: .seconds(1.5))
-      guard atBottom else { return }
-      limit = 60
-      reachedStart = false
+      guard atBottom, searchingFor == nil, !history.isLoading else { return }
+      history.trim()
     }
   }
 
-  /// 跳到某条消息：本地还没加载到它就往前翻页，再把列表放大到包含它，最后滚过去并高亮。
-  /// 跳到某条消息：不在列表里就一直往上翻页（每页 500 条，服务端没有的会现场向 QQ 拉），翻到了滚过去并高亮。
-  /// 返回是否跳到了。
   @discardableResult
-  private func jump(to seq: Int64) async -> Bool {
-    func loaded() -> Bool { items.contains { if case .message(let m) = $0 { m.seq == seq } else { false } } }
-    if !loaded() {
-      searchingFor = seq
-      defer { searchingFor = nil }
-      // 不看之前记下的"已到最早"：翻页出过错、或这条是单独拉回来的，都值得再往上找一次。
-      var exhausted = false
-      while !loaded(), !exhausted {
-        if Task.isCancelled { return false }
-        let window = try? session.store.loadedWindow(chatId: chatId)
-        let need = (try? session.store.messageCount(chatId: chatId, fromSeq: seq)) ?? 0
-        if let window, seq >= window.floor {
-          // 已经在连续区间里了，只是列表没显示那么多。
-          limit = max(limit, need + 20)
-        } else {
-          do {
-            let got = try await session.sync.loadOlder(chatId, limit: 500)
-            if got == 0 { reachedStart = true; exhausted = true }
-            limit += got
-          } catch {
-            show("加载更早的消息失败，稍后再点一次")
-            return false
-          }
-        }
-        // 等列表按新的 limit 刷新。
-        for _ in 0..<40 where !loaded() && (items.firstMessageSeq ?? 0) > seq { try? await Task.sleep(for: .milliseconds(50)) }
-        if let first = items.firstMessageSeq, first <= seq, !loaded() { break }  // 翻过头了还没有：这条不存在
-      }
+  private func jump(to seq: Int64, delay: Duration = .zero) async -> Bool {
+    await messageJump.jump(to: seq, delay: delay,
+      using: SessionChatMessageJumpService(session: session, chatId: chatId), history: history) { target in
+      scrollRequest = ChatScrollRequest(target: .item("m\(target)"))
+      highlight.flash(target)
     }
-    guard loaded() else {
-      show("这条消息已经不在了（可能被删除或已过期）")
-      return false
-    }
-    scrollRequest = ChatScrollRequest(target: .item("m\(seq)"))
-    highlight.flash(seq)
-    return true
   }
 
   /// 看到最底部了：标已读到最后一条消息（同一位置只标一次）。
   private func markReadIfNeeded() {
+    #if targetEnvironment(macCatalyst)
+    // Mac keeps syncing while another app is active; arrival is not evidence of reading.
+    guard UIApplication.shared.applicationState == .active, model.openChatId == chatId else { return }
+    #endif
     guard atBottom, let last = items.lastMessageSeq, last > lastMarked else { return }
     guard (dialog?.unreadCount ?? 1) > 0 || last > (dialog?.readInboxMaxSeq ?? 0) else { return }
     lastMarked = last
@@ -928,17 +1081,25 @@ struct ChatScreen: View {
       Task {
         // 原件可能已清理（按需会话），下载接口会当场从 QQ 拉回；拿不到就提示。
         do {
+          #if targetEnvironment(macCatalyst)
+          fileURL = try await MacDownloads.shared.file(sha: file.media.sha256, name: file.name, session: session)
+          #else
           let cached = try await session.media.file(for: file.media.sha256, chatId: chatId)
           let named = FileManager.default.temporaryDirectory.appendingPathComponent(file.name.isEmpty ? cached.lastPathComponent : file.name)
           try? FileManager.default.removeItem(at: named)
           try FileManager.default.copyItem(at: cached, to: named)
           fileURL = named
+          #endif
         } catch {
-          sendError = "文件打不开：QQ 上已经拿不到了"
+          sendError = "文件打不开：\(error.localizedDescription)"
         }
       }
     }
-    actions.playVoice = { voice.toggle($0, session: session) }
+    actions.playVoice = { record, id in
+      guard !callUsesAudio else { show("通话期间暂停语音播放"); return }
+      guard !VoiceRecorder.isBusy, recordingStartTask == nil else { show("录音期间暂停语音播放"); return }
+      voice.toggle(record, id: id, session: session)
+    }
     actions.openForward = { forwardMessage = $0 }
   }
 
@@ -974,6 +1135,7 @@ struct ChatScreen: View {
 
   /// 自己发了消息：回到最底下看到它（往上翻着看历史时也一样）。
   private func scrollToBottomAfterSend() {
+    messageJump.cancel()
     bottomMark = items.lastMessageSeq ?? bottomMark
     scrollRequest = ChatScrollRequest(target: .bottom)
   }
@@ -988,17 +1150,26 @@ struct ChatScreen: View {
   private var hasText: Bool { !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !composer.attachments.isEmpty }
 
   private func startRecording() {
+    guard recordingStartTask == nil, !recorder.recording else { return }
+    guard !callUsesAudio else { show("通话期间无法录制语音"); return }
+    guard !VoiceRecorder.isBusy else { show("已有语音正在录制"); return }
+    VoicePlayer.stopCurrent()
     recorder.onAutoFinish = { finishRecording(cancelled: false) }
-    Task {
+    recordingStartTask = Task {
+      // 失败弹窗可能中断按住手势；启动结束即释放入口，旧取消任务不能清掉下一次任务。
+      defer { if !Task.isCancelled { recordingStartTask = nil } }
       do {
         try await recorder.start()
       } catch {
+        guard !Task.isCancelled else { return }
         sendError = (error as? VoiceRecorder.StartError) == .denied ? "没有麦克风权限：请在系统设置里允许 BetterChat 使用麦克风" : "录不了音：没有找到可用的麦克风"
       }
     }
   }
 
   private func finishRecording(cancelled: Bool) {
+    recordingStartTask?.cancel()
+    recordingStartTask = nil
     if cancelled || recorder.willCancel {
       recorder.cancel()
       return
@@ -1030,100 +1201,80 @@ struct ChatScreen: View {
   /// 粘贴（⌘V / 长按菜单）：图片直接放进附件；文件读出来后放进附件。返回 false 时照常粘贴文字。
   private func pasteMedia() -> Bool {
     if let a = AttachmentLoader.fromPasteboard() {
-      composer.attachments.append(a)
+      composer.attachmentQueue.enqueueImport { .init(attachments: [a]) }
       retirePasteHint()
       return true
     }
     let pb = UIPasteboard.general
-    guard !pb.hasStrings, !pb.itemProviders.isEmpty else { return false }
+    guard PasteboardMedia.hasFileURLs || (!pb.hasStrings && !pb.itemProviders.isEmpty) else { return false }
     retirePasteHint()
-    Task {
-      let files = await AttachmentLoader.filesFromPasteboard()
-      if files.isEmpty { show("剪贴板里的内容没法发送") } else { composer.attachments.append(contentsOf: files) }
+    let source = AttachmentLoader.capturePasteboardFiles()
+    composer.attachmentQueue.enqueueImport {
+      var result = await AttachmentLoader.load(pasteboard: source)
+      if result.attachments.isEmpty && result.failures.isEmpty { result.failures = ["剪贴板里的内容没法发送"] }
+      return result
     }
     return true
   }
 
   private func sendAll() {
-    let pending = composer.attachments.filter { if case .uploading = $0.state { false } else { true } }
+    let source = composer
+    let queue = source.attachmentQueue
+    guard !queue.isSending, queue.pendingImports == 0 else { return }
+    let pending = source.attachments.filter { if case .uploading = $0.state { false } else { true } }
     guard !pending.isEmpty else {
       sendText()
       return
     }
-    var reply = composer.replyTo?.seq
-    let hasWords = !composer.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    var reply = source.replyTo?.seq
+    let segments = source.segments()
+    let sentText = source.text
     scrollToBottomAfterSend()
-    Task {
+    guard queue.start({
       for a in pending {
-        if await send(a, replyTo: reply) { reply = nil }
+        if await send(a, replyTo: reply, composer: source) { reply = nil }
       }
-      if hasWords {
-        if reply == nil { composer.replyTo = nil }
-        sendText()
-      } else if reply == nil {
-        composer.replyTo = nil
+      if !segments.isEmpty {
+        do { try await session.sender.send(chatId: chatId, segments: segments, replyToSeq: reply) }
+        catch { queue.error = LoadState.describe(error) }
       }
-    }
+    }) else { return }
+    // 同步占住整批附件，第二次点击与快捷键都不能重复排队。
+    for a in pending { source.update(a.id, .uploading(0)) }
+    source.reset()
+    clearCommittedText(sentText, in: source)
   }
 
   /// 上传并发出一个附件；成功后从预览条移除。
-  private func send(_ a: Attachment, replyTo: Int64?) async -> Bool {
-    composer.update(a.id, .uploading(0))
-    let progress: @Sendable (Double) -> Void = { p in Task { @MainActor in composer.update(a.id, .uploading(p)) } }
-    do {
-      var seg = Qqbridge_V1_OutgoingSegment()
-      var reply = replyTo
-      switch a.payload {
-      case .image(let data):
-        let isGif = data.starts(with: [0x47, 0x49, 0x46])
-        let uploaded = try await session.api.upload(data, mime: isGif ? "image/gif" : "image/jpeg", name: isGif ? "image.gif" : "photo.jpg")
-        seg.image.sha256 = uploaded.sha256
-      case .stored(let sha, let sticker):
-        seg.image.sha256 = sha
-        if sticker {
-          seg.image.sticker = true
-          seg.image.summary = "[动画表情]"
-        }
-      case .video(let url):
-        let uploaded = try await session.api.uploadFile(at: url, mime: "video/mp4", name: url.lastPathComponent, progress: progress)
-        seg.video.sha256 = uploaded.sha256
-        reply = nil  // 视频、文件不能带回复
-      case .file(let url, let name):
-        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        let uploaded = try await session.api.uploadFile(at: url, mime: mime, name: name, progress: progress)
-        seg.file.sha256 = uploaded.sha256
-        seg.file.name = name
-        reply = nil
-      }
-      try await session.sender.send(chatId: chatId, segments: [seg], replyToSeq: reply)
-      composer.attachments.removeAll { $0.id == a.id }
-      return reply != nil
-    } catch {
-      composer.update(a.id, .failed("\(error)"))
-      sendError = "发送失败：\(LoadState.describe(error))"
-      return false
-    }
+  private func send(_ a: Attachment, replyTo: Int64?, composer: Composer) async -> Bool {
+    await AttachmentSending.send(a, chatId: chatId, replyTo: replyTo, composer: composer,
+      service: SessionAttachmentSendingService(session: session))
   }
 
   private func sendText() {
+    let composer = composer
     let segments = composer.segments()
     guard !segments.isEmpty else { return }
     scrollToBottomAfterSend()
     let reply = composer.replyTo?.seq
     let sentText = composer.text
     composer.reset()
-    // 中文输入法还有没上屏的候选字时，清空后输入法会把字再提交回来：内容还是刚发出去的那段就再清一次。
-    Task {
-      for delay in [50, 200] {
-        try? await Task.sleep(for: .milliseconds(delay))
-        if !sentText.isEmpty, composer.text == sentText || sentText.hasPrefix(composer.text) && !composer.text.isEmpty { composer.text = "" }
-      }
-    }
+    clearCommittedText(sentText, in: composer)
     Task {
       do {
         try await session.sender.send(chatId: chatId, segments: segments, replyToSeq: reply)
       } catch {
         sendError = "\(error)"
+      }
+    }
+  }
+
+  private func clearCommittedText(_ sentText: String, in composer: Composer) {
+    // 中文输入法还有没上屏的候选字时，清空后输入法会把字再提交回来：内容还是刚发出去的那段就再清一次。
+    Task {
+      for delay in [50, 200] {
+        try? await Task.sleep(for: .milliseconds(delay))
+        if !sentText.isEmpty, composer.text == sentText || sentText.hasPrefix(composer.text) && !composer.text.isEmpty { composer.text = "" }
       }
     }
   }
@@ -1222,22 +1373,12 @@ struct ChatScreen: View {
 
   /// 往上翻页：本地还有更早的就先放宽窗口，没有了再向服务端要（服务端没有的会现场向 QQ 拉）。
   private func loadOlder() {
-    guard !loadingOlder, !reachedStart else { return }
-    loadingOlder = true
-    Task {
-      defer { loadingOlder = false }
-      // 连续区间里本地还有没显示的：先放大显示范围；都显示了才向服务端要更早的。
-      let localCount = (try? session.store.loadedWindow(chatId: chatId).count) ?? 0
-      if localCount > limit {
-        limit += 60
-        return
-      }
-      fetchingOlder = true
-      defer { fetchingOlder = false }
-      // 出错（网络、QQ 掉线）不算到头：下次滑到顶再试。
-      guard let got = try? await session.sync.loadOlder(chatId, limit: 60) else { return }
-      if got == 0 { reachedStart = true } else { limit += got }
-    }
+    guard searchingFor == nil else { return }
+    history.load(using: SessionChatHistoryPagingService(session: session, chatId: chatId))
+  }
+
+  private func retryHistory() {
+    history.load(using: SessionChatHistoryPagingService(session: session, chatId: chatId), retry: true)
   }
 
   /// 告诉服务端正在看哪个会话：它的媒体优先下载，头像按需刷新。
@@ -1334,20 +1475,6 @@ struct FloatingChatButton<MenuContent: View>: View {
 extension FloatingChatButton where MenuContent == EmptyView {
   init(systemImage: String, count: Int, action: @escaping () -> Void) {
     self.init(systemImage: systemImage, count: count, action: action, menu: { EmptyView() })
-  }
-}
-
-/// 拖进来的东西：先落到临时文件再处理。
-struct DroppedItem: Transferable {
-  let url: URL
-  static var transferRepresentation: some TransferRepresentation {
-    FileRepresentation(importedContentType: .item) { received in
-      let dir = FileManager.default.temporaryDirectory.appendingPathComponent("drop-\(UUID().uuidString)")
-      try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-      let dest = dir.appendingPathComponent(received.file.lastPathComponent)
-      try FileManager.default.copyItem(at: received.file, to: dest)
-      return DroppedItem(url: dest)
-    }
   }
 }
 

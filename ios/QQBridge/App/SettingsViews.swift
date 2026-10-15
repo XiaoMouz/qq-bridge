@@ -6,6 +6,7 @@ import SwiftUI
 
 struct SettingsView: View {
   let session: Session
+  var accountOnly = false
   @Environment(AppModel.self) private var model
   @State private var status: Qqbridge_V1_GetStatusResponse?
   @State private var statusError = false
@@ -17,18 +18,24 @@ struct SettingsView: View {
     NavigationStack {
       Form {
         Section { qqCard }
-        Section {
+        if !accountOnly { Section {
           NavigationLink { PreferencesView() } label: { Label("偏好", systemImage: "slider.horizontal.3") }
           NavigationLink { StorageView(session: session) } label: { Label("存储", systemImage: "internaldrive") }
+          #if targetEnvironment(macCatalyst)
+          NavigationLink { MacDownloadSettingsView() } label: { Label("下载", systemImage: "arrow.down.circle") }
+          #endif
           NavigationLink { AboutView(session: session) } label: { Label("关于", systemImage: "info.circle") }
-        }
+        } }
         Section {
           Button("退出登录", role: .destructive) { confirmLogout = true }
         }
       }
-      .navigationTitle("设置")
+      .navigationTitle(accountOnly ? "账号" : "设置")
+      #if targetEnvironment(macCatalyst)
+      .navigationBarTitleDisplayMode(.inline)
+      #endif
       .task { await loadStatus() }
-      .refreshable { await loadStatus() }
+      .platformRefreshable { await loadStatus() }
       .sheet(isPresented: $showQqLogin, onDismiss: { Task { await loadStatus() } }) { QqLoginSheet(session: session) }
       .confirmationDialog("退出后本机缓存会被清空", isPresented: $confirmLogout, titleVisibility: .visible) {
         Button("退出登录", role: .destructive) { Task { await model.logout() } }
@@ -122,6 +129,7 @@ struct PreferencesView: View {
 
 struct StorageView: View {
   let session: Session
+  @Environment(AppModel.self) private var model
   @State private var usage: MediaCacheUsage?
   /// 本机按类型的占用（消息 = 本地数据库）。
   @State private var localStats: [StorageGroupStat] = []
@@ -131,6 +139,8 @@ struct StorageView: View {
   @AppStorage("cacheCapGB") private var cacheCapGB = 2
   @AppStorage("cacheDays") private var cacheDays = 7
   @State private var confirmClear = false
+  @State private var clearing = false
+  @State private var clearError: String?
 
   var body: some View {
     Form {
@@ -149,20 +159,39 @@ struct StorageView: View {
         }
       } catch {}
     }
-    .refreshable {
+    .platformRefreshable {
       await refreshUsage()
       await loadOverview()
     }
     .onChange(of: cacheCapGB) { applyLimits() }
     .onChange(of: cacheDays) { applyLimits() }
-    .confirmationDialog("清空本机缓存？看过的图片和文件之后会重新下载。", isPresented: $confirmClear, titleVisibility: .visible) {
+    .confirmationDialog(clearConfirmation, isPresented: $confirmClear, titleVisibility: .visible) {
       Button("清空缓存", role: .destructive) {
+        guard !clearing else { return }
+        clearing = true
         Task {
-          _ = try? await session.media.clear()
+          defer { clearing = false }
+          do {
+            let freed = try await session.media.clear()
+            model.showToast(AppToast(text: "已清理媒体缓存，释放 \(Bytes.text(freed))"))
+          } catch {
+            clearError = "部分缓存未能清理，请稍后重试。\n\(LoadState.describe(error))"
+          }
           await refreshUsage()
         }
       }
     }
+    .alert("缓存清理未完成", isPresented: Binding(get: { clearError != nil }, set: { if !$0 { clearError = nil } })) {
+      Button("好", role: .cancel) { clearError = nil }
+    } message: { Text(clearError ?? "") }
+  }
+
+  private var clearConfirmation: String {
+    #if targetEnvironment(macCatalyst)
+    "清空媒体缓存？看过的媒体之后会重新下载。已保存到 Downloads 或自选目录的文件不会删除。"
+    #else
+    "清空本机缓存？看过的图片和文件之后会重新下载。"
+    #endif
   }
 
   // 本机：按类型的分段条（媒体缓存 + 消息），每类一行，点进去看各会话的占比。
@@ -194,7 +223,8 @@ struct StorageView: View {
       Picker("保留", selection: $cacheDays) {
         ForEach([3, 7, 30, 0], id: \.self) { Text($0 == 0 ? "永久" : "\($0) 天").tag($0) }
       }
-      Button("清空媒体缓存", role: .destructive) { confirmClear = true }
+      Button(clearing ? "正在清理媒体缓存…" : "清空媒体缓存", role: .destructive) { confirmClear = true }
+        .disabled(clearing)
     } header: {
       Text("本机")
     } footer: {
@@ -359,6 +389,9 @@ struct ChatStorageView: View {
   @State private var error: String?
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacChatStorageView(session: session, chatID: chatId, title: title)
+    #else
     Form {
       if let d = detail {
         Section {
@@ -410,6 +443,7 @@ struct ChatStorageView: View {
         self.error = LoadState.describe(error)
       }
     }
+    #endif
   }
 
   static func group(_ k: Qqbridge_V1_MediaKind) -> StorageGroup {
@@ -530,6 +564,8 @@ enum Bytes {
 
 struct AboutView: View {
   let session: Session
+  /// 调用方可直接提供图标（Mac Catalyst 的 Info.plist 没有 CFBundleIcons）；不传时沿用下面的查找。
+  var icon: UIImage? = nil
   @Environment(AppModel.self) private var model
   @State private var status: Qqbridge_V1_GetStatusResponse?
   @State private var error: String?
@@ -538,7 +574,7 @@ struct AboutView: View {
     Form {
       Section {
         VStack(spacing: 6) {
-          Image(uiImage: Self.appIcon)
+          Image(uiImage: icon ?? Self.appIcon)
             .resizable()
             .frame(width: 80, height: 80)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -577,7 +613,7 @@ struct AboutView: View {
     .navigationTitle("关于")
     .navigationBarTitleDisplayMode(.inline)
     .task { await load() }
-    .refreshable { await load() }
+    .platformRefreshable { await load() }
   }
 
   private var connectionText: String {

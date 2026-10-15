@@ -16,7 +16,22 @@ final class Composer {
   /// 刚输入了 "@"：弹出选人。
   var pickingMention = false
   /// 待发送的附件（输入框上方）。
-  var attachments: [Attachment] = []
+  private(set) var attachmentQueue = AttachmentQueue<Attachment>()
+  var attachments: [Attachment] {
+    get { attachmentQueue.items }
+    set { attachmentQueue.items = newValue }
+  }
+
+  /// 快速回复独立编辑，避免同一份状态同时触发两个页面的输入与提及弹窗。
+  func copyDraft() -> Composer {
+    let copy = Composer()
+    copy.text = text
+    copy.tokens = tokens
+    copy.replyTo = replyTo
+    // 附件队列共用，进行中的上传、失败重试和移除都会传到接手页面。
+    copy.attachmentQueue = attachmentQueue
+    return copy
+  }
 
   func insertMention(userId: Int64, name: String, replacingTrailingAt: Bool = false) {
     if replacingTrailingAt, text.hasSuffix("@") { text.removeLast() }
@@ -105,6 +120,20 @@ final class Composer {
   func update(_ id: UUID, _ state: Attachment.State) {
     if let i = attachments.firstIndex(where: { $0.id == id }) { attachments[i].state = state }
   }
+  func updateProgress(_ id: UUID, _ progress: Double) {
+    guard let index = attachments.firstIndex(where: { $0.id == id }),
+          case .uploading = attachments[index].state else { return }
+    attachments[index].state = .uploading(progress)
+  }
+}
+
+struct ComposerText: Equatable {
+  let identity: ObjectIdentifier
+  let text: String
+  @MainActor init(_ composer: Composer) {
+    identity = ObjectIdentifier(composer)
+    text = composer.text
+  }
 }
 
 /// 聊天页里各处要用的动作，由 ChatScreen 实现。
@@ -121,7 +150,7 @@ final class ChatActions {
   var openFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
   /// 转发这一条（选会话）。
   var forward: (Qqbridge_V1_Message) -> Void = { _ in }
-  var playVoice: (Qqbridge_V1_RecordSegment) -> Void = { _ in }
+  var playVoice: (Qqbridge_V1_RecordSegment, VoicePlaybackID) -> Void = { _, _ in }
   var openForward: (Qqbridge_V1_Message) -> Void = { _ in }
   /// 复制图片 / 表情到剪贴板。
   var copyMedia: (Qqbridge_V1_MediaInfo, Bool) -> Void = { _, _ in }
@@ -163,11 +192,52 @@ struct MediaTarget: Identifiable, Hashable {
 @MainActor
 @Observable
 final class GroupMembers {
+  #if targetEnvironment(macCatalyst)
+  private struct Snapshot: Sendable {
+    let list: [Qqbridge_V1_GroupMember]
+    let byId: [Int64: Qqbridge_V1_GroupMember]
+    init(_ list: [Qqbridge_V1_GroupMember]) {
+      self.list = list
+      byId = Dictionary(list.map { ($0.userID, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+  }
+  private let resource = MacGroupResource<Snapshot>()
+  private var requestedRefresh = false
+  var list: [Qqbridge_V1_GroupMember] { resource.value?.list ?? [] }
+  var byId: [Int64: Qqbridge_V1_GroupMember] { resource.value?.byId ?? [:] }
+  var hasLoaded: Bool { resource.hasLoaded }
+  var error: String? { resource.error }
+  var isLoading: Bool { resource.isLoading }
+
+  @discardableResult
+  func load(groupId: Int64, refresh: Bool = false,
+            fetch: @escaping @MainActor () async throws -> [Qqbridge_V1_GroupMember]) -> Task<Void, Never> {
+    if resource.groupID == groupId, resource.hasLoaded, !refresh { return Task {} }
+    if resource.groupID != groupId { remarks = [:]; qqNames = [:] }
+    // 用户要求从 QQ 刷新时，不能复用仍在读取服务端缓存的普通请求。
+    if resource.groupID == groupId, resource.isLoading, refresh, !requestedRefresh { resource.cancel() }
+    if resource.groupID != groupId || !resource.isLoading { requestedRefresh = refresh }
+    return resource.load(groupID: groupId) { Snapshot(try await fetch()) }
+  }
+  #else
   private(set) var byId: [Int64: Qqbridge_V1_GroupMember] = [:]
   private(set) var list: [Qqbridge_V1_GroupMember] = []
   private var loaded = false
+  #endif
 
   func load(session: Session, groupId: Int64, refresh: Bool = false) async {
+    #if targetEnvironment(macCatalyst)
+    // 聊天和资料页共用缓存；请求随对象持有，关闭资料页不会取消聊天所需的成员加载。
+    await load(groupId: groupId, refresh: refresh) {
+      var req = Qqbridge_V1_ListGroupMembersRequest()
+      req.groupID = groupId
+      req.limit = 2000
+      req.refresh = refresh
+      return try await session.api.contacts.listGroupMembers(request: req, headers: session.api.headers).get().members
+    }.value
+    guard resource.groupID == groupId, !Task.isCancelled else { return }
+    loadPeerNames(session)
+    #else
     guard !loaded || refresh else { return }
     loaded = true
     var req = Qqbridge_V1_ListGroupMembersRequest()
@@ -178,6 +248,7 @@ final class GroupMembers {
     list = res.members
     byId = Dictionary(res.members.map { ($0.userID, $0) }, uniquingKeysWith: { a, _ in a })
     loadPeerNames(session)
+    #endif
   }
 
   /// 自己给好友起的备注、QQ 资料里的昵称（成员列表里的昵称可能是空的或旧的）：搜索成员时一起比对。
@@ -346,123 +417,6 @@ final class MediaRequester {
   }
 }
 
-/// 录语音：按住麦克风开始，松开发送，左滑取消。录成 AAC（m4a），QQ 的 silk 由 NapCat 转。最长 60 秒（QQ 的上限）。
-@MainActor
-@Observable
-final class VoiceRecorder {
-  static let maxDuration: TimeInterval = 60
-  private(set) var recording = false
-  private(set) var elapsed: TimeInterval = 0
-  /// 最近的音量（0…1），录音条画波形用。
-  private(set) var levels: [CGFloat] = []
-  /// 手指已经左滑到取消区。
-  var willCancel = false
-  /// 录到上限自动结束时调用。
-  var onAutoFinish: (() -> Void)?
-  private var recorder: AVAudioRecorder?
-  private var timer: Timer?
-
-  enum StartError: Error { case denied, unavailable }
-
-  #if DEBUG
-  /// 调试：没有麦克风的机器（模拟器跑在没麦克风的 Mac 上）用假的音量走一遍录音条。QQB_FAKE_MIC=1 时启用。
-  private var fake: Date?
-  private static let fakeMic = ["1", "hold"].contains(ProcessInfo.processInfo.environment["QQB_FAKE_MIC"])
-  /// QQB_FAKE_MIC=hold：进入聊天页就开始假录音，不松手（截图看录音条用）。
-  static let holdFakeRecording = ProcessInfo.processInfo.environment["QQB_FAKE_MIC"] == "hold"
-  #endif
-
-  /// 开始录音。没有麦克风权限 / 录不了（例如没有麦克风）时抛错。
-  func start() async throws(StartError) {
-    guard !recording else { return }
-    #if DEBUG
-    if Self.fakeMic {
-      fake = Date()
-      recording = true
-      willCancel = false
-      elapsed = 0
-      levels = []
-      timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-        MainActor.assumeIsolated {
-          guard let self, let fake = self.fake else { return }
-          self.elapsed = Date().timeIntervalSince(fake)
-          self.levels.append(CGFloat(0.2 + 0.7 * abs(sin(self.elapsed * 5)) * Double.random(in: 0.5...1)))
-          if self.levels.count > 120 { self.levels.removeFirst(self.levels.count - 120) }
-        }
-      }
-      return
-    }
-    #endif
-    guard await AVAudioApplication.requestRecordPermission() else { throw .denied }
-    let audio = AVAudioSession.sharedInstance()
-    try? audio.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothHFP])
-    try? audio.setActive(true)
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
-    let settings: [String: Any] = [
-      AVFormatIDKey: kAudioFormatMPEG4AAC,
-      AVSampleRateKey: 24_000,
-      AVNumberOfChannelsKey: 1,
-      AVEncoderBitRateKey: 32_000,
-    ]
-    guard let r = try? AVAudioRecorder(url: url, settings: settings) else { throw .unavailable }
-    r.isMeteringEnabled = true
-    guard r.record() else { throw .unavailable }
-    recorder = r
-    recording = true
-    willCancel = false
-    elapsed = 0
-    levels = []
-    timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.tick() }
-    }
-  }
-
-  private func tick() {
-    guard let r = recorder else { return }
-    r.updateMeters()
-    let db = r.averagePower(forChannel: 0)  // -160…0 dB，人声大多在 -50 以上
-    levels.append(CGFloat(max(0, min(1, (db + 50) / 50))))
-    if levels.count > 120 { levels.removeFirst(levels.count - 120) }
-    elapsed = r.currentTime
-    if elapsed >= Self.maxDuration { onAutoFinish?() }
-  }
-
-  /// 结束并返回录好的文件和时长；太短（不到 1 秒）返回 nil。
-  func finish() -> (url: URL, duration: TimeInterval)? {
-    #if DEBUG
-    if fake != nil { fake = nil; reset(); return nil }  // 假录音不发送
-    #endif
-    guard let r = recorder else { return nil }
-    let duration = r.currentTime
-    r.stop()
-    reset()
-    guard duration >= 1 else {
-      try? FileManager.default.removeItem(at: r.url)
-      return nil
-    }
-    return (r.url, duration)
-  }
-
-  func cancel() {
-    #if DEBUG
-    if fake != nil { fake = nil; reset(); return }
-    #endif
-    guard let r = recorder else { return }
-    r.stop()
-    r.deleteRecording()
-    reset()
-  }
-
-  private func reset() {
-    timer?.invalidate()
-    timer = nil
-    recorder = nil
-    recording = false
-    willCancel = false
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-  }
-}
-
 /// 多选：长按"多选"进入，点消息勾选 / 取消，底部按钮逐条转发或合并转发。
 @MainActor
 @Observable
@@ -484,107 +438,6 @@ final class MessageSelection {
   func end() {
     active = false
     seqs = []
-  }
-}
-
-/// 语音播放：同一时间只播一条；播的是服务端转好的 AAC（playable），边下边播。
-/// 播放时记着进度（0…1），气泡据此填色；拖动白线时先只改显示的位置，松手再跳过去。
-@MainActor
-@Observable
-final class VoicePlayer {
-  private(set) var playing: String?
-  /// 播放进度 0…1（正在拖动时是拖到的位置）。
-  private(set) var progress: Double = 0
-  /// 总时长（秒）：播放器知道前用语音消息里的时长。
-  private(set) var duration: Double = 0
-  /// 正在拖动白线。
-  private(set) var scrubbing = false
-  /// 正在播的那条的波形在窗口里的位置（聊天列表的拖动手势据此判断是不是在拖进度）。
-  @ObservationIgnored var waveFrame: CGRect?
-  @ObservationIgnored private var player: AVPlayer?
-  @ObservationIgnored private var observer: NSObjectProtocol?
-  @ObservationIgnored private var ticker: Any?
-
-  static func sha(_ record: Qqbridge_V1_RecordSegment) -> String {
-    record.media.playableSha256.isEmpty ? record.media.sha256 : record.media.playableSha256
-  }
-
-  func isPlaying(_ record: Qqbridge_V1_RecordSegment) -> Bool {
-    guard let playing else { return false }
-    return playing == Self.sha(record) || playing == record.media.sha256
-  }
-
-  func toggle(_ record: Qqbridge_V1_RecordSegment, session: Session) {
-    let sha = Self.sha(record)
-    if playing == sha {
-      stop()
-      return
-    }
-    stop()
-    guard !sha.isEmpty else { return }
-    playing = sha
-    progress = 0
-    duration = Double(record.durationSec)
-    Task {
-      // 语音很小：先整个下到本机再播（边下边播时往后拖进度跳不过去）；下不来再退回边下边播。
-      var source = try? await session.media.file(for: sha, chatId: nil)
-      if source != nil, let s = source {
-        // 缓存文件没有扩展名，播放器认不出类型：拷一份带 .m4a 的。
-        let named = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(sha).m4a")
-        if !FileManager.default.fileExists(atPath: named.path) { try? FileManager.default.copyItem(at: s, to: named) }
-        source = named
-      }
-      if source == nil { source = try? await session.media.streamURL(for: sha) }
-      guard let url = source, playing == sha else { return }
-      try? AVAudioSession.sharedInstance().setCategory(.playback)
-      try? AVAudioSession.sharedInstance().setActive(true)
-      let item = AVPlayerItem(url: url)
-      let player = AVPlayer(playerItem: item)
-      self.player = player
-      observer = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-        MainActor.assumeIsolated { self?.stop() }
-      }
-      ticker = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
-        MainActor.assumeIsolated {
-          guard let self, !self.scrubbing else { return }
-          let total = player.currentItem?.duration.seconds ?? .nan
-          if total.isFinite, total > 0 { self.duration = total }
-          if self.duration > 0 { self.progress = min(1, max(0, time.seconds / self.duration)) }
-        }
-      }
-      player.play()
-    }
-  }
-
-  /// 拖动白线：先只改显示的位置。
-  func scrub(to fraction: Double) {
-    scrubbing = true
-    progress = min(1, max(0, fraction))
-  }
-
-  /// 松手：跳到拖到的位置接着播。
-  func endScrub() {
-    guard let player, duration > 0 else {
-      scrubbing = false
-      return
-    }
-    // 跳完之前不让播放进度回写（否则白线会先弹回原来的位置）。
-    player.seek(to: CMTime(seconds: progress * duration, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-      Task { @MainActor in self?.scrubbing = false }
-    }
-  }
-
-  func stop() {
-    if let ticker { player?.removeTimeObserver(ticker) }
-    ticker = nil
-    player?.pause()
-    player = nil
-    playing = nil
-    progress = 0
-    scrubbing = false
-    waveFrame = nil
-    if let observer { NotificationCenter.default.removeObserver(observer) }
-    observer = nil
   }
 }
 
@@ -696,6 +549,13 @@ final class BubbleFrames {
   func frame(_ seq: Int64) -> CGRect? { frames[seq] }
 }
 
+/// 订阅移除附件后，仍在等待的发送动作要能辨认成功确认，不能把迟到 RPC 失败当作未发送。
+@MainActor
+final class AttachmentDelivery {
+  nonisolated init() {}
+  var confirmed = false
+}
+
 /// 输入框上方待发送的附件：选好的照片、视频、文件、粘贴或拖进来的图片。点发送时才上传、发出。
 struct Attachment: Identifiable {
   enum Payload {
@@ -711,13 +571,21 @@ struct Attachment: Identifiable {
     case ready
     case uploading(Double)
     case failed(String)
+    case queued
   }
 
   let id = UUID()
+  /// 附件条与发件箱的重试必须指向同一次发送，回包丢失不能产生第二条 QQ 消息。
+  let clientRandomId = Sender.newClientRandomId()
+  let delivery = AttachmentDelivery()
   let payload: Payload
   /// 预览图（文件没有，用图标）。
   let preview: UIImage?
   var state: State = .ready
+  /// 上传失败后仍保留本次发送的引用，重试不依赖已经清空的输入栏。
+  var replyToSeq: Int64?
+  /// 上传成功后冻结消息内容与引用；失败重试不重复上传，也不套用输入栏后来选择的引用。
+  var preparedMessage: AttachmentMessage?
 
   var isFile: Bool { if case .file = payload { true } else { false } }
   var fileName: String? { if case .file(_, let name) = payload { name } else { nil } }

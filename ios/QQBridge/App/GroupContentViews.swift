@@ -7,9 +7,19 @@ struct GroupEssenceView: View {
   let session: Session
   let groupId: Int64
   let chatId: Int64
+  @State private var media: MediaTarget?
+  #if targetEnvironment(macCatalyst)
+  @State private var remoteGallery: URLGallery?
+  var body: some View {
+    MacGroupEssencePage(service: MacSessionGroupEssenceService(session: session, groupID: groupId, chatID: chatId)) { items, actions in
+      content(items, onNeedThumb: actions.requestThumbnail)
+        .mediaViewer(item: $media, session: session, chatId: chatId)
+    }
+    .urlGallery($remoteGallery)
+  }
+  #else
   @State private var items: [Qqbridge_V1_GroupEssence] = []
   @State private var state = LoadState.loading
-  @State private var media: MediaTarget?
   @State private var requester = MediaRequester()
 
   /// 存档里的图片还没有缩略图（按需的、没下载的）。
@@ -22,47 +32,14 @@ struct GroupEssenceView: View {
   }
 
   var body: some View {
-    List(items, id: \.seq) { e in
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text(e.senderName).font(.subheadline.bold())
-          Spacer()
-          Text(Format.date(e.time)).font(.caption).foregroundStyle(.secondary)
-        }
-        if e.hasMessage {
-          // 存档里有原消息：文字和图片都用存档的（图片会动、能看原图）。
-          let text = e.message.segments.compactMap { seg -> String? in if case .text(let t) = seg.kind { t.text } else { nil } }.joined()
-          if !text.isEmpty { Text(text).textSelection(.enabled) }
-          ForEach(Array(e.message.segments.enumerated()), id: \.offset) { _, seg in
-            if case .image(let i) = seg.kind {
-              MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId, onNeedThumb: {
-                requester.want(chatId: chatId, seq: e.seq, ord: i.media.ord, session: session)
-              })
-                .onTapGesture { media = MediaTarget(kind: .image, media: i.media, chatId: chatId, seq: e.seq) }
-            }
-          }
-          if text.isEmpty, !e.message.segments.contains(where: { if case .image = $0.kind { true } else { false } }) {
-            Text(Format.preview(e.message)).foregroundStyle(.secondary)
-          }
-        } else {
-          if !e.text.isEmpty { Text(e.text).textSelection(.enabled) }
-          ForEach(e.imageUrls, id: \.self) { url in
-            AsyncImage(url: URL(string: url)) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: {
-              RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(height: 160)
-            }
-            .frame(maxWidth: 240, alignment: .leading)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-          }
-        }
-        Text("\(e.operatorName) 设为精华").font(.caption).foregroundStyle(.secondary)
-      }
-      .padding(.vertical, 4)
-    }
+    content(items, onNeedThumb: { seq, ord in
+      requester.want(chatId: chatId, seq: seq, ord: ord, session: session)
+    })
     .overlay { state.overlay(empty: items.isEmpty, emptyText: "没有群精华", icon: "star") }
     .navigationTitle("群精华")
     .navigationBarTitleDisplayMode(.inline)
     .mediaViewer(item: $media, session: session, chatId: chatId)
-    .refreshable { await load() }
+    .platformRefreshable { await load() }
     .task {
       await load()
       // 图片缩略图刚开始下载：等服务端推「下好了」再重新拉一次列表，不用退出再进。
@@ -86,6 +63,77 @@ struct GroupEssenceView: View {
       state = .failed(LoadState.describe(error))
     }
   }
+  #endif
+
+  private func content(_ items: [Qqbridge_V1_GroupEssence], onNeedThumb: @escaping (Int64, UInt32) -> Void) -> some View {
+    List(items, id: \.seq) { e in
+      VStack(alignment: .leading, spacing: 8) {
+        HStack {
+          Text(e.senderName).font(.subheadline.bold())
+          Spacer()
+          Text(Format.date(e.time)).font(.caption).foregroundStyle(.secondary)
+        }
+        if e.hasMessage {
+          // 存档里有原消息：文字和图片都用存档的（图片会动、能看原图）。
+          let text = e.message.segments.compactMap { seg -> String? in if case .text(let t) = seg.kind { t.text } else { nil } }.joined()
+          if !text.isEmpty { Text(text).textSelection(.enabled) }
+          ForEach(Array(e.message.segments.enumerated()), id: \.offset) { _, seg in
+            if case .image(let i) = seg.kind {
+              #if targetEnvironment(macCatalyst)
+              Button {
+                media = MediaTarget(kind: .image, media: i.media, chatId: chatId, seq: e.seq)
+              } label: {
+                MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId, onNeedThumb: {
+                  onNeedThumb(e.seq, i.media.ord)
+                })
+              }
+              .buttonStyle(.plain)
+              .accessibilityLabel("查看精华图片")
+              .help("在独立窗口查看图片")
+              #else
+              MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId, onNeedThumb: {
+                onNeedThumb(e.seq, i.media.ord)
+              })
+                .onTapGesture { media = MediaTarget(kind: .image, media: i.media, chatId: chatId, seq: e.seq) }
+              #endif
+            }
+          }
+          if text.isEmpty, !e.message.segments.contains(where: { if case .image = $0.kind { true } else { false } }) {
+            Text(Format.preview(e.message)).foregroundStyle(.secondary)
+          }
+        } else {
+          if !e.text.isEmpty { Text(e.text).textSelection(.enabled) }
+          ForEach(e.imageUrls, id: \.self) { url in
+            #if targetEnvironment(macCatalyst)
+            Button {
+              let urls = e.imageUrls.compactMap { URL(string: $0) }
+              if let selected = URL(string: url), let index = urls.firstIndex(of: selected) {
+                remoteGallery = URLGallery(items: urls.map { .image($0) }, index: index)
+              }
+            } label: {
+              remoteImage(url)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("查看精华图片")
+            .help("在独立窗口查看图片")
+            #else
+            remoteImage(url)
+            #endif
+          }
+        }
+        Text("\(e.operatorName) 设为精华").font(.caption).foregroundStyle(.secondary)
+      }
+      .padding(.vertical, 4)
+    }
+  }
+
+  private func remoteImage(_ url: String) -> some View {
+    AsyncImage(url: URL(string: url)) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: {
+      RoundedRectangle(cornerRadius: 8).fill(.quaternary).frame(height: 160)
+    }
+    .frame(maxWidth: 240, alignment: .leading)
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+  }
 }
 
 /// 列表页的加载状态和对应的提示。
@@ -103,7 +151,8 @@ enum LoadState {
   static func describe(_ error: Error) -> String {
     if let e = error as? APIError {
       switch e.code {
-      case .unavailable: return "QQ 掉线了，重新登录后再试"
+      // unavailable 也包括客户端断网或后端未启动，不能据此要求用户重新登录 QQ。
+      case .unavailable: return "服务暂不可用，请检查连接后重试"
       case .failedPrecondition: return "QQ 上已经拿不到了（可能已过期）"
       default: return e.message
       }

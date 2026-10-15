@@ -13,12 +13,14 @@ final class MediaReady {
     /// 等的人还没来取的事件（登记之后、await 之前到的也留着）。
     private var buffer: [Qqbridge_V1_MediaReadyUpdate] = []
     private var waiting: CheckedContinuation<Qqbridge_V1_MediaReadyUpdate?, Never>?
+    private var cancelled = false
 
     fileprivate init(_ match: @escaping (Qqbridge_V1_MediaReadyUpdate) -> Bool) {
       self.match = match
     }
 
     fileprivate func deliver(_ e: Qqbridge_V1_MediaReadyUpdate) {
+      guard !cancelled else { return }
       if let w = waiting {
         waiting = nil
         w.resume(returning: e)
@@ -30,6 +32,7 @@ final class MediaReady {
 
     /// 等下一个符合的事件；超时（连接断了、服务端没推）返回 nil，调用方再问一次服务端兜底。
     func next(timeout: Duration = .seconds(120)) async -> Qqbridge_V1_MediaReadyUpdate? {
+      guard !cancelled else { return nil }
       if !buffer.isEmpty { return buffer.removeFirst() }
       let timer = Task { [weak self] in
         try? await Task.sleep(for: timeout)
@@ -39,6 +42,15 @@ final class MediaReady {
       }
       defer { timer.cancel() }
       return await withCheckedContinuation { waiting = $0 }
+    }
+
+    /// 页面退出时立即释放等待者；没有调用 cancel 的现有订阅保持原行为。
+    func cancel() {
+      cancelled = true
+      buffer.removeAll()
+      let continuation = waiting
+      waiting = nil
+      continuation?.resume(returning: nil)
     }
   }
 

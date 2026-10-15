@@ -1,6 +1,8 @@
 // 看大图：先显示缩略图，原图到了自动换上；双指缩放、双击放大、拖动、居中；单击隐藏 / 显示工具栏；
-// 底部：转发、编辑（系统标注）、保存到相册、分享。
+// 底部：转发、保存、分享；手机端另有编辑（系统标注）。
+#if !targetEnvironment(macCatalyst)
 import PencilKit
+#endif
 import Photos
 import QQBridgeKit
 import QQBridgeProto
@@ -14,6 +16,9 @@ struct ImageViewer: View {
   /// 同一会话里可以左右翻的图片（含 target）；空 = 只看这一张。
   var gallery: [MediaTarget] = []
   @Environment(\.dismiss) private var dismiss
+  #if targetEnvironment(macCatalyst)
+  @Environment(\.macMediaWindow) private var mediaWindow
+  #endif
   @Environment(AppModel.self) private var model
   @State private var current: String = ""
   @State private var pages: [String: ImagePage] = [:]
@@ -21,8 +26,10 @@ struct ImageViewer: View {
   /// 下拉关闭的进度（0…1），背景跟着变淡。
   @State private var dragProgress: CGFloat = 0
   @State private var visible = false
+  #if !targetEnvironment(macCatalyst)
   @State private var editing: URL?
   @State private var edited: URL?
+  #endif
   @State private var forwarding: ForwardPayload?
   @State private var toast: String?
 
@@ -61,6 +68,9 @@ struct ImageViewer: View {
       }
     }
     .statusBarHidden(!chrome)
+    #if targetEnvironment(macCatalyst)
+    .background(MacMediaKeyboard(close: close, previous: { movePage(-1) }, next: { movePage(1) }))
+    #endif
     .onAppear {
       current = target.id
       withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true }
@@ -70,7 +80,8 @@ struct ImageViewer: View {
       guard let i = items.firstIndex(where: { $0.id == id }) else { return }
       for j in max(0, i - 1)...min(items.count - 1, i + 1) { _ = page(for: items[j]).start() }
     }
-    .fullScreenCover(item: Binding(get: { editing.map(IdentifiedURL.init) }, set: { editing = $0?.url })) { item in
+    #if !targetEnvironment(macCatalyst)
+    .platformFullScreenCover(item: Binding(get: { editing.map(IdentifiedURL.init) }, set: { editing = $0?.url })) { item in
       MarkupEditor(url: item.url) { result in
         editing = nil
         edited = result
@@ -80,9 +91,10 @@ struct ImageViewer: View {
       if let url = edited {
         Button("发送到这个聊天") { Task { await sendEdited(url, to: chatId) } }
         Button("转发给…") { forwarding = .file(url) }
-        Button("保存到相册") { Task { await save(url) } }
+        Button("保存到相册") { Task { await saveToPhotos(url) } }
       }
     }
+    #endif
     .sheet(item: $forwarding) { payload in
       ChatPicker(session: session) { chat in
         forwarding = nil
@@ -99,6 +111,9 @@ struct ImageViewer: View {
   }
 
   private func close() {
+    #if targetEnvironment(macCatalyst)
+    if let mediaWindow { mediaWindow.close(); return }
+    #endif
     withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
       var t = Transaction()
       t.disablesAnimations = true
@@ -111,14 +126,26 @@ struct ImageViewer: View {
     VStack(spacing: 10) {
       HStack {
         if items.count > 1 {
+          #if targetEnvironment(macCatalyst)
+          Button("上一张", systemImage: "chevron.left") { movePage(-1) }
+            .labelStyle(.iconOnly)
+            .disabled(index == 0)
+            .help("上一张（←）")
+          #endif
           Text("\(index + 1) / \(items.count)")
             .font(.subheadline.monospacedDigit().weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(Capsule().fill(.black.opacity(0.45)))
+          #if targetEnvironment(macCatalyst)
+          Button("下一张", systemImage: "chevron.right") { movePage(1) }
+            .labelStyle(.iconOnly)
+            .disabled(index == items.count - 1)
+            .help("下一张（→）")
+          #endif
         }
         Spacer()
-        Button(action: close) {
+        if showsCloseButton { Button(action: close) {
           Image(systemName: "xmark")
             .font(.system(size: 16, weight: .bold))
             .foregroundStyle(.white)
@@ -128,6 +155,10 @@ struct ImageViewer: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("关闭")
+        #if targetEnvironment(macCatalyst)
+        .help("关闭（Esc）")
+        #endif
+        }
       }
       .padding(.horizontal, 16)
       Spacer()
@@ -141,15 +172,33 @@ struct ImageViewer: View {
         toolButton("转发", "arrowshape.turn.up.right") {
           if let original { forwarding = .sha(original.sha256) }
         }
+        #if !targetEnvironment(macCatalyst)
         toolButton("编辑", "pencil.tip.crop.circle") {
           if let original { editing = editableCopy(original.file) }
         }
+        #endif
         toolButton("保存", "square.and.arrow.down") {
           if let original { Task { await save(original.file) } }
         }
+        #if targetEnvironment(macCatalyst)
+        .contextMenu {
+          Button("保存到相册") {
+            if let original { Task { await saveToPhotos(original.file) } }
+          }
+        }
+        .help("保存到设置中的下载目录；右键可保存到相册")
+        #endif
         if let original {
+          #if targetEnvironment(macCatalyst)
+          // 缓存文件没有扩展名，Mac 分享 / 拷贝会被当成普通文件；系统真正要文件时才拷带扩展名的副本。
+          ShareLink(item: MacShareImage(sha256: original.sha256, source: original.file), preview: SharePreview("图片")) {
+            toolLabel("分享", "square.and.arrow.up")
+          }
+          .frame(maxWidth: .infinity)
+          #else
           ShareLink(item: original.file) { toolLabel("分享", "square.and.arrow.up") }
             .frame(maxWidth: .infinity)
+          #endif
         } else {
           toolLabel("分享", "square.and.arrow.up").frame(maxWidth: .infinity).opacity(0.4)
         }
@@ -178,7 +227,37 @@ struct ImageViewer: View {
 
   // MARK: 动作
 
+  private var showsCloseButton: Bool {
+    #if targetEnvironment(macCatalyst)
+    mediaWindow == nil
+    #else
+    true
+    #endif
+  }
+
+  #if targetEnvironment(macCatalyst)
+  private func movePage(_ offset: Int) {
+    let next = index + offset
+    guard items.indices.contains(next) else { return }
+    withAnimation(.easeInOut(duration: 0.2)) { current = items[next].id }
+  }
+  #endif
+
   private func save(_ file: URL) async {
+    #if targetEnvironment(macCatalyst)
+    do {
+      let name = "\(file.deletingPathExtension().lastPathComponent).\(ImageFile.ext(of: file))"
+      let saved = try await MacDownloads.shared.export(file, name: name)
+      show("已保存到 \(saved.deletingLastPathComponent().path)")
+    } catch {
+      show("保存失败：\(error.localizedDescription)")
+    }
+    #else
+    await saveToPhotos(file)
+    #endif
+  }
+
+  private func saveToPhotos(_ file: URL) async {
     let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
     guard status == .authorized || status == .limited else {
       show("没有相册权限：请在系统设置里允许 BetterChat 添加照片")
@@ -404,7 +483,15 @@ final class CenteringScrollView: UIScrollView {
       let fitAll = min(area.width / img.size.width, area.height / img.size.height)
       let fitWidth = area.width / img.size.width
       // 长图（比屏幕细长得多）：按宽度铺满、上下滚动看；双指捏合可以缩小看全貌。
+      #if targetEnvironment(macCatalyst)
+      // 2026-10-15 实测：Mac 窗口可以很矮（440×480 时可见区接近正方形），只和窗口比例比较会把
+      // 360×640 这类普通竖照判成长图、按宽铺满裁掉上下。桌面上再要求图片本身足够细长（高宽比 > 2.5），
+      // 普通竖照始终完整显示（可双击放大），真正的长截图仍按宽度上下滚动。
+      let isLong = img.size.height / img.size.width > 2.5
+        && img.size.height / img.size.width > (area.height / area.width) * 1.6
+      #else
       let isLong = img.size.height / img.size.width > (area.height / area.width) * 1.6
+      #endif
       let fit = isLong ? fitWidth : fitAll
       let size = CGSize(width: img.size.width * fit, height: img.size.height * fit)
       // 缩略图换成原图（同一张图、同样大小）时保持看到的位置；第一次打开长图从顶部开始。
@@ -442,12 +529,14 @@ final class CenteringScrollView: UIScrollView {
 
 // MARK: - 编辑
 
+#if !targetEnvironment(macCatalyst)
 /// 在图上画（PencilKit 的画笔、马克笔、橡皮擦、撤销），完成后把图和笔迹合成一张 PNG 交回。
 struct MarkupEditor: View {
   let url: URL
   let onDone: (URL?) -> Void
   @State private var image: UIImage?
-  @State private var canvas = PKCanvasView()
+  /// 笔迹固定在原图比例的逻辑坐标里（见 MarkupCanvas.swift），窗口宽窄变化不会让笔迹和图片错位。
+  @State private var canvas = MarkupCanvasView()
 
   var body: some View {
     NavigationStack {
@@ -456,7 +545,7 @@ struct MarkupEditor: View {
           let fit = Self.fit(image.size, in: geo.size)
           ZStack {
             Image(uiImage: image).resizable().frame(width: fit.width, height: fit.height)
-            CanvasView(canvas: canvas).frame(width: fit.width, height: fit.height)
+            CanvasView(canvas: canvas, imageSize: image.size, onCancel: { onDone(nil) }).frame(width: fit.width, height: fit.height)
           }
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -484,19 +573,9 @@ struct MarkupEditor: View {
     return CGSize(width: size.width * scale, height: size.height * scale)
   }
 
-  /// 原图尺寸合成：笔迹按显示大小和原图的比例放大。
+  /// 原图尺寸合成：按画布固定的逻辑矩形渲染笔迹，与导出时的窗口大小无关。
   private func render() -> URL? {
-    guard let image else { return nil }
-    let shown = canvas.bounds.size
-    guard shown.width > 0 else { return nil }
-    let scale = image.size.width / shown.width
-    let drawing = canvas.drawing.image(from: CGRect(origin: .zero, size: shown), scale: scale * image.scale)
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = image.scale
-    let out = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-      image.draw(in: CGRect(origin: .zero, size: image.size))
-      drawing.draw(in: CGRect(origin: .zero, size: image.size))
-    }
+    guard let image, let out = canvas.renderedImage(over: image) else { return nil }
     let file = FileManager.default.temporaryDirectory.appendingPathComponent("edited-\(UUID().uuidString).png")
     guard let data = out.pngData(), (try? data.write(to: file)) != nil else { return nil }
     return file
@@ -504,12 +583,15 @@ struct MarkupEditor: View {
 }
 
 private struct CanvasView: UIViewRepresentable {
-  let canvas: PKCanvasView
+  let canvas: MarkupCanvasView
+  let imageSize: CGSize
+  var onCancel: (() -> Void)?
 
-  func makeUIView(context: Context) -> PKCanvasView {
+  func makeUIView(context: Context) -> MarkupCanvasView {
     canvas.backgroundColor = .clear
     canvas.isOpaque = false
     canvas.drawingPolicy = .anyInput
+    canvas.imageSize = imageSize
     canvas.tool = PKInkingTool(.pen, color: .systemRed, width: 6)
     context.coordinator.picker.setVisible(true, forFirstResponder: canvas)
     context.coordinator.picker.addObserver(canvas)
@@ -517,7 +599,10 @@ private struct CanvasView: UIViewRepresentable {
     return canvas
   }
 
-  func updateUIView(_ view: PKCanvasView, context: Context) {}
+  func updateUIView(_ view: MarkupCanvasView, context: Context) {
+    // 只改 UIKit 属性：尺寸相同不会重设；缩放在画布自己的 layoutSubviews 里按实际 bounds 计算。
+    view.imageSize = imageSize
+  }
 
   func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -525,12 +610,15 @@ private struct CanvasView: UIViewRepresentable {
     let picker = PKToolPicker()
   }
 }
+#endif
 
 // MARK: - 选会话
 
 /// 转发：选一个会话（置顶在前，其余按最近）。搜索时除了已有的会话，也搜全部好友和群聊（没有会话的选中时新建）。
 struct ChatPicker: View {
   let session: Session
+  var title = "转发给"
+  var onCancel: (() -> Void)? = nil
   let onPick: (Int64) -> Void
   @Environment(\.dismiss) private var dismiss
   @State private var items: [DialogItem] = []
@@ -539,7 +627,11 @@ struct ChatPicker: View {
   @State private var groups: [Qqbridge_V1_Peer] = []
   @State private var contactsLoaded = false
   @State private var avatars = AvatarBook()
+  #if targetEnvironment(macCatalyst)
+  @State private var openRequest = MacChatOpenRequest()
+  #else
   @State private var opening: Int64?
+  #endif
   @State private var error: String?
 
   var body: some View {
@@ -548,18 +640,20 @@ struct ChatPicker: View {
         if !q.isEmpty, filtered.isEmpty, matchedFriends.isEmpty, matchedGroups.isEmpty, contactsLoaded {
           Text("没有找到").foregroundStyle(.secondary)
         }
-        Section(q.isEmpty ? "" : "会话") {
+        Section {
           ForEach(filtered) { item in
             Button { onPick(item.id) } label: {
               row(sha: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, pinned: item.dialog.pinned, loading: false)
             }
           }
+        } header: {
+          if !q.isEmpty { Text("会话") }
         }
         if !matchedFriends.isEmpty {
           Section("好友") {
             ForEach(matchedFriends, id: \.peerID) { p in
-              Button { Task { await pick(.friend, p.peerID) } } label: {
-                row(sha: p.avatarSha256.isEmpty ? avatars.sha256[p.peerID] : p.avatarSha256, title: p.remark.isEmpty ? p.name : "\(p.remark)（\(p.name)）", seed: p.peerID, pinned: false, loading: opening == p.peerID)
+              Button { choose(.friend, p.peerID) } label: {
+                row(sha: p.avatarSha256.isEmpty ? avatars.sha256[p.peerID] : p.avatarSha256, title: p.remark.isEmpty ? p.name : "\(p.remark)（\(p.name)）", seed: p.peerID, pinned: false, loading: isOpening(.friend, p.peerID))
               }
               .onAppear { if p.avatarSha256.isEmpty { avatars.want(p.peerID, session: session) } }
             }
@@ -568,8 +662,8 @@ struct ChatPicker: View {
         if !matchedGroups.isEmpty {
           Section("群聊") {
             ForEach(matchedGroups, id: \.peerID) { p in
-              Button { Task { await pick(.group, p.peerID) } } label: {
-                row(sha: p.avatarSha256.isEmpty ? avatars.groupSha256[p.peerID] : p.avatarSha256, title: p.name, seed: p.peerID, pinned: false, loading: opening == p.peerID)
+              Button { choose(.group, p.peerID) } label: {
+                row(sha: p.avatarSha256.isEmpty ? avatars.groupSha256[p.peerID] : p.avatarSha256, title: p.name, seed: p.peerID, pinned: false, loading: isOpening(.group, p.peerID))
               }
               .onAppear { if p.avatarSha256.isEmpty { avatars.wantGroup(p.peerID, session: session) } }
             }
@@ -580,11 +674,18 @@ struct ChatPicker: View {
         }
       }
       .listStyle(.plain)
-      .disabled(opening != nil)
+      .disabled(isOpening)
       .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索会话、好友、群聊")
-      .navigationTitle("转发给")
+      .navigationTitle(title)
       .navigationBarTitleDisplayMode(.inline)
-      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("取消", action: cancel)
+            #if targetEnvironment(macCatalyst)
+            .keyboardShortcut(.cancelAction)
+            #endif
+        }
+      }
       .alert("打不开这个会话", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in
         Button("好") { error = nil }
       } message: { Text($0) }
@@ -595,6 +696,10 @@ struct ChatPicker: View {
       }
       // 好友、群聊列表一打开就在后台拉（搜索时直接用）。
       .task { await loadContacts() }
+      #if targetEnvironment(macCatalyst)
+      .onDisappear { openRequest.cancel() }
+      .onChange(of: query) { _, _ in openRequest.cancel() }
+      #endif
     }
   }
 
@@ -652,6 +757,47 @@ struct ChatPicker: View {
   }
 
   /// 没有会话的好友 / 群：先让服务端建会话，再交出会话 id。
+  private func choose(_ scene: Qqbridge_V1_Scene, _ peerId: Int64) {
+    #if targetEnvironment(macCatalyst)
+    // 取消选择不能被迟到的建会话结果反转；图片、消息和群文件共用此入口。
+    error = nil
+    openRequest.start(peerKey: "\(scene.rawValue):\(peerId)", operation: {
+      try await DialogActions.openChat(session, scene: scene, peerId: peerId)
+    }, opened: { onPick($0) }, failed: { error = LoadState.describe($0) })
+    #else
+    Task { await pick(scene, peerId) }
+    #endif
+  }
+
+  private var isOpening: Bool {
+    #if targetEnvironment(macCatalyst)
+    openRequest.peerKey != nil
+    #else
+    opening != nil
+    #endif
+  }
+
+  private func isOpening(_ scene: Qqbridge_V1_Scene, _ peerId: Int64) -> Bool {
+    #if targetEnvironment(macCatalyst)
+    openRequest.peerKey == "\(scene.rawValue):\(peerId)"
+    #else
+    opening == peerId
+    #endif
+  }
+
+  private func cancel() {
+    #if targetEnvironment(macCatalyst)
+    // 点击取消时立即失效，不等表单关闭动画结束才阻止回调。
+    openRequest.cancel()
+    if let onCancel {
+      onCancel()
+      return
+    }
+    #endif
+    dismiss()
+  }
+
+  #if !targetEnvironment(macCatalyst)
   private func pick(_ scene: Qqbridge_V1_Scene, _ peerId: Int64) async {
     opening = peerId
     defer { opening = nil }
@@ -661,6 +807,7 @@ struct ChatPicker: View {
       self.error = LoadState.describe(error)
     }
   }
+  #endif
 }
 
 /// 写相册：performChanges 的闭包在 Photos 的后台队列上跑，不能带主线程隔离（否则 Swift 6 运行时断言崩溃）。

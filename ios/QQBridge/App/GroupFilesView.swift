@@ -1,7 +1,7 @@
 // 群文件：浏览、打开（QuickLook）、下载到手机 / 删掉手机上的、存到「文件」、转发。
 // 有权限时（群主、管理员能管所有文件，成员能管自己上传的）还能删除、移动、重命名；群主、管理员能新建、删除文件夹。
 // 「选择」进入多选：下载、转发、移动、删除、删本机文件。QQ 的群文件只有一层文件夹。
-// 列表当场向 QQ 拉（QQ 掉线时看不了）；文件先由服务端从 QQ 下载，再下到手机。
+// 列表当场向 QQ 拉（QQ 掉线时看不了）；文件先由服务端从 QQ 下载。Mac 保存到用户下载目录，iOS 保持本机缓存。
 import QQBridgeKit
 import QQBridgeProto
 import QuickLook
@@ -18,8 +18,42 @@ struct GroupFilesView: View {
   var folderId = ""
   var title = "群文件"
   @Environment(AppModel.self) private var model
+  #if targetEnvironment(macCatalyst)
+  @State private var fileList: MacGroupFilesViewModel
+  private var folders: [Qqbridge_V1_GroupFolder] { fileList.folders }
+  private var files: [Qqbridge_V1_GroupFile] {
+    get { fileList.files }
+    nonmutating set { fileList.files = newValue }
+  }
+  private var selection: Set<String> {
+    get { fileList.selection }
+    nonmutating set { fileList.selection = newValue }
+  }
+  private var selectionBinding: Binding<Set<String>> {
+    Binding(get: { selection }, set: { selection = $0 })
+  }
+  private var filePresentation: Binding<MacGroupFilePresentation?> {
+    Binding(get: { showForward ? .forward : (showMove ? .move : nil) }, set: {
+      showForward = $0 == .forward
+      showMove = $0 == .move
+    })
+  }
+
+  init(session: Session, groupId: Int64, chatId: Int64? = nil, selfRole: String = "", folderId: String = "", title: String = "群文件", fileService: (any MacGroupFilesService)? = nil) {
+    self.session = session
+    self.groupId = groupId
+    self.chatId = chatId
+    self.selfRole = selfRole
+    self.folderId = folderId
+    self.title = title
+    _fileList = State(initialValue: MacGroupFilesViewModel(service: fileService ?? MacSessionGroupFilesService(session: session, groupID: groupId, folderID: folderId)))
+  }
+  #else
   @State private var folders: [Qqbridge_V1_GroupFolder] = []
   @State private var files: [Qqbridge_V1_GroupFile] = []
+  @State private var selection: Set<String> = []
+  private var selectionBinding: Binding<Set<String>> { $selection }
+  #endif
   /// 手机上已经有的（sha256）。
   @State private var local: Set<String> = []
   @State private var state = LoadState.loading
@@ -30,7 +64,6 @@ struct GroupFilesView: View {
   @State private var preview: URL?
   @State private var error: String?
   @State private var editMode: EditMode = .inactive
-  @State private var selection: Set<String> = []
   @State private var forwarding: [Qqbridge_V1_GroupFile] = []
   @State private var showForward = false
   @State private var moving: [Qqbridge_V1_GroupFile] = []
@@ -55,8 +88,15 @@ struct GroupFilesView: View {
 
   private func isLocal(_ f: Qqbridge_V1_GroupFile) -> Bool { !f.sha256.isEmpty && local.contains(f.sha256) }
 
+  private var removeLocalTitle: String {
+    #if targetEnvironment(macCatalyst)
+    "将下载文件移到废纸篓"
+    #else
+    "删除本机文件"
+    #endif
+  }
   var body: some View {
-    List(selection: $selection) {
+    List(selection: selectionBinding) {
       if !editing {
         ForEach(folders, id: \.id) { f in folderRow(f) }
       }
@@ -74,7 +114,7 @@ struct GroupFilesView: View {
                   Button("删除", role: .destructive) { confirmDelete([f]) }
                 }
                 if isLocal(f) {
-                  Button("删本机") { Task { await removeLocal([f]) } }.tint(.orange)
+                  Button(removeLocalTitle) { Task { await removeLocal([f]) } }.tint(.orange)
                 }
               }
           }
@@ -82,7 +122,13 @@ struct GroupFilesView: View {
       }
     }
     .environment(\.editMode, $editMode)
+    #if targetEnvironment(macCatalyst)
+    .modifier(MacGroupListStatus(empty: folders.isEmpty && files.isEmpty, isLoading: fileList.isLoading,
+                                 hasLoaded: fileList.hasLoaded, error: fileList.error,
+                                 emptyText: "没有群文件", icon: "doc", reload: { Task { await load() } }))
+    #else
     .overlay { state.overlay(empty: folders.isEmpty && files.isEmpty, emptyText: "没有群文件", icon: "doc") }
+    #endif
     .safeAreaInset(edge: .bottom) {
       if let progress {
         HStack(spacing: 8) {
@@ -130,6 +176,9 @@ struct GroupFilesView: View {
     } message: {
       Text("文件夹里的文件会一起删除。")
     }
+    #if targetEnvironment(macCatalyst)
+    .background { desktopPresentation }
+    #else
     .sheet(isPresented: $showForward) {
       ChatPicker(session: session) { chat in
         showForward = false
@@ -138,16 +187,45 @@ struct GroupFilesView: View {
       }
     }
     .sheet(isPresented: $showMove) {
-      GroupFolderPicker(session: session, groupId: groupId, current: folderId) { target in
+      GroupFolderPicker(session: session, groupId: groupId, current: folderId, onCancel: { showMove = false }) { target in
         showMove = false
         let list = moving
         Task { await move(list, to: target) }
       }
     }
+    #endif
     .sheet(isPresented: $showShare) { ShareSheet(items: sharing) }
+    #if targetEnvironment(macCatalyst)
     .refreshable { await load() }
+    .onDisappear { fileList.cancel() }
+    #else
+    .platformRefreshable { await load() }
+    #endif
     .task { await load() }
   }
+
+  #if targetEnvironment(macCatalyst)
+  private var desktopPresentation: some View {
+    MacFormPresenter(item: filePresentation) { presentation in
+      Group {
+        switch presentation {
+        case .forward:
+          ChatPicker(session: session, onCancel: { showForward = false }) { chat in
+            showForward = false
+            let list = forwarding
+            Task { await forward(list, to: chat) }
+          }
+        case .move:
+          GroupFolderPicker(session: session, groupId: groupId, current: folderId, onCancel: { showMove = false }) { target in
+            showMove = false
+            let list = moving
+            Task { await move(list, to: target) }
+          }
+        }
+      }
+    }
+  }
+  #endif
 
   // MARK: - 行
 
@@ -185,7 +263,11 @@ struct GroupFilesView: View {
       if busy.contains(f.id) {
         ProgressView()
       } else if isLocal(f) {
+        #if targetEnvironment(macCatalyst)
+        Image(systemName: "folder").foregroundStyle(.secondary).accessibilityLabel("已保存到下载目录")
+        #else
         Image(systemName: "iphone").foregroundStyle(.secondary).accessibilityLabel("已下载到本机")
+        #endif
       } else if !f.sha256.isEmpty {
         Image(systemName: "checkmark.icloud").foregroundStyle(.secondary).accessibilityLabel("服务器上已存")
       }
@@ -201,7 +283,7 @@ struct GroupFilesView: View {
     Button("分享 / 存储到「文件」", systemImage: "square.and.arrow.up") { Task { await share([f]) } }
     Button("转发", systemImage: "arrowshape.turn.up.right") { forwarding = [f]; showForward = true }
     if isLocal(f) {
-      Button("删除本机文件", systemImage: "iphone.slash") { Task { await removeLocal([f]) } }
+      Button(removeLocalTitle, systemImage: "trash") { Task { await removeLocal([f]) } }
     }
     if canManage(f) {
       Divider()
@@ -234,7 +316,7 @@ struct GroupFilesView: View {
           .disabled(list.isEmpty || progress != nil)
         Spacer()
         Menu {
-          Button("删除本机文件", systemImage: "iphone.slash") { Task { await removeLocal(list) } }
+          Button(removeLocalTitle, systemImage: "trash") { Task { await removeLocal(list) } }
             .disabled(!list.contains(where: isLocal))
           if manageable {
             Button("移动到…", systemImage: "folder") { moving = list; showMove = true }
@@ -271,24 +353,40 @@ struct GroupFilesView: View {
   // MARK: - 加载
 
   private func load() async {
+    #if targetEnvironment(macCatalyst)
+    await fileList.load().value
+    if !Task.isCancelled { await refreshLocal() }
+    #else
     var req = Qqbridge_V1_ListGroupFilesRequest()
     req.groupID = groupId
     req.folderID = folderId
     do {
       let res = try await session.api.contacts.listGroupFiles(request: req, headers: session.api.headers).get()
+      // 2026-10-14 Mac 实测：刷新仍存在的群文件会清空多选。QQ 的 file_id 会变化（见 lessons L2）。
+      // 使用本次响应的操作 ID，按同目录内唯一的文件元数据恢复；重名或已改变的项目不猜测。
+      let refreshedSelection = GroupFileSelection.refreshed(selection, from: files.map(selectionItem), to: res.files.map(selectionItem))
       folders = res.folders
       files = res.files
-      selection.formIntersection(files.map(\.id))
+      selection = refreshedSelection
       await refreshLocal()
       state = .loaded
     } catch {
       state = .failed(LoadState.describe(error))
     }
+    #endif
+  }
+
+  private func selectionItem(_ file: Qqbridge_V1_GroupFile) -> GroupFileSelection.Item {
+    .init(id: file.id, key: .init(name: file.name, size: file.size, modified: file.modifyTime, uploader: file.uploaderID, busid: file.busid))
   }
 
   private func refreshLocal() async {
     let shas = files.map(\.sha256).filter { !$0.isEmpty }
+    #if targetEnvironment(macCatalyst)
+    local = MacDownloads.shared.savedSet(shas)
+    #else
     local = (try? await session.media.cachedSet(shas)) ?? []
+    #endif
   }
 
   // MARK: - 下载、打开、分享、转发
@@ -312,6 +410,11 @@ struct GroupFilesView: View {
     busy.insert(f.id)
     defer { busy.remove(f.id) }
     let sha = try await ensureServer(f)
+    #if targetEnvironment(macCatalyst)
+    let saved = try await MacDownloads.shared.file(sha: sha, name: f.name, session: session)
+    local.insert(sha)
+    return saved
+    #else
     let cached = try await session.media.file(for: sha, chatId: chatId)
     local.insert(sha)
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("groupfiles/\(sha)", isDirectory: true)
@@ -319,6 +422,7 @@ struct GroupFilesView: View {
     let named = dir.appendingPathComponent(f.name.isEmpty ? sha : f.name)
     if !FileManager.default.fileExists(atPath: named.path) { try FileManager.default.copyItem(at: cached, to: named) }
     return named
+    #endif
   }
 
   private func open(_ f: Qqbridge_V1_GroupFile) async {
@@ -346,7 +450,11 @@ struct GroupFilesView: View {
     if !failed.isEmpty {
       error = "\(failed.count) 个文件下载失败\n" + failed.prefix(5).joined(separator: "\n")
     } else if verb == "下载" {
+      #if targetEnvironment(macCatalyst)
+      model.showToast(AppToast(text: list.count == 1 ? "已保存到下载目录" : "已保存 \(list.count) 个文件到下载目录"))
+      #else
       model.showToast(AppToast(text: list.count == 1 ? "已下载到本机" : "已下载 \(list.count) 个文件到本机"))
+      #endif
     }
     return urls
   }
@@ -391,12 +499,18 @@ struct GroupFilesView: View {
     let shas = list.filter(isLocal).map(\.sha256)
     guard !shas.isEmpty else { return }
     do {
+      #if targetEnvironment(macCatalyst)
+      try MacDownloads.shared.trash(shas)
+      await refreshLocal()
+      model.showToast(AppToast(text: "已将下载文件移到废纸篓"))
+      #else
       let freed = try await session.media.remove(shas)
       for sha in shas {
         try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("groupfiles/\(sha)", isDirectory: true))
       }
       local.subtract(shas)
       model.showToast(AppToast(text: "已删除本机文件，释放 \(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file))"))
+      #endif
     } catch {
       self.error = LoadState.describe(error)
     }
@@ -519,7 +633,13 @@ struct GroupFolderPicker: View {
   let groupId: Int64
   /// 现在所在的文件夹（不能选）。
   let current: String
+  let onCancel: () -> Void
   let onPick: (String) -> Void
+  #if targetEnvironment(macCatalyst)
+  var body: some View {
+    MacGroupFolderPicker(service: MacGroupFoldersService(session: session, groupID: groupId), current: current, onCancel: onCancel, onPick: onPick)
+  }
+  #else
   @Environment(\.dismiss) private var dismiss
   @State private var folders: [Qqbridge_V1_GroupFolder] = []
   @State private var state = LoadState.loading
@@ -559,6 +679,7 @@ struct GroupFolderPicker: View {
       state = .failed(LoadState.describe(error))
     }
   }
+  #endif
 }
 
 /// 系统分享面板（存储到「文件」、AirDrop、别的 App）。

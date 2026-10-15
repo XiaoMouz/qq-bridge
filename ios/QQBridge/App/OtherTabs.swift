@@ -6,6 +6,10 @@ import SwiftUI
 
 struct SearchView: View {
   let session: Session
+  var focusRequest: UUID? = nil
+  #if targetEnvironment(macCatalyst)
+  @FocusState private var searchFocused: Bool
+  #endif
   @Environment(AppModel.self) private var model
   #if DEBUG
   // 调试：模拟器里系统搜索栏收不到注入的按键，启动时用环境变量 QQB_SEARCH 预填搜索词。
@@ -20,8 +24,9 @@ struct SearchView: View {
   @State private var path = NavigationPath()
   @State private var pager: MessageSearchPager
 
-  init(session: Session) {
+  init(session: Session, focusRequest: UUID? = nil) {
     self.session = session
+    self.focusRequest = focusRequest
     _pager = State(initialValue: MessageSearchPager(session: session))
   }
 
@@ -33,7 +38,7 @@ struct SearchView: View {
         if !matches.isEmpty {
           Section("会话") {
             ForEach(matches.prefix(20)) { item in
-              NavigationLink(value: item.id) {
+              SearchChatLink(chatId: item.id) {
                 HStack(spacing: 12) {
                   AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, size: 40)
                   VStack(alignment: .leading, spacing: 2) {
@@ -71,12 +76,7 @@ struct SearchView: View {
         if !pager.results.isEmpty {
           Section("聊天记录") {
             ForEach(pager.results, id: \.searchKey) { m in
-              // 以前只推入会话页、没带 seq，聊天记录结果点进去停在最新处。
-              // 不用 openMessage：它会切到消息标签页；这里在搜索自己的导航栈里打开，聊天页出现时收下跳转。
-              Button {
-                model.messageJump = MessageJump(chatId: m.chatID, seq: m.seq)
-                path.append(m.chatID)
-              } label: {
+              SearchChatLink(chatId: m.chatID, seq: m.seq, path: $path) {
                 VStack(alignment: .leading, spacing: 4) {
                   HStack {
                     Text(chatTitle(m.chatID)).font(.subheadline.bold()).lineLimit(1)
@@ -87,7 +87,6 @@ struct SearchView: View {
                     .font(.subheadline).lineLimit(3)
                 }
               }
-              .tint(.primary)
               .onAppear { if m.searchKey == pager.results.last?.searchKey { Task { await pager.loadMore() } } }
             }
             if pager.hasMore || pager.loadingMore {
@@ -106,6 +105,12 @@ struct SearchView: View {
       .navigationTitle("搜索")
       .navigationDestination(for: Int64.self) { ChatScreen(session: session, chatId: $0) }
       .searchable(text: $query, prompt: "搜索会话和聊天记录")
+      #if targetEnvironment(macCatalyst)
+      .searchFocused($searchFocused)
+      .onAppear { searchFocused = true }
+      .onChange(of: focusRequest) { _, _ in searchFocused = true }
+      .onDisappear { searchFocused = false }
+      #endif
       .onSubmit(of: .search) { Task { await search() } }
       .onChange(of: query) { _, _ in pager.reset() }
       .overlay {
@@ -150,7 +155,11 @@ struct SearchView: View {
 
   private func open(_ p: Qqbridge_V1_Peer) async {
     guard let id = try? await DialogActions.openChat(session, scene: p.kind == .group ? .group : .friend, peerId: p.peerID) else { return }
+    #if targetEnvironment(macCatalyst)
+    model.pendingChat = id
+    #else
     path.append(id)
+    #endif
   }
 
   private func chatTitle(_ chatId: Int64) -> String {
@@ -166,4 +175,34 @@ extension Qqbridge_V1_Message {
 
 extension Qqbridge_V1_Peer {
   var searchKey: String { "\(kind == .group ? 2 : 1):\(peerID)" }
+}
+
+/// Search results open in the Mac workspace's detail column, preserving the iOS stack.
+private struct SearchChatLink<Label: View>: View {
+  let chatId: Int64
+  var seq: Int64? = nil
+  var path: Binding<NavigationPath>? = nil
+  @ViewBuilder var label: () -> Label
+  @Environment(AppModel.self) private var model
+  var body: some View {
+    #if targetEnvironment(macCatalyst)
+    Button {
+      if let seq { model.openMessage(chatId: chatId, seq: seq) }
+      model.pendingChat = chatId
+    } label: { label() }
+    .buttonStyle(.plain)
+    #else
+    if let seq, let path {
+      // 以前 iPhone 上只推入会话页、没带 seq，聊天记录结果点进去停在最新处。
+      // 不用 openMessage：它会切到消息标签页；这里在搜索自己的导航栈里打开，聊天页出现时收下跳转。
+      Button {
+        model.messageJump = MessageJump(chatId: chatId, seq: seq)
+        path.wrappedValue.append(chatId)
+      } label: { label() }
+      .tint(.primary)
+    } else {
+      NavigationLink(value: chatId, label: label)
+    }
+    #endif
+  }
 }

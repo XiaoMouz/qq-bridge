@@ -144,6 +144,9 @@ struct StorageChatsView: View {
   @Environment(AppModel.self) private var model
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacStorageChatsView(session: session, source: source, group: group, allMedia: allMedia)
+    #else
     List {
       let total = chats.reduce(Int64(0)) { $0 + $1.bytes }
       let maxBytes = max(chats.first?.bytes ?? 1, 1)
@@ -204,7 +207,8 @@ struct StorageChatsView: View {
       else if chats.isEmpty { ContentUnavailableView("没有\(group.name)", systemImage: group.icon) }
     }
     .task { await load() }
-    .refreshable { await load() }
+    .platformRefreshable { await load() }
+    #endif
   }
 
   private func load() async {
@@ -250,6 +254,9 @@ struct StorageItemsView: View {
   private let columns = [GridItem(.adaptive(minimum: 104), spacing: 6)]
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacStorageItemsView(session: session, source: source, group: group, chatID: chatId, title: title)
+    #else
     ScrollView {
       if !items.isEmpty {
         let purged = items.filter(\.purged).count
@@ -283,6 +290,7 @@ struct StorageItemsView: View {
         .presentationDetents([.medium, .large])
     }
     .task { await loadMore() }
+    #endif
   }
 
   private func loadMore() async {
@@ -322,6 +330,14 @@ struct StorageItemsView: View {
     case .video:
       preview = MediaTarget(kind: .video, media: media, chatId: item.chatId, seq: item.seq)
     default:
+      #if targetEnvironment(macCatalyst)
+      if item.group == .file {
+        do {
+          fileURL = try await MacDownloads.shared.file(sha: item.sha256, name: item.name ?? "\(item.sha256.prefix(12)).\(item.fileExtension)", session: session)
+        } catch { self.error = error.localizedDescription }
+        return
+      }
+      #endif
       guard let file = try? await session.media.file(for: item.sha256, chatId: item.chatId) else {
         error = "文件打不开：QQ 上已经拿不到了"
         return
@@ -399,7 +415,37 @@ struct StorageItemCell: View {
   let item: StorageItemModel
   let onShared: () -> Void
 
+  var onOpen: (() -> Void)? = nil
+
   var body: some View {
+    Group {
+      if let onOpen {
+        Button(action: onOpen) { tile }
+          .buttonStyle(.plain)
+          .help(item.name ?? "打开\(item.group.name)")
+          .accessibilityLabel("打开\(item.name ?? item.group.name)，\(Bytes.text(item.size))")
+          .accessibilityValue(item.purged ? "原件已清理" : (item.cold ? "冷存储" : ""))
+      } else { tile }
+    }
+      .overlay(alignment: .topTrailing) {
+        // 和别的会话共用：链接图标 + 会话数，点一下看是哪些会话。
+        if item.refChats > 1 {
+          Button(action: onShared) {
+            Label("\(item.refChats)", systemImage: "link")
+              .font(.caption2.weight(.bold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6).padding(.vertical, 3)
+              .background(Color.accentColor, in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .padding(5)
+          .accessibilityLabel("被 \(item.refChats) 个会话引用")
+        }
+      }
+      .contentShape(Rectangle())
+  }
+
+  private var tile: some View {
     Color.clear
       .aspectRatio(1, contentMode: .fit)
       .overlay {
@@ -423,21 +469,6 @@ struct StorageItemCell: View {
         .padding(.horizontal, 6).padding(.vertical, 3)
         .background(.black.opacity(0.5), in: Capsule())
         .padding(5)
-      }
-      .overlay(alignment: .topTrailing) {
-        // 和别的会话共用：链接图标 + 会话数，点一下看是哪些会话。
-        if item.refChats > 1 {
-          Button(action: onShared) {
-            Label("\(item.refChats)", systemImage: "link")
-              .font(.caption2.weight(.bold))
-              .foregroundStyle(.white)
-              .padding(.horizontal, 6).padding(.vertical, 3)
-              .background(Color.accentColor, in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .padding(5)
-          .accessibilityLabel("被 \(item.refChats) 个会话引用")
-        }
       }
       .contentShape(Rectangle())
   }

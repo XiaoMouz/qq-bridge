@@ -9,12 +9,13 @@ Swift 6（严格并发）、SwiftUI + UIKit 聊天列表，iOS 26+。XcodeGen �
 | `App/QQBridgeApp.swift` / `AppModel.swift` / `RootView.swift` | 入口、全局状态（登录、连接、事件循环、通话）、标签页和全局浮层（横幅、提示、通话） |
 | `App/DialogListView.swift` | 会话列表（「语音中」标记、置顶、群助手） |
 | `App/ChatScreen.swift` / `ChatCollectionView.swift` / `ChatModels.swift` | 聊天页：倒置的 UICollectionView（最新在第 0 个）、横向拖动回复 / 拖语音进度、各种状态模型（成员、头像、语音播放、高亮…） |
+| `App/ChatHistoryPagination.swift` / `ChatMessageJump.swift` / `ChatHistoryFailure.swift` | 历史分页、消息定位任务及显式重试；定位等列表观察通知，不轮询 UI |
 | `App/MessageRow.swift` | 一行消息：气泡、排版块（文字、图片、语音、视频、文件、卡片…）、时间位置、回应、@ 徽章、小黄脸 |
-| `App/ComposerField.swift` / `ComposerViews.swift` / `Attachments.swift` / `CameraPicker.swift` | 输入框（实体键盘回车发送、粘贴媒体）、附件条、相机 |
+| `App/ComposerField.swift` / `ComposerViews.swift` / `VoiceRecorder.swift` / `Attachments.swift` / `DroppedItem.swift` / `CameraPicker.swift` | 输入框（实体键盘回车发送、粘贴媒体）、录音生命周期、附件条、相机 |
 | `App/ImageViewer.swift` / `MediaAndSearch.swift` / `MediaPopover.swift` / `MediaViews.swift` / `MediaReady.swift` | 看大图、视频播放、聊天记录、表情面板、转发选会话（`ChatPicker`）、媒体缓存显示、等服务端 `mediaReady` 推送 |
 | `App/ChatExtras.swift` / `GroupContentViews.swift` / `GroupFilesView.swift` / `ProfileViews.swift` / `ContactsViews.swift` | 查找聊天记录、共享媒体、群公告 / 精华 / 文件 / 相册、资料页、联系人、@ 选人 |
 | `App/SuperFace.swift` / `ReactionPicker.swift` / `QQFaceNames.swift` | 超级表情动画、表情回应面板、表情名字（`tools/qface-sync.py --ios` 生成，不手改） |
-| `App/VoiceExtras.swift` | 语音转文字、AI 语音、`CappedWidth` 布局 |
+| `App/VoiceExtras.swift` / `VoicePlayer.swift` / `VoiceTranscripts.swift` / `AiVoiceSheet.swift` / `AiVoiceViewModel.swift` / `AiVoicePreview.swift` | 语音播放/进度/任务归属、转文字显示/缓存/请求状态、AI 语音页面/状态/试听生命周期、`CappedWidth` 布局 |
 | `App/CallManager.swift` / `CallKitBridge.swift` | 通话：来电、接听、打出去、通话界面、横幅；CallKit + PushKit |
 | `App/Push.swift` / `QuickReply.swift` | 推送注册、前台通知变 App 内横幅、快速回复 |
 | `App/SettingsViews.swift` / `StorageBrowseViews.swift` / `QqLoginSheet.swift` / `LoginView.swift` / `OtherTabs.swift` | 设置、偏好、存储页、QQ 扫码、登录、搜索标签页 |

@@ -21,6 +21,8 @@ struct MessageContext {
   /// 名字、头像、被回复消息的内存缓存：滚动时不在主线程查数据库。
   let lookup: ChatLookup
   let bubbleFrames: BubbleFrames
+  var suppliedTranscripts: VoiceTranscripts? = nil
+  @MainActor var transcripts: VoiceTranscripts { suppliedTranscripts ?? .shared }
 
   /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
   @MainActor
@@ -94,9 +96,12 @@ struct MessageRow: View {
               .padding(.leading, 12)
             MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
               .allowsHitTesting(false)
+              .modifier(MessageSelectionContent())
           }
           .contentShape(Rectangle())
-          .onTapGesture { context.selection.toggle(m.seq) }
+          .modifier(MessageBlockAction(title: "选择消息", value: "\(context.selection.contains(m.seq) ? "已选中" : "未选中")；\(Format.preview(m))") {
+            context.selection.toggle(m.seq)
+          })
         } else {
           MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
         }
@@ -266,10 +271,10 @@ struct MessageBubbleRow: View {
     }
     if !recalled, message.segments.contains(where: { if case .record = $0.kind { true } else { false } }) {
       // 语音转文字：用 QQ 自己的识别。
-      if case .text = VoiceTranscripts.shared.state(chatId: context.chatId, seq: message.seq) {
-        Button("收起文字", systemImage: "text.badge.minus") { VoiceTranscripts.shared.hide(chatId: context.chatId, seq: message.seq) }
+      if case .text = context.transcripts.state(chatId: context.chatId, seq: message.seq) {
+        Button("收起文字", systemImage: "text.badge.minus") { context.transcripts.hide(chatId: context.chatId, seq: message.seq) }
       } else {
-        Button("转文字", systemImage: "text.bubble") { VoiceTranscripts.shared.transcribe(chatId: context.chatId, seq: message.seq, session: context.session) }
+        Button("转文字", systemImage: "text.bubble") { context.transcripts.transcribe(chatId: context.chatId, seq: message.seq, session: context.session) }
       }
     }
     if context.isGroup, !outgoing {
@@ -306,6 +311,17 @@ struct MessageBubbleRow: View {
   }
 }
 
+private struct MessageSelectionContent: ViewModifier {
+  func body(content: Content) -> some View {
+    #if targetEnvironment(macCatalyst)
+    // 多选只暴露整行的选择按钮，不能通过辅助功能绕过鼠标禁用去打开媒体。
+    content.accessibilityHidden(true)
+    #else
+    content
+    #endif
+  }
+}
+
 /// 群友头像：点开看资料，长按 @ 他。头像按需向服务端要（显示到谁要谁的）。
 struct SenderAvatar: View {
   let userId: Int64
@@ -314,6 +330,19 @@ struct SenderAvatar: View {
   var body: some View {
     let name = context.name(of: userId)
     let sha = context.avatars.sha256[userId] ?? context.lookup.avatar(userId)
+    #if targetEnvironment(macCatalyst)
+    // Mac 上点按手势不进辅助功能树，换成具名按钮；长按 @ 改为右键菜单。
+    Button { context.actions.showProfile(userId) } label: {
+      AvatarView(sha256: sha, title: name, seed: userId, size: 34)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("查看\(name)的资料")
+    .help("查看\(name)的资料")
+    .contextMenu {
+      Button("@\(name)", systemImage: "at") { context.actions.mention(userId) }
+    }
+    .onAppear { context.avatars.want(userId, session: context.session) }
+    #else
     AvatarView(sha256: sha, title: name, seed: userId, size: 34)
       .onAppear { context.avatars.want(userId, session: context.session) }
       .onTapGesture { context.actions.showProfile(userId) }
@@ -321,6 +350,7 @@ struct SenderAvatar: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         context.actions.mention(userId)
       }
+    #endif
   }
 }
 
@@ -360,7 +390,7 @@ struct MessageContent: View {
     VStack(alignment: .leading, spacing: 6) {
       ForEach(blocks.indices, id: \.self) { i in
         // 发送时间放在气泡右下角：最后是文字时在最后一行末尾留出时间的位置（和 Telegram 一样，放得下就同一行）。
-        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message, timeReserve: place == .inline && i == blocks.count - 1 ? time : nil)
+        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message, timeReserve: place == .inline && i == blocks.count - 1 ? time : nil, blockIndex: i)
       }
     }
     // 单独一行时：底下留出一行的高度（不占宽度，气泡不会因此被撑宽），时间画在右下角。
@@ -534,6 +564,8 @@ struct BlockView: View {
   var message: Qqbridge_V1_Message? = nil
   /// 文字的最后一行末尾留出这么宽的位置（放发送时间）。
   var timeReserve: String? = nil
+  var blockIndex: Int = 0
+  private var voiceID: VoicePlaybackID { VoicePlaybackID(chatId: context.chatId, seq: message?.seq ?? 0, block: blockIndex) }
 
   var body: some View {
     switch block {
@@ -555,7 +587,9 @@ struct BlockView: View {
       ReplyQuote(seq: seq, context: context, outgoing: outgoing)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId, onNeedThumb: { requestMedia(i.media) })
-        .onTapGesture { context.actions.openMedia(MediaTarget(kind: .image, media: i.media, chatId: context.chatId, seq: message?.seq ?? 0)) }
+        .modifier(MessageBlockAction(title: "打开图片") {
+          context.actions.openMedia(MediaTarget(kind: .image, media: i.media, chatId: context.chatId, seq: message?.seq ?? 0))
+        })
     case .sticker(let media, let summary, let size):
       // 表情用原图（会动）；原图还没有时先显示以前的缩略图，不常用会话里显示到时才向服务端要原图。
       let sha = media.state == .stored && !media.sha256.isEmpty ? media.sha256 : (media.thumbSha256.isEmpty ? nil : media.thumbSha256)
@@ -564,28 +598,19 @@ struct BlockView: View {
       .onAppear { if media.state == .onDemand { requestMedia(media) } }
     case .record(let r):
       VStack(alignment: .leading, spacing: 0) {
-        let isPlaying = context.voice.isPlaying(r)
         HStack(spacing: 10) {
-        VoiceBubble(
-          record: r,
-          playing: isPlaying,
-          progress: isPlaying ? context.voice.progress : 0,
-          remaining: isPlaying ? max(0, Int((context.voice.duration * (1 - context.voice.progress)).rounded(.up))) : nil,
-          onWaveFrame: { context.voice.waveFrame = $0 }
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { context.actions.playVoice(r) }
+        VoiceMessagePlaybackControl(record: r, voice: context.voice, outgoing: outgoing, id: voiceID) { context.actions.playVoice(r, voiceID) }
         // 私聊的语音：显示到时就下到本机（几十 KB），点了马上播。群聊的点了再下。
         .task(id: VoicePlayer.sha(r)) {
-          if let message { VoiceTranscripts.shared.autoTranscribe(chatId: context.chatId, seq: message.seq, session: context.session) }
+          if let message { context.transcripts.autoTranscribe(chatId: context.chatId, seq: message.seq, session: context.session) }
           guard !context.isGroup, r.media.state == .stored else { return }
           _ = try? await context.session.media.file(for: VoicePlayer.sha(r), chatId: context.chatId)
         }
           // 一键转文字（长按菜单里的「转文字」也保留）：转过的再点收起。
           if let message, message.state != .recalled {
-            let state = VoiceTranscripts.shared.state(chatId: context.chatId, seq: message.seq)
+            let state = context.transcripts.state(chatId: context.chatId, seq: message.seq)
             Button {
-              VoiceTranscripts.shared.toggle(chatId: context.chatId, seq: message.seq, session: context.session)
+              context.transcripts.toggle(chatId: context.chatId, seq: message.seq, session: context.session)
             } label: {
               Group {
                 if state == .loading {
@@ -598,19 +623,26 @@ struct BlockView: View {
               .background(Circle().fill(outgoing ? Color.white.opacity(0.22) : Color.primary.opacity(0.08)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel({ if case .text = state { "收起文字" } else { "转文字" } }())
+            .disabled(state == .loading)
+            .accessibilityLabel({
+              switch state {
+              case .text: "收起文字"
+              case .loading: "正在转文字"
+              case .failed: "重试转文字"
+              case nil: "转文字"
+              }
+            }())
           }
         }
-        if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing) }
+        if let error = context.voice.error(for: r, id: voiceID) {
+          Text(error).font(.caption).opacity(0.85).padding(.top, 4)
+            .fixedSize(horizontal: false, vertical: true).modifier(CappedWidth(max: 260))
+        }
+        if let message { VoiceTranscriptView(chatId: context.chatId, seq: message.seq, outgoing: outgoing, transcripts: context.transcripts) }
       }
     case .video(let v):
       // 没有封面时向服务端要 QQ 自带的封面（几十 KB，不下视频本身）。
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: context.chatId, onNeedThumb: { requestMedia(v.media) }, isVideo: true)
-        .onTapGesture {
-          // 按需的视频也直接打开播放器：播放器向服务端要原件，等服务端推「下好了」后自动播放。
-          // （不能走 requestMedia：那只要视频封面，而封面一般已经有了，点了没反应。）
-          context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0))
-        }
         .overlay {
           Image(systemName: v.media.state == .onDemand ? "arrow.down.circle.fill" : v.media.state == .pending ? "hourglass.circle.fill" : "play.circle.fill")
             .font(.system(size: 44)).foregroundStyle(.white.opacity(0.9))
@@ -622,6 +654,10 @@ struct BlockView: View {
               .background(.black.opacity(0.5), in: Capsule()).foregroundStyle(.white).padding(6)
           }
         }
+        .modifier(MessageBlockAction(title: "播放视频", value: v.durationSec > 0 ? Format.duration(Int(v.durationSec)) : "") {
+          // 按需的视频也直接打开播放器，不能只请求已经存在的封面。
+          context.actions.openMedia(MediaTarget(kind: .video, media: v.media, chatId: context.chatId, seq: message?.seq ?? 0))
+        })
     case .file(let f):
       HStack(spacing: 10) {
         Image(systemName: fileIcon(f.media.state)).font(.title2)
@@ -631,13 +667,14 @@ struct BlockView: View {
         }
       }
       .contentShape(Rectangle())
-      .onTapGesture {
+      .modifier(MessageBlockAction(title: "\(f.media.state == .onDemand ? "下载" : "打开")文件：\(f.name)", value: fileStatus(f),
+                                   enabled: [.onDemand, .stored, .purged].contains(f.media.state)) {
         switch f.media.state {
         case .onDemand: requestMedia(f.media)
         case .stored, .purged: context.actions.openFile(f)
         default: break
         }
-      }
+      })
     case .forward(let f):
       VStack(alignment: .leading, spacing: 4) {
         Text(f.title.isEmpty ? "聊天记录" : f.title).font(.subheadline.bold())
@@ -649,7 +686,9 @@ struct BlockView: View {
       }
       .frame(minWidth: 180, alignment: .leading)
       .contentShape(Rectangle())
-      .onTapGesture { if let m = message { context.actions.openForward(m) } }
+      .modifier(MessageBlockAction(title: "查看合并转发", value: f.title, enabled: message != nil) {
+        if let m = message { context.actions.openForward(m) }
+      })
     case .card(let text):
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
     case .app(let card):
@@ -737,11 +776,42 @@ struct MediaThumb: View {
   }
 }
 
-/// 语音：波形 + 时长，点一下播放 / 停止。
+struct VoiceMessagePlaybackControl: View {
+  let record: Qqbridge_V1_RecordSegment
+  let voice: VoicePlayer
+  let outgoing: Bool
+  var id: VoicePlaybackID? = nil
+  let play: () -> Void
+
+  private var playing: Bool { voice.isPlaying(record, id: id) }
+  private var label: String {
+    playing ? (voice.isLoading ? "取消加载语音" : "停止播放语音") : (voice.error(for: record, id: id) == nil ? "播放语音" : "重试播放语音")
+  }
+  private var bubble: some View {
+    VoiceBubble(record: record, playing: playing, loading: playing && voice.isLoading,
+                progress: playing ? voice.progress : 0,
+                remaining: playing ? max(0, Int((voice.duration * (1 - voice.progress)).rounded(.up))) : nil,
+                onWaveFrame: { voice.reportWaveFrame($0, id: id) })
+      .tint(outgoing ? .white : .primary)
+      .contentShape(Rectangle())
+  }
+  var body: some View {
+    #if targetEnvironment(macCatalyst)
+    Button(action: play) { bubble }
+      .buttonStyle(.plain).accessibilityLabel(label).help(label)
+      .onDisappear { voice.reportWaveFrame(nil, id: id) }
+    #else
+    bubble.onTapGesture(perform: play).accessibilityLabel(label)
+      .onDisappear { voice.reportWaveFrame(nil, id: id) }
+    #endif
+  }
+}
+
 /// 语音气泡：波形 + 时长。播放时气泡变大，听过的部分波形填满颜色，白线标出播放位置，拖白线可以调进度。
 struct VoiceBubble: View {
   let record: Qqbridge_V1_RecordSegment
   var playing = false
+  var loading = false
   /// 播放进度 0…1（没在播时不用）。
   var progress: Double = 0
   /// 剩余秒数（播放时显示）。
@@ -755,8 +825,12 @@ struct VoiceBubble: View {
     let width = CGFloat(min(160, 60 + seconds * 4)) + (playing ? 40 : 0)
     let barHeight: CGFloat = playing ? 28 : 18
     HStack(spacing: 8) {
-      Image(systemName: playing ? "stop.fill" : "play.fill")
-        .font(playing ? .title3 : .body)
+      if loading {
+        ProgressView().controlSize(.small).frame(width: 16)
+      } else {
+        Image(systemName: playing ? "stop.fill" : "play.fill")
+          .font(playing ? .title3 : .body)
+      }
       ZStack(alignment: .leading) {
         waveform(bars, height: barHeight, width: width).opacity(playing ? 0.35 : 1)
         if playing {
@@ -813,7 +887,7 @@ struct ReplyQuote: View {
   /// 订阅到的本地这条消息（最新）；还没订阅到时先用列表里的。
   private var shown: Qqbridge_V1_Message? { original ?? context.lookup.message(seq) }
 
-  var body: some View {
+  private var quoteContent: some View {
     HStack(spacing: 6) {
       Rectangle().frame(width: 3).opacity(0.6)
       // 被回复的是图片、表情、视频：按缩略图的比例缩小显示（还没有缩略图的先显示图标，并向服务端要）。
@@ -859,19 +933,19 @@ struct ReplyQuote: View {
     }
     .fixedSize(horizontal: false, vertical: true)
     .contentShape(Rectangle())
-    // 点引用跳到原消息：本地没有就先拉回来，再往上翻到它；期间显示加载中。
-    .onTapGesture {
-      guard !jumping else { return }
-      jumping = true
-      Task {
-        defer { jumping = false }
-        if shown == nil {
-          missing = false
-          await load()
-          if shown == nil { return }
-        }
-        _ = await context.actions.jumpTo(seq)
-      }
+  }
+
+  var body: some View {
+    Group {
+      #if targetEnvironment(macCatalyst)
+      Button(action: jump) { quoteContent }
+        .buttonStyle(.plain)
+        .accessibilityLabel("跳到引用的消息")
+        .accessibilityValue(shown.map { Format.preview($0) } ?? "原消息暂时不可用")
+        .help("跳到引用的消息")
+      #else
+      quoteContent.onTapGesture(perform: jump)
+      #endif
     }
     .task(id: seq) {
       // 订阅本地库里的原消息：缩略图、封面下好了，撤回、回应变了都会推过来。本地没有时向服务端要一次（拉回来会写进本地库，订阅随即推到）。
@@ -887,6 +961,17 @@ struct ReplyQuote: View {
           }
         }
       } catch {}
+    }
+  }
+
+  private func jump() {
+    guard !jumping else { return }
+    jumping = true
+    Task {
+      defer { jumping = false }
+      // 先登记定位，避免单条预取晚返回后覆盖新目标；定位失败仍可刷新缺失的引用预览。
+      let arrived = await context.actions.jumpTo(seq)
+      if !arrived, shown == nil { await load() }
     }
   }
 
@@ -943,30 +1028,67 @@ struct Reactions: View {
   let context: MessageContext
   /// 长按某个回应：看都有谁点了。
   @State private var showing: String?
+  #if targetEnvironment(macCatalyst)
+  @State private var selectedUser: Int64?
+  #endif
 
   var body: some View {
     HStack(spacing: 4) {
       ForEach(message.reactions, id: \.emojiID) { r in
-        HStack(spacing: 2) {
-          QQFace.view(r.emojiID)
-          Text("\(r.count)").monospacedDigit()
+        #if targetEnvironment(macCatalyst)
+        Button { if context.isGroup { context.actions.react(message, r.emojiID) } } label: {
+          reactionLabel(r)
         }
-        .font(.caption)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(r.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
-        .contentShape(Capsule())
-        // 点一下：加上 / 取消自己的回应；长按：看都有谁点了（只有群聊有回应）。
-        .onTapGesture { if context.isGroup { context.actions.react(message, r.emojiID) } }
-        .onLongPressGesture(minimumDuration: 0.35) { if context.isGroup { showing = r.emojiID } }
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(ReactionLabel.name(r.emojiID))，\(r.count) 人回应")
+        .accessibilityValue(r.me ? "已回应" : "未回应")
+        .help(r.me ? "取消回应；右键查看回应者" : "添加回应；右键查看回应者")
+        .contextMenu {
+          if context.isGroup {
+            Button("查看回应者", systemImage: "person.2") { showing = r.emojiID }
+          }
+        }
+        #else
+        reactionLabel(r)
+          .onTapGesture { if context.isGroup { context.actions.react(message, r.emojiID) } }
+          .onLongPressGesture(minimumDuration: 0.35) { if context.isGroup { showing = r.emojiID } }
+          .accessibilityAddTraits(.isButton)
+        #endif
       }
     }
-    .sheet(item: Binding(get: { showing.map(ReactionPick.init) }, set: { showing = $0?.id })) { pick in
+    .sheet(item: Binding(get: { showing.map(ReactionPick.init) }, set: { showing = $0?.id }), onDismiss: showSelectedProfile) { pick in
+      #if targetEnvironment(macCatalyst)
+      MacReactionUsersPage(message: message, context: context, selected: pick.id, selectUser: { user in
+        selectedUser = user
+        showing = nil
+      })
+      #else
       ReactionUsersSheet(message: message, context: context, selected: pick.id)
         .presentationDetents([.medium, .large])
+      #endif
     }
   }
+
+  private func showSelectedProfile() {
+    #if targetEnvironment(macCatalyst)
+    // 2026-10-15 实测：名单还在退出动画时打开资料会丢失呈现；等实际关闭回调再交接。
+    guard let user = selectedUser else { return }
+    selectedUser = nil
+    context.actions.showProfile(user)
+    #endif
+  }
+  private func reactionLabel(_ reaction: Qqbridge_V1_Reaction) -> some View {
+    HStack(spacing: 2) {
+      QQFace.view(reaction.emojiID)
+      Text("\(reaction.count)").monospacedDigit()
+    }
+    .font(.caption)
+    .padding(.horizontal, 7)
+    .padding(.vertical, 3)
+    .background(reaction.me ? AnyShapeStyle(Color.accentColor.opacity(0.25)) : AnyShapeStyle(.quaternary), in: Capsule())
+    .contentShape(Capsule())
+  }
+
 }
 
 struct ReactionPick: Identifiable {
@@ -1482,6 +1604,9 @@ struct MentionText: View {
         .textRenderer(MentionLocator { hits in if hits != badges { DispatchQueue.main.async { badges = hits } } })
         .overlay(alignment: .topLeading) {
           ForEach(badges) { hit in
+            #if targetEnvironment(macCatalyst)
+            mentionButton(hit)
+            #else
             Color.clear
               .contentShape(Capsule())
               .frame(width: hit.rect.width, height: hit.rect.height)
@@ -1517,6 +1642,7 @@ struct MentionText: View {
                     MentionPress.shared.release(seq)
                   }
               )
+            #endif
           }
         }
         .onAppear {
@@ -1527,6 +1653,31 @@ struct MentionText: View {
       text
     }
   }
+
+  #if targetEnvironment(macCatalyst)
+  private func mentionButton(_ hit: MentionHit) -> some View {
+    let name = runs.compactMap { run -> String? in
+      if case .mention(let id, let name, _) = run, id == hit.userId { return name }
+      return nil
+    }.first ?? context.name(of: hit.userId)
+    return Button { context.actions.mention(hit.userId) } label: {
+      Color.clear.contentShape(Capsule())
+        .frame(width: hit.rect.width, height: hit.rect.height)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("提及\(name)")
+    .help("提及\(name)；右键查看资料")
+    .contextMenu {
+      if hit.userId > 0 {
+        Button("查看\(name)的资料", systemImage: "person.crop.circle") {
+          context.actions.showProfile(hit.userId)
+        }
+      }
+    }
+    .offset(x: hit.rect.minX, y: hit.rect.minY)
+  }
+  #endif
+
 }
 
 struct MentionHit: Identifiable, Equatable {

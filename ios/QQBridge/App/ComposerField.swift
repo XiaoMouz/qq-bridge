@@ -32,12 +32,14 @@ struct ComposerField: UIViewRepresentable {
     view.setContentHuggingPriority(.defaultHigh, for: .vertical)
     view.placeholder = placeholder
     view.text = text
+    view.refreshPlaceholder()
     view.coordinator = context.coordinator
     return view
   }
 
   func updateUIView(_ view: ComposerTextView, context: Context) {
     context.coordinator.parent = self
+    if view.placeholder != placeholder { view.placeholder = placeholder }
     if view.text != text {
       view.text = text
       view.refreshPlaceholder()
@@ -95,7 +97,10 @@ final class ComposerTextView: UITextView {
   private let placeholderLabel = UILabel()
 
   var placeholder = "" {
-    didSet { placeholderLabel.text = placeholder }
+    didSet {
+      placeholderLabel.text = placeholder
+      accessibilityLabel = placeholder
+    }
   }
 
   override init(frame: CGRect, textContainer: NSTextContainer?) {
@@ -103,6 +108,7 @@ final class ComposerTextView: UITextView {
     placeholderLabel.textColor = .placeholderText
     placeholderLabel.font = UIFont.preferredFont(forTextStyle: .body)
     placeholderLabel.adjustsFontForContentSizeCategory = true
+    placeholderLabel.isAccessibilityElement = false
     placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
     addSubview(placeholderLabel)
     NSLayoutConstraint.activate([
@@ -158,8 +164,14 @@ final class ComposerTextView: UITextView {
 
 /// 剪贴板里有没有能当附件发的东西（只看类型，不读内容，不会弹"允许粘贴"）。
 enum PasteboardMedia {
+  @MainActor static var hasFileURLs: Bool {
+    UIPasteboard.general.contains(pasteboardTypes: [UTType.fileURL.identifier])
+  }
+
   @MainActor static var available: Bool {
     let pb = UIPasteboard.general
+    // Finder 复制文件时还会附带文件名和图标，不能把它误判为纯文字或图片。
+    if hasFileURLs { return true }
     if pb.hasImages || pb.contains(pasteboardTypes: [MediaPasteboard.type]) { return true }
     // 文件（Mac 上在访达里复制的文件、视频、PDF 等）：有不是文字的类型，并且没有文字。
     guard !pb.hasStrings else { return false }

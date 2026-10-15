@@ -187,18 +187,20 @@ enum DialogActions {
 /// 群助手：折叠起来的那一行。
 struct ArchiveRow: View {
   let items: [DialogItem]
+  /// 尺寸与普通会话行共用一份样式（iOS 用默认值；桌面侧栏由调用方传入更紧凑的值）。
+  var style = DialogRowStyle.standard
   /// 和普通会话行一样大（三行预览时头像也跟着变大）。
   @AppStorage(DialogRow.linesKey) private var lines = 2
 
   var body: some View {
     let latest = items.max { $0.dialog.topTime < $1.dialog.topTime }
     let unreadChats = items.filter { $0.dialog.unreadCount > 0 }.count
-    HStack(spacing: 12) {
+    HStack(spacing: style.spacing) {
       ZStack {
         Circle().fill(Color.gray.gradient)
         Image(systemName: "archivebox.fill").font(lines == 3 ? .title2 : .title3).foregroundStyle(.white)
       }
-      .frame(width: lines == 3 ? 56 : 48, height: lines == 3 ? 56 : 48)
+      .frame(width: style.avatarSize(lines: lines), height: style.avatarSize(lines: lines))
       VStack(alignment: .leading, spacing: 4) {
         HStack {
           Text("群助手").font(.body.weight(.semibold))
@@ -240,10 +242,25 @@ struct ArchivedListView: View {
   }
 }
 
+/// 会话行的尺寸参数。默认值即 iOS 原有外观；只描述尺寸，不含平台专属类型。
+struct DialogRowStyle {
+  /// 两行预览时的头像边长。
+  var avatar: CGFloat = 48
+  /// 三行预览时的头像边长。
+  var tallAvatar: CGFloat = 56
+  /// 头像与文字的间距。
+  var spacing: CGFloat = 12
+
+  static let standard = DialogRowStyle()
+
+  func avatarSize(lines: Int) -> CGFloat { lines == 3 ? tallAvatar : avatar }
+}
+
 struct DialogRow: View {
   static let linesKey = "dialogPreviewLines"
   let item: DialogItem
   let typing: Bool
+  var style = DialogRowStyle.standard
   @Environment(\.session) private var session
   @Environment(AppModel.self) private var model
 
@@ -256,8 +273,8 @@ struct DialogRow: View {
   @AppStorage(DialogRow.linesKey) private var lines = 2
 
   var body: some View {
-    HStack(spacing: 12) {
-      AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, size: lines == 3 ? 56 : 48)
+    HStack(spacing: style.spacing) {
+      AvatarView(sha256: item.peer?.avatarSha256, title: item.title, seed: item.dialog.peerID, size: style.avatarSize(lines: lines))
       VStack(alignment: .leading, spacing: lines == 3 ? 2 : 4) {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
           Text(item.title).font(.body.weight(.semibold)).lineLimit(1)

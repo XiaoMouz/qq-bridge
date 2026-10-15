@@ -5,8 +5,82 @@ import AVKit
 import QQBridgeKit
 import SwiftUI
 
+#if targetEnvironment(macCatalyst)
+/// 2026-10-14 实测：Catalyst 全屏媒体页需 UIKit 优先命令，Esc 和翻页共用同一响应者。
+struct MacMediaKeyboard: UIViewControllerRepresentable {
+  let close: () -> Void
+  var previous: (() -> Void)? = nil
+  var next: (() -> Void)? = nil
+  /// 只有传入时才接管空格（播放 / 暂停）；其他媒体页不传，空格行为保持原样。
+  var togglePlayback: (() -> Void)? = nil
+
+  func makeUIViewController(context: Context) -> Controller { Controller(actions: self) }
+  func updateUIViewController(_ controller: Controller, context: Context) { controller.actions = self }
+
+  final class Controller: UIViewController {
+    var actions: MacMediaKeyboard
+    init(actions: MacMediaKeyboard) { self.actions = actions; super.init(nibName: nil, bundle: nil) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override var canBecomeFirstResponder: Bool { true }
+    override func viewDidAppear(_ animated: Bool) {
+      super.viewDidAppear(animated)
+      becomeFirstResponder()
+    }
+    override var keyCommands: [UIKeyCommand]? {
+      // 2026-10-15 实测：系统分享仍将 Esc 交给此响应者，必须先关闭分享而非媒体场景。
+      // 其他弹层独占键盘；方向键和空格不能穿透到下面的图片或视频。
+      if let presented = presentedViewController {
+        guard presented is UIActivityViewController else { return [] }
+        let escape = UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(closeMedia))
+        escape.wantsPriorityOverSystemBehavior = true
+        return [escape]
+      }
+      // 独立窗口全屏时让系统先处理 Esc 退出全屏，不直接销毁媒体窗口。
+      var commands: [UIKeyCommand] = []
+      if view.window?.windowScene?.isFullScreen != true {
+        commands.append(UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(closeMedia)))
+      }
+      if actions.previous != nil || actions.next != nil {
+        // 到边界仍接住方向键，避免转交给底下的会话列表或其他控件。
+        commands.append(UIKeyCommand(input: UIKeyCommand.inputLeftArrow, modifierFlags: [], action: #selector(previousImage)))
+        commands.append(UIKeyCommand(input: UIKeyCommand.inputRightArrow, modifierFlags: [], action: #selector(nextImage)))
+      }
+      if actions.togglePlayback != nil {
+        // 2026-10-15 实测：画廊视频页 SwiftUI VideoPlayer 不响应空格，由此键命令代为播放 / 暂停。
+        commands.append(UIKeyCommand(input: " ", modifierFlags: [], action: #selector(togglePlayback)))
+      }
+      for command in commands { command.wantsPriorityOverSystemBehavior = true }
+      return commands
+    }
+    @objc private func closeMedia() {
+      if let share = presentedViewController as? UIActivityViewController {
+        share.dismiss(animated: true) { [weak self] in
+          guard let self, viewIfLoaded?.window != nil else { return }
+          becomeFirstResponder()
+        }
+        return
+      }
+      guard presentedViewController == nil else { return }
+      actions.close()
+    }
+    @objc private func previousImage() {
+      guard presentedViewController == nil else { return }
+      actions.previous?()
+    }
+    @objc private func nextImage() {
+      guard presentedViewController == nil else { return }
+      actions.next?()
+    }
+    @objc private func togglePlayback() {
+      guard presentedViewController == nil else { return }
+      actions.togglePlayback?()
+    }
+  }
+}
+#endif
+
 extension View {
-  /// 弹出媒体预览（替代 fullScreenCover：去掉系统的上滑动画，背景透明）。
+  /// iOS 使用透明媒体预览，Mac 交给独立窗口路由。
   func mediaViewer(item: Binding<MediaTarget?>, session: Session, chatId: Int64) -> some View {
     modifier(MediaViewerPresenter(item: item, session: session, chatId: chatId))
   }
@@ -16,19 +90,29 @@ private struct MediaViewerPresenter: ViewModifier {
   @Binding var item: MediaTarget?
   let session: Session
   let chatId: Int64
+  #if !targetEnvironment(macCatalyst)
   @State private var shown: MediaTarget?
+  #endif
 
   func body(content: Content) -> some View {
+    #if targetEnvironment(macCatalyst)
+    content.onChange(of: item, initial: true) { _, target in
+      guard let target else { return }
+      MacMediaWindows.shared.open(.message(target, session, chatId))
+      item = nil
+    }
+    #else
     content
       .onChange(of: item) { _, new in
         var t = Transaction()
         t.disablesAnimations = true
         withTransaction(t) { shown = new }
       }
-      .fullScreenCover(item: $shown, onDismiss: { item = nil }) { target in
+      .platformFullScreenCover(item: $shown, onDismiss: { item = nil }) { target in
         MediaViewer(target: target, session: session, chatId: chatId)
           .presentationBackground(.clear)
       }
+    #endif
   }
 }
 
@@ -131,11 +215,12 @@ struct InlineVideoPlayer: UIViewControllerRepresentable {
   var onDrag: (CGFloat) -> Void = { _ in }
   /// 拖够了松手：关闭。
   var onDismiss: (() -> Void)? = nil
+  var playback: VideoPlayback = .shared
 
   func makeCoordinator() -> DragToDismiss { DragToDismiss() }
 
   func makeUIViewController(context: Context) -> AVPlayerViewController {
-    let vc = VideoPlayback.shared.controller(for: player)
+    let vc = playback.controller(for: player)
     if onDismiss != nil {
       let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(DragToDismiss.pan(_:)))
       pan.delegate = context.coordinator
@@ -186,13 +271,21 @@ struct InlineVideoPlayer: UIViewControllerRepresentable {
 final class VideoPlayback: NSObject, AVPlayerViewControllerDelegate {
   static let shared = VideoPlayback()
   private var current: AVPlayerViewController?
+  #if targetEnvironment(macCatalyst)
+  // 画中画属于具体控制器：内嵌切系统呈现、切视频后，旧代理回调不能改变新播放器。
+  private weak var pictureInPictureController: AVPlayerViewController?
+  #else
   private var inPictureInPicture = false
+  #endif
 
   func controller(for player: AVPlayer) -> AVPlayerViewController {
     // 换了视频：之前的停掉（包括画中画里的）。
     if let current, current.player !== player {
       current.player?.pause()
       self.current = nil
+      #if targetEnvironment(macCatalyst)
+      pictureInPictureController = nil
+      #endif
     }
     if let current { return current }
     try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
@@ -202,26 +295,67 @@ final class VideoPlayback: NSObject, AVPlayerViewControllerDelegate {
     vc.allowsPictureInPicturePlayback = true
     vc.canStartPictureInPictureAutomaticallyFromInline = true
     vc.entersFullScreenWhenPlaybackBegins = false
+    #if targetEnvironment(macCatalyst)
+    // Mac 的短视频播完后保留预览，用户仍可打开系统控件重播或定位。
+    vc.exitsFullScreenWhenPlaybackEnds = false
+    #else
     vc.exitsFullScreenWhenPlaybackEnds = true
+    #endif
     vc.delegate = self
     current = vc
     return vc
   }
 
+  #if targetEnvironment(macCatalyst)
+  /// 内嵌控制器已有父节点，不能直接拿去 present；新呈现仍由同一管理器接收画中画事件。
+  func fullScreenController(for player: AVPlayer) -> AVPlayerViewController {
+    if current?.player === player {
+      current = nil
+      pictureInPictureController = nil
+    }
+    return controller(for: player)
+  }
+  #endif
+
   /// 关掉预览：没在画中画里就停掉。
   func previewClosed(_ player: AVPlayer?) {
-    guard let player, current?.player === player, !inPictureInPicture else { return }
+    guard let player else { return }
+    // 链接加载完成到 SwiftUI 挂载播放器之间也可能关闭，此时尚无 current 控制器。
+    #if targetEnvironment(macCatalyst)
+    if let current, current.player === player, pictureInPictureController === current { return }
+    #else
+    if current?.player === player, inPictureInPicture { return }
+    #endif
     player.pause()
-    current = nil
+    if current?.player === player { current = nil }
   }
 
-  nonisolated func playerViewControllerWillStartPictureInPicture(_: AVPlayerViewController) {
-    MainActor.assumeIsolated { inPictureInPicture = true }
+  nonisolated func playerViewControllerWillStartPictureInPicture(_ vc: AVPlayerViewController) {
+    MainActor.assumeIsolated {
+      #if targetEnvironment(macCatalyst)
+      guard current === vc else { return }
+      pictureInPictureController = vc
+      #else
+      inPictureInPicture = true
+      #endif
+    }
   }
+
+  #if targetEnvironment(macCatalyst)
+  nonisolated func playerViewController(_ vc: AVPlayerViewController, failedToStartPictureInPictureWithError error: any Error) {
+    // willStart 不代表启动成功；失败必须解除保留，已关闭的预览也要暂停并释放。
+    playerViewControllerDidStopPictureInPicture(vc)
+  }
+  #endif
 
   nonisolated func playerViewControllerDidStopPictureInPicture(_ vc: AVPlayerViewController) {
     MainActor.assumeIsolated {
+      #if targetEnvironment(macCatalyst)
+      guard current === vc else { return }
+      pictureInPictureController = nil
+      #else
       inPictureInPicture = false
+      #endif
       // 预览已经关了（画中画是独自留下的）：放完小窗就收掉。
       if vc.parent == nil, vc.view.window == nil {
         vc.player?.pause()

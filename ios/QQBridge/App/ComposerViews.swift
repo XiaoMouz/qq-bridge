@@ -12,7 +12,11 @@ struct MicButton: View {
 
   var body: some View {
     Image(systemName: "mic.fill")
+      #if targetEnvironment(macCatalyst)
+      .font(.system(size: 17, weight: .medium))
+      #else
       .font(.body.weight(.semibold))
+      #endif
       .foregroundStyle(recorder.recording ? .white : .secondary)
       .frame(width: 36, height: 36)
       .background(Circle().fill(recorder.recording ? AnyShapeStyle(recorder.willCancel ? Color.gray : Color.red) : AnyShapeStyle(.clear)))
