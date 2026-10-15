@@ -228,6 +228,17 @@ extension LocalStore {
     }
   }
 
+  /// 定位消息需要同一次快照里的区间和目标，nil 下界表示首屏还未建立，不能当成历史已经到头。
+  public func historyTargetWindow(chatId: Int64, seq: Int64) throws -> (floor: Int64?, count: Int, countFromTarget: Int, containsTarget: Bool) {
+    try db.read { db in
+      let floor = try Self.chatState(chatId, db).newestLoadedLowerBound
+      let count = try Int.fetchOne(db, sql: "select count(*) from message where chatId = ? and seq >= ?", arguments: [chatId, floor ?? 0]) ?? 0
+      let from = try Int.fetchOne(db, sql: "select count(*) from message where chatId = ? and seq >= ?", arguments: [chatId, seq]) ?? 0
+      let exists = try Bool.fetchOne(db, sql: "select exists(select 1 from message where chatId = ? and seq = ?)", arguments: [chatId, seq]) ?? false
+      return (floor, count, from, exists)
+    }
+  }
+
   /// 本地有的、seq 不小于 fromSeq 的消息条数（跳到某条消息时，用来算聊天页至少要显示多少条）。
   public func messageCount(chatId: Int64, fromSeq: Int64) throws -> Int {
     try db.read { db in

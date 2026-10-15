@@ -72,6 +72,16 @@ extension LocalStore {
       .values(in: db)
   }
 
+  /// 等待指定会话同步落库，不受会话列表的排序和数量上限影响。
+  public func observeDialog(chatId: Int64) -> AsyncValueObservation<Qqbridge_V1_Dialog?> {
+    ValueObservation.tracking { db in
+      try Data.fetchOne(db, sql: "select data from dialog where chatId = ?", arguments: [chatId])
+        .map { try Qqbridge_V1_Dialog(serializedBytes: $0) }
+    }
+    .removeDuplicates()
+    .values(in: db)
+  }
+
   /// 会话列表的一次性快照（不观察变化）。
   public func dialogItems(limit: Int = 500) throws -> [DialogItem] {
     try db.read { db in try Self.dialogItems(db, limit: limit) }
