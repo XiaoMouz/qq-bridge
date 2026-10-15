@@ -27,7 +27,7 @@
 | `ios/QQBridgeKit` | Swift 包：API 客户端、本地库、同步、媒体缓存、生成的 proto | [AGENTS.md](ios/QQBridgeKit/AGENTS.md) |
 | `deploy` | docker compose、QQ 镜像、launchd、LiveKit 配置；`deploy/data` 是运行数据 | [AGENTS.md](deploy/AGENTS.md) |
 | `tools` | 运维脚本（插件部署、QQ 调试、表情同步） | [AGENTS.md](tools/AGENTS.md) |
-| `macos` | macOS 版 BetterChat（Mac Catalyst，另一路在做，尚未提交） | [README](macos/README.md) |
+| `macos` | macOS 版 BetterChat（Mac Catalyst，独立工程，引用共享客户端实现） | [README](macos/README.md) |
 | `fixtures` | 测试样本（脱敏） | |
 
 ## 文档索引
@@ -80,6 +80,9 @@ docker exec qqbridge-postgres psql -U qqbridge -d qqbridge
 - **Swift 并发**：系统回调里先取出 Sendable 的值再进 MainActor；确实安全时用 `nonisolated(unsafe)` 并写注释；等事件用 continuation，不传 AsyncStream 迭代器。（L1）
 - **SwiftUI 尺寸**：装饰背景放 `.background`；「最多 N 宽、内容多少就多宽、超了换行」用 `CappedWidth`；改完看长短两种内容。（L4）
 - **模拟器测试**：用 `-debugJump chatId:seq`、置顶会话或 `simctl push` 打开会话，不按列表位置点；截图像素 ÷ 3 = 点坐标；每步截图确认。（L3）
+- **SwiftUI 类型推断**：复杂 body 的新增浮层、监听、键盘配置拆为独立表达式；可选闭包显式标类型，避免长链推断超时或无诊断失败。（L5）
+- **UIKit 窗口层级**：Catalyst 弹窗的窗口根控制器不能只凭源码猜；先用实际 UIKit 测试与真实入口验证，评审推测不得直接当作缺陷。（L6）
+- **弹窗验收**：最终正常构建从真实入口分别测鼠标关闭、Esc、重开及选择/草稿保留；临时宿主成功不能代替实际调用链。（L7）
 - **推送优先于轮询**：等服务端结果用 Subscribe 临时事件（如 `mediaReady`、`call`）或本地库观察，轮询只做兜底。
 - **长期状态要经得起热重载**：插件里的监听、定时器、队列，按「被重载很多次」设计。
 - **有状态机的记录要能收尾**：超时、被新的替换时，旧的要记为结束。
