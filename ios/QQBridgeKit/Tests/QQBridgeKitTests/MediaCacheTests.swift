@@ -106,4 +106,60 @@ final class Clock: @unchecked Sendable {
     #expect(try await cache.cachedFile(a) != nil)
     #expect(try await cache.cachedFile(b) == nil)
   }
+
+  @Test func clearKeepsExportedDownloads() async throws {
+    let media = FakeMedia()
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("qqbridge-clear-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let cache = MediaCache(directory: root.appendingPathComponent("Cache"), store: try LocalStore.inMemory(),
+                           signer: media, downloader: media, limits: .init(capBytes: nil, retentionDays: nil))
+    let content = Data("已导出的文件应独立于缓存".utf8)
+    let sha = media.add(content)
+    let cached = try await cache.file(for: sha, chatId: 153)
+    let downloads = root.appendingPathComponent("Downloads")
+    try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+    let exported = downloads.appendingPathComponent("检查.txt")
+    try FileManager.default.copyItem(at: cached, to: exported)
+
+    #expect(try await cache.clear() == Int64(content.count))
+    #expect(try await cache.usage().fileCount == 0)
+    #expect(!FileManager.default.fileExists(atPath: cached.path))
+    #expect(try Data(contentsOf: exported) == content)
+  }
+
+  @Test func clearRetainsFailedFilesAndCommitsSuccessfulRemovals() async throws {
+    let media = FakeMedia()
+    let (cache, dir) = try makeCache(media, limits: .init(capBytes: nil, retentionDays: nil))
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let a = media.add(Data(repeating: 1, count: 10))
+    let b = media.add(Data(repeating: 2, count: 20))
+    let allowed = try await cache.file(for: a, chatId: 153)
+    let protected = try await cache.file(for: b, chatId: 153)
+    let parent = protected.deletingLastPathComponent()
+    #expect(allowed.deletingLastPathComponent() != parent)
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: parent.path)
+    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path) }
+
+    await #expect(throws: (any Error).self) { try await cache.clear() }
+    #expect(!FileManager.default.fileExists(atPath: allowed.path))
+    #expect(FileManager.default.fileExists(atPath: protected.path))
+    #expect(try await cache.cachedFile(a) == nil)
+    #expect(try await cache.cachedFile(b) == protected)
+    #expect(try await cache.usage() == MediaCacheUsage(totalBytes: 20, fileCount: 1, byChat: [153: 20]))
+
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parent.path)
+    #expect(try await cache.clear() == 20)
+    #expect(try await cache.usage().fileCount == 0)
+  }
+
+  @Test func clearRepairsMissingFileWithoutClaimingFreedBytes() async throws {
+    let media = FakeMedia()
+    let (cache, dir) = try makeCache(media, limits: .init(capBytes: nil, retentionDays: nil))
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let sha = media.add(Data(repeating: 3, count: 20))
+    let cached = try await cache.file(for: sha)
+    try FileManager.default.removeItem(at: cached)
+    #expect(try await cache.clear() == 0)
+    #expect(try await cache.usage().fileCount == 0)
+  }
 }

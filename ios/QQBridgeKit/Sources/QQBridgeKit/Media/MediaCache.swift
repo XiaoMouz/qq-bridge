@@ -250,13 +250,27 @@ public actor MediaCache {
   private func remove(_ items: [(String, Int64)]) throws -> Int64 {
     guard !items.isEmpty else { return 0 }
     var freed: Int64 = 0
-    try store.db.write { db in
-      for (sha, size) in items {
-        try db.execute(sql: "delete from mediaCache where sha256 = ?", arguments: [sha])
-        try? FileManager.default.removeItem(at: path(for: sha))
+    var removed: [String] = []
+    var failure: (any Error)?
+    for (sha, size) in items {
+      do {
+        try FileManager.default.removeItem(at: path(for: sha))
+        removed.append(sha)
         freed += size
+      } catch CocoaError.fileNoSuchFile {
+        // 磁盘文件已不存在时只修复索引，不把它计入本次释放的空间。
+        removed.append(sha)
+      } catch {
+        if failure == nil { failure = error }
       }
     }
+    // 文件删除不能随数据库事务回滚；仅提交已成功删除的项，失败项保留供重试。
+    try store.db.write { db in
+      for sha in removed {
+        try db.execute(sql: "delete from mediaCache where sha256 = ?", arguments: [sha])
+      }
+    }
+    if let failure { throw failure }
     return freed
   }
 
