@@ -1,44 +1,56 @@
-# QQ Bridge
+# QQ Bridge（BetterChat）
 
 个人自用的 QQ 存档与客户端系统：
-- **服务端**：基于 NapCat，按 Telegram 思路设计，负责存档消息和媒体（媒体按哈希去重），并为多设备提供增量同步。
-- **客户端**：自研原生 iOS App（iOS 27）和 [macOS 客户端](macos/README.md)（macOS 27，SwiftUI + UIKit / Mac Catalyst）。
-- **通话**：在 App 内桥接 QQNT 的语音和视频通话。
+- **服务端**：基于 NapCat，按 Telegram 思路设计，持续存档消息和媒体（媒体按 sha256 去重），给多设备提供增量同步（pts / chat_pts、Subscribe 推送）。
+- **客户端「BetterChat」**：自研原生 iOS App（iOS 26+，TestFlight 分发）和 [macOS 版](macos/README.md)（Mac Catalyst 独立工程）。
+- **通话**：在 App 里接打 QQ 语音电话（AV Host 加载 QQ 自己的通话引擎 + PulseAudio + LiveKit）。
 
-完整设计见 [docs/design.md](docs/design.md)。**本项目不公开、不商用**：NapCat 的许可证禁止公开发布修改版，通话桥接部分又参考了 GPL-3.0 代码。
+全部跑在一台 Mac mini（M2）上：Postgres、QQ（NapCat）、LiveKit、通话网关在 OrbStack 里，服务端是 launchd 常驻进程。**本项目不公开、不商用**：NapCat 的许可证禁止公开发布修改版，通话桥接部分又参考了 GPL-3.0 代码。
 
-## 当前进度
+## 文档
+
+| 文档 | 内容 |
+|---|---|
+| [AGENTS.md](AGENTS.md) | 项目总入口：目录说明、常用命令、规矩、代码准则（各子目录另有自己的 AGENTS.md） |
+| [docs/design.md](docs/design.md) | 总体设计：架构、表结构、同步模型、媒体存储、推送、通话方案 |
+| [docs/changelog.md](docs/changelog.md) | 修改记录（按时间和功能分组，带 commit 和发布版本） |
+| [docs/lessons.md](docs/lessons.md) | 犯过三次的错误和对策 |
+| [docs/calls.md](docs/calls.md) | 通话桥实测：引擎指令表、内核回调含义、调试方法 |
+| [ios/README.md](ios/README.md) | iOS 核心库 QQBridgeKit 说明、命令行验收 |
+
+## 当前状态（2026-10-16）
+
+iOS App 1.16 (24) 已上 TestFlight 日常使用；macOS 版 1.1 (2)。
 
 | 部分 | 状态 |
 |---|---|
-| P0 / P0-C 验证套件（NapCat 插件、AV Host、QQ 容器） | 已完成，等扫码登录后验证 |
-| 服务端核心（`packages/server`、`domain`、`protocol`） | 已完成第一版（含两组属性测试） |
-| 媒体下载任务（下载、去重、缩略图、重试、按上游换新链接） | 已完成 |
-| 上游链路（插件持久队列 → 服务端收件箱 → 入库；对账预热） | 已完成，用真实插件代码联调测试；**扫码后即开始存档**，映射细节等真实样本再校对 |
-| 发送（秒传与断点续传上传、发件箱幂等、按会话顺序发送）、撤回、已读回写 | 已完成；真正发到 QQ 要等扫码后验证 |
-| 全文搜索、置顶 / 免打扰 / 草稿 | 已完成 |
-| 存储策略与原件清理（手动清理、按保留期定时清理、恢复） | 已完成 |
-| 通话网关的音频通路（`packages/call-gateway`） | 已完成，不登录 QQ 也能端到端实测：全链路往返约 190–200ms，单向额外延迟约 100ms |
-| 媒体处理：按内容识别类型、语音转 AAC + 波形、视频封面 + faststart 流式播放版本、上传后生成缩略图 | 已完成，已在真实数据上补处理 |
-| 通知适配：服务事件（入群、禁言、戳一戳、设精华……）、表情回应、"正在输入" | 已完成，已在真实数据上补处理 |
-| 存档完整性：按 seq 检测缺口并后台补齐、往上翻页时懒回填、单条失败不拖累整个会话 | 已完成，已在真实数据上补齐 |
-| 深度归档（从第一条补起）、存档完整性列表 | 已完成 |
-| 表情回应、"正在输入"、合并转发展开（含嵌套和其中的媒体）、共享媒体列表、推送令牌登记 | 已完成 |
-| 联系人与资料：好友 / 群列表各一次请求建索引（每天刷新）；头像在打开会话时按需加载；详细资料和群成员在打开资料页时请求，不在后台爬取 | 已完成 |
-| 冷热分层存储（按访问、大小、时间、会话和全局配额下沉；常用的提回热存储）、按会话的占用明细与策略 | 已完成；冷存储在外接硬盘 HDD-1 上，盘不在时从 QQ 取回、拿不到返回过期 |
-| 管理接口：系统状态、扫码登录中转、通话桥健康状况 | 已完成 |
-| 通话桥 G1：无界面接听 QQ 来电、双向语音 | **已通过**（2026-10-04，主号，arm64）；20050 重登死循环已查明并修复 |
-| 服务端通话管理（CallService）、常驻通话网关、网页版接听测试页 | 已完成，等端到端实测（G5） |
-| APNs | 待做 |
+| 存档：实时消息、断线续传、对账补齐、按 seq 补缺口、往上翻页懒回填、深度归档 | 已上线 |
+| 媒体：三道去重、缩略图 / 预览 / 语音转码 / 视频封面、按会话类型的下载规则、冷热分层（冷存储在外接硬盘 HDD-1）、按会话的占用与清理 | 已上线 |
+| 同步：GetDifference / GetChatDifference、Subscribe 推送（含正在输入、`mediaReady`、来电等临时事件） | 已上线 |
+| 发送：文字、图片、视频、文件、语音、相机拍摄、粘贴媒体、转发 / 合并转发；秒传与断点续传；发件箱幂等 | 已上线 |
+| 消息类型：回复、@、小黄脸 / 超级表情、商城表情、卡片、合并转发、机器人 markdown 与按钮、表情回应、撤回（保留原内容） | 已上线 |
+| QQ 灰色提示（撤回、进群、拍一拍、文件已接收、设精华……）显示成系统提示；还不支持的元素（红包、长消息……）显示成可查看原始数据的卡片 | 已上线（2026-10-15） |
+| 群：公告、精华、群文件（下载、删除、移动、多选）、相册、成员与管理操作 | 已上线 |
+| 搜索：会话 / 联系人即时筛选、聊天记录全文搜索（PGroonga，分页、跳到原消息） | 已上线 |
+| 推送：APNs 通讯通知（发送者头像、快速回复）、按会话提醒设置、VoIP 来电（CallKit） | 已上线 |
+| 语音：转文字（用 QQ 自己的识别，可自动转）、AI 语音（群） | 已上线 |
+| 通话：1:1 语音接打、挂断检测、群语音加入 | 已上线，双向通话的真机体验仍在打磨 |
+| 视频通话 | 未做 |
 
-**真机验证（2026-10-02，主号）**：
-- 扫码登录后插件连上服务端，对账预热了 49 个会话。
-- 实时消息服务端内部延迟约 18ms。
-- 发送文字和图片（含上传、按 md5 去重）、撤回都已打通。
+测试：服务端 162 个（vitest，用真实 Postgres）；QQBridgeKit、NapCat 插件、领域模型、通话网关、macOS 各有自己的测试，命令见各目录的 AGENTS.md。
 
-全仓库共 168 个测试：服务端 98 个、iOS 核心 13 个、NapCat 插件 37 个、领域模型 15 个、通话网关 5 个（其中通话网关的实时音频集成测试最近一次未达阈值，见下文）。
-| iOS 客户端核心 QQBridgeKit（协议、网络、同步引擎、本地库、媒体缓存、发送），见 [ios/README.md](ios/README.md) | 已完成，13 个测试；`swift run qqbridge-check` 可连真实服务端验收 |
-| iOS App 界面 | 等 Xcode 27（系统已是 macOS 27，满足要求；还需腾出约 25GB 磁盘） |
+## 访问方式
+
+服务端只监听 `127.0.0.1:8080`，对外两条路：
+
+| 入口 | 用途 |
+|---|---|
+| `https://qq.mou.best` | Cloudflare Tunnel（本机已有的 `comfyui` 隧道上加的一条规则，配置在 `~/.cloudflared/config.yml`）。App 登录页的服务器地址填 `qq.mou.best` 即可，自动走 https。实时同步每 25 秒有心跳，不会被 Cloudflare 的空闲超时断开；单次上传受 Cloudflare 请求大小上限限制 |
+| Tailscale | 原来的内网入口；LiveKit（通话）目前仍经 Tailscale 的 `tailscale serve --https=7443`，没走隧道 |
+
+本机调试（模拟器）直接用 `127.0.0.1:8080`。
+
+## 服务端
 
 ### 服务端核心
 
@@ -64,6 +76,7 @@ QQ 容器里的插件会主动连服务端（`ws://host.internal:8080/upstream/n
 维护命令（在仓库根目录执行）：
 - `pnpm --filter @qqbridge/server cli media:reprocess`：补处理已存档的媒体（纠正类型、补缩略图、语音可播放版本、视频封面和 faststart 版本）。
 - `pnpm --filter @qqbridge/server cli inbox:reprocess ignored`：新支持某类上游事件后，重新处理以前忽略的事件。
+- `pnpm --filter @qqbridge/server cli messages:remap-gray-tips`：QQ 灰色提示的映射改了以后，按原始消息重写已存的（可重跑）。
 - `sh tools/qq-plugin.sh deploy`：构建插件并热更新到运行中的 QQ 容器（经 NapCat WebUI 重载插件），**不用重建容器、不用重新扫码**。
 - `sh tools/qq-plugin.sh calls on|off`：开关通话桥。开关写在 `deploy/data/napcat-config/qqbridge.env`，覆盖 compose 里的环境变量；AV Host 会跟着自动启动或退回空转。
 - 通话（G5）：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile calls up -d livekit call-gateway` 启动 LiveKit 和常驻网关；`deploy/.env` 里配好 `LIVEKIT_PUBLIC_URL`、`CALL_GATEWAY_TOKEN`、`CALL_LAB=1` 后，手机经 Tailscale HTTPS 打开 `/lab/call` 即可接听 QQ 来电。需要先在 Tailscale 后台打开 HTTPS 证书，再运行 `tailscale serve --bg --https=443 http://127.0.0.1:8080` 和 `tailscale serve --bg --https=7443 http://127.0.0.1:7880`。
