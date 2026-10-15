@@ -20,6 +20,7 @@ import {
 } from '@qqbridge/protocol';
 import { MessageFlag } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
+import { registerPush } from '../push/registration.ts';
 import { CallError } from '../calls/service.ts';
 import { ContactError, type UserProfile } from '../contacts/service.ts';
 import { InteractionError } from '../messages/interactions.ts';
@@ -93,12 +94,7 @@ function authService(deps: ApiDeps): ServiceImpl<typeof AuthService> {
         if (value && !hex.test(value)) throw new ConnectError(`${name} must be a hex device token`, Code.InvalidArgument);
       }
       const env = req.environment === ApnsEnvironment.SANDBOX ? 'sandbox' : req.environment === ApnsEnvironment.PRODUCTION ? 'production' : null;
-      // 两个令牌可能分开到（普通推送、VoIP 推送各自注册）：只更新这次带了的。
-      await deps.db.execute(
-        sql`update devices set apns_token = coalesce(${req.apnsToken.toLowerCase() || null}, apns_token),
-                               apns_voip_token = coalesce(${req.apnsVoipToken.toLowerCase() || null}, apns_voip_token),
-                               apns_env = coalesce(${env}, apns_env) where id = ${auth.deviceId}`,
-      );
+      await registerPush(deps.writers, auth, { token: req.apnsToken, voipToken: req.apnsVoipToken, env });
       return {};
     },
   };

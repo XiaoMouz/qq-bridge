@@ -28,11 +28,13 @@ import { NotFoundError } from '../sync/difference.ts';
 import type { OnlineDevices } from '../sync/online-devices.ts';
 import type { ActiveChats } from '../sync/active-chats.ts';
 import type { UpdateBus } from '../sync/bus.ts';
+import type { WriterRegistry } from '../sync/writer.ts';
 import type { MediaUrlSigner } from './media-urls.ts';
 
 export interface ApiDeps {
   db: Db;
   bus: UpdateBus;
+  writers: WriterRegistry;
   ingest: IngestService;
   auth: AuthService;
   media: MediaService;

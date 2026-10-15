@@ -142,6 +142,26 @@ describe('来电推送与桌面持续同步', () => {
     expect(sent.map((m) => m.token).sort()).toEqual(['ios-voip', 'mac-voip']);
   });
 
+  it('历史重复登记不会重复振铃，也不会在已投递 VoIP 后追加普通通知', async () => {
+    online = false;
+    await t.db.execute(sql`insert into devices (account_id, name, platform, token_hash, apns_token, apns_voip_token, apns_env)
+      values (${acc.accountId}, '旧 iPhone', 'ios', '\\x13', 'ios-alert', 'ios-voip', 'sandbox')`);
+    try {
+      const call = incoming();
+      expect(await notifier.notifyCall(acc.accountId, call)).toBe(2);
+      expect(sent.map((m) => m.token).sort()).toEqual(['ios-voip', 'mac-voip']);
+      sent.length = 0;
+      expect(await notifier.notifyCall(acc.accountId, { ...call, phase: 'ended', endedAt: new Date() })).toBe(2);
+      expect(sent.map((m) => m.token).sort()).toEqual(['ios-alert', 'mac-alert']);
+      rejectVoip = true;
+      sent.length = 0;
+      expect(await notifier.notifyCall(acc.accountId, incoming())).toBe(2);
+      expect(sent.map((m) => m.token).sort()).toEqual(['ios-alert', 'ios-voip', 'mac-alert', 'mac-voip']);
+    } finally {
+      await t.db.execute(sql`delete from devices where account_id = ${acc.accountId} and name = '旧 iPhone'`);
+    }
+  });
+
   it('Mac 的 VoIP 投递失败时回退普通来电通知', async () => {
     rejectVoip = true;
     expect(await notifier.notifyCall(acc.accountId, incoming())).toBe(1);
@@ -240,6 +260,21 @@ describe('PushNotifier', () => {
     const s = seq++;
     await receive(textMessage('group', 300, s, 401, { text: '大家好' }));
     expect((sent[0]!.payload as { aps: { alert: unknown } }).aps.alert).toEqual({ title: '测试群', body: '群名片: 大家好' });
+  });
+
+  it('同一推送端点的多条登录记录只发送一次，不合并不同环境和平台', async () => {
+    await t.db.execute(sql`insert into devices (account_id, name, platform, token_hash, apns_token, apns_env)
+      values (${acc.accountId}, 'duplicate-test', 'ios', '\\x21', 'aaaa', 'sandbox'),
+             (${acc.accountId}, 'duplicate-test', 'ios', '\\x22', 'aaaa', 'production'),
+             (${acc.accountId}, 'duplicate-test', 'macos', '\\x23', 'aaaa', 'sandbox')`);
+    try {
+      expect((await receive(textMessage('friend', 400, seq++, 400))).n).toBe(4);
+      expect(sent.filter((m) => m.token === 'aaaa' && m.env === 'sandbox' && m.platform === 'ios')).toHaveLength(1);
+      expect(sent.filter((m) => m.token === 'aaaa' && m.env === 'production')).toHaveLength(1);
+      expect(sent.filter((m) => m.platform === 'macos')).toHaveLength(1);
+    } finally {
+      await t.db.execute(sql`delete from devices where account_id = ${acc.accountId} and name = 'duplicate-test'`);
+    }
   });
 
   it('skips own messages, backfill and stale messages', async () => {

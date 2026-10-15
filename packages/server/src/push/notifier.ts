@@ -19,6 +19,11 @@ const QUIET_POLICIES = ['muted', 'archived'];
 const MAX_AGE_SEC = 10 * 60;
 const MAX_BODY = 180;
 
+// 与 ApnsClient 的 topic / environment 路由保持一致；登录记录 ID 不是推送接收端。
+function endpointKey(platform: string, env: ApnsEnv, token: string): string {
+  return `${platform === 'macos' ? 'macos' : 'ios'}:${env}:${token.toLowerCase()}`;
+}
+
 export interface NewMessageEvent {
   accountId: number;
   chatId: number;
@@ -158,11 +163,17 @@ export class PushNotifier {
     );
     const avatar = devices.length > 0 && call.peerUin ? await this.avatarThumb(call.qqAccountId, call.peerUin) : null;
     let sent = 0;
+    const attemptedVoip = new Set<string>();
+    const attemptedAlert = new Set<string>();
     for (const d of devices) {
       const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
       // iOS 在前台才持续 Subscribe；Mac 后台也保持连接，不能据此跳过系统来电。
       if (ringing && d.platform !== 'macos' && this.opts.isOnline?.(d.id)) continue;
       if (ringing && d.apns_voip_token) {
+        const key = endpointKey(d.platform, env, d.apns_voip_token);
+        // 同一 VoIP 接收端已处理（包括失败后的普通推送回退），旧登录记录不能再振铃。
+        if (attemptedVoip.has(key)) continue;
+        attemptedVoip.add(key);
         // VoIP 推送：App 收到后交给 CallKit（系统来电界面，锁屏也能接）。
         const result = await this.sender.send({
           token: d.apns_voip_token,
@@ -191,6 +202,9 @@ export class PushNotifier {
         }
       }
       if (!d.apns_token) continue;
+      const key = endpointKey(d.platform, env, d.apns_token);
+      if (attemptedAlert.has(key)) continue;
+      attemptedAlert.add(key);
       // 普通通知（没有 VoIP 令牌时的来电、未接来电）：带上来电人的头像，通知扩展做成通讯通知。
       const result = await this.sender.send({
         token: d.apns_token,
@@ -234,8 +248,13 @@ export class PushNotifier {
     );
     const avatar = devices.length > 0 ? await this.avatarThumb(n.qqAccountId, n.senderId) : null;
     let sent = 0;
+    const attempted = new Set<string>();
     for (const d of devices) {
       const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
+      // 兼容已存在的重复登记；不能只靠新注册转移令牌来修复旧数据。
+      const key = endpointKey(d.platform, env, d.apns_token);
+      if (attempted.has(key)) continue;
+      attempted.add(key);
       const result = await this.sender.send({
         token: d.apns_token,
         platform: d.platform,

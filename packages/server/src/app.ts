@@ -63,6 +63,7 @@ export function createDeps(
   const deps: ApiDeps = {
     db,
     bus,
+    writers,
     ingest,
     auth: new AuthService(db),
     media,

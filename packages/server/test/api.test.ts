@@ -8,6 +8,7 @@ import { Code, ConnectError, createClient, type Interceptor } from '@connectrpc/
 import { createConnectTransport } from '@connectrpc/connect-node';
 import {
   AuthService,
+  ApnsEnvironment,
   DialogService,
   HistoryDirection,
   MediaKind,
@@ -23,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createDeps } from '../src/app.ts';
 import { buildServer } from '../src/api/server.ts';
 import type { ApiDeps } from '../src/api/context.ts';
-import { maybeOne } from '../src/db/client.ts';
+import { maybeOne, rows } from '../src/db/client.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { imageMessage, textMessage } from './helpers/fixtures.ts';
 
@@ -59,6 +60,66 @@ function transport(token?: string) {
   };
   return createConnectTransport({ baseUrl, httpVersion: '1.1', interceptors: [auth] });
 }
+
+describe('推送登记归属', () => {
+  beforeAll(async () => {
+    await deps.auth.createAccount('push-owner', 'password123');
+  });
+  it('重新登录后接管普通和 VoIP 令牌，分开注册不丢另一种令牌', async () => {
+    const login = () => createClient(AuthService, transport()).login({
+      username: 'push-owner', password: 'password123', deviceName: 'push-test', platform: 'ios',
+    });
+    const old = await login();
+    const current = await login();
+    const token = 'ab'.repeat(32), voip = 'cd'.repeat(32);
+    const oldClient = createClient(AuthService, transport(old.token));
+    const client = createClient(AuthService, transport(current.token));
+    await oldClient.registerPush({ apnsToken: token, apnsVoipToken: voip, environment: ApnsEnvironment.PRODUCTION });
+    await client.registerPush({ apnsToken: token.toUpperCase(), environment: ApnsEnvironment.PRODUCTION });
+    await client.registerPush({ apnsVoipToken: voip, environment: ApnsEnvironment.PRODUCTION });
+    const registrations = await rows(t.db, sql`select id, apns_token, apns_voip_token from devices
+      where id in (${Number(old.deviceId)}, ${Number(current.deviceId)}) order by id`);
+    expect(registrations).toEqual([
+      { id: Number(old.deviceId), apns_token: null, apns_voip_token: null },
+      { id: Number(current.deviceId), apns_token: token, apns_voip_token: voip },
+    ]);
+    expect(await deps.auth.authenticate(old.token)).not.toBeNull();
+  });
+
+  it('并发登记只保留一个接收端，但不合并不同平台和环境', async () => {
+    const login = (platform: string) => createClient(AuthService, transport()).login({
+      username: 'push-owner', password: 'password123', deviceName: 'push-concurrent-test', platform,
+    });
+    const devices = await Promise.all([login('ios'), login('ios'), login('macos'), login('ios')]);
+    const token = 'ef'.repeat(32);
+    await Promise.all(devices.map((d, i) => createClient(AuthService, transport(d.token)).registerPush({
+      apnsToken: token, environment: i === 3 ? ApnsEnvironment.SANDBOX : ApnsEnvironment.PRODUCTION,
+    })));
+    const registrations = await rows(t.db, sql`select platform, apns_env from devices where apns_token = ${token}
+      order by platform, apns_env`);
+    expect(registrations).toEqual([
+      { platform: 'ios', apns_env: 'production' },
+      { platform: 'ios', apns_env: 'sandbox' },
+      { platform: 'macos', apns_env: 'production' },
+    ]);
+  });
+
+  it('普通和 VoIP 并发回调都保留；切换环境不会带上旧环境令牌', async () => {
+    const device = await createClient(AuthService, transport()).login({
+      username: 'push-owner', password: 'password123', deviceName: 'push-environment-test', platform: 'ios',
+    });
+    const client = createClient(AuthService, transport(device.token));
+    const token = '12'.repeat(32), voip = '34'.repeat(32), production = '56'.repeat(32);
+    await Promise.all([
+      client.registerPush({ apnsToken: token, environment: ApnsEnvironment.SANDBOX }),
+      client.registerPush({ apnsVoipToken: voip, environment: ApnsEnvironment.SANDBOX }),
+    ]);
+    const stored = () => maybeOne(t.db, sql`select apns_token, apns_voip_token, apns_env from devices where id = ${Number(device.deviceId)}`);
+    expect(await stored()).toEqual({ apns_token: token, apns_voip_token: voip, apns_env: 'sandbox' });
+    await client.registerPush({ apnsToken: production, environment: ApnsEnvironment.PRODUCTION });
+    expect(await stored()).toEqual({ apns_token: production, apns_voip_token: null, apns_env: 'production' });
+  });
+});
 
 describe('API end to end', () => {
   it('serves the Telegram-style sync flow, media and storage APIs to an authenticated device', async () => {
