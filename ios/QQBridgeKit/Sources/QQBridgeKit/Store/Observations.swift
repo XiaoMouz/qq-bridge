@@ -51,6 +51,20 @@ public enum ChatItem: Sendable, Identifiable, Equatable {
 }
 
 extension LocalStore {
+  /// 附件条需要已发送终态，不能以聊天列表里消失（也可能被删除）代替发送确认。
+  public func observeOutbox(chatId: Int64, clientRandomIds: [Int64]) -> AsyncValueObservation<[Qqbridge_V1_OutboxEntry]> {
+    ValueObservation.tracking { db in
+      guard !clientRandomIds.isEmpty else { return [Qqbridge_V1_OutboxEntry]() }
+      let placeholders = Array(repeating: "?", count: clientRandomIds.count).joined(separator: ",")
+      return try Data.fetchAll(db,
+        sql: "select data from outbox where chatId = ? and clientRandomId in (\(placeholders))",
+        arguments: StatementArguments([chatId] + clientRandomIds))
+        .map { try Qqbridge_V1_OutboxEntry(serializedBytes: $0) }
+    }
+    .removeDuplicates()
+    .values(in: db)
+  }
+
   /// 会话列表（置顶在前，然后按最后一条消息时间倒序），带上对方资料。
   public func observeDialogs(limit: Int = 500) -> AsyncValueObservation<[DialogItem]> {
     ValueObservation.tracking { db in try Self.dialogItems(db, limit: limit) }

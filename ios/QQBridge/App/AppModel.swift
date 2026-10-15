@@ -84,13 +84,24 @@ final class AppModel {
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。
   private let container: URL = {
+    #if targetEnvironment(macCatalyst)
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appending(path: "BetterChatMac", directoryHint: .isDirectory)
+    #else
     if let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.xiaomouz.betterchat") {
       return group
     }
     return FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].deletingLastPathComponent()
+    #endif
   }()
 
+  #if targetEnvironment(macCatalyst)
+  private let tokens: any TokenStore = KeychainTokenStore(service: "com.xiaomouz.betterchat.mac.device")
+  private let platform = "macos"
+  #else
   private let tokens: any TokenStore = KeychainTokenStore()
+  private let platform = "ios"
+  #endif
   private var eventsTask: Task<Void, Never>?
 
   var session: Session? {
@@ -101,7 +112,7 @@ final class AppModel {
   /// 启动：钥匙串里有令牌就直接进去，没有就去登录页。
   func launch() {
     guard case .launching = phase else { return }
-    if let saved = try? tokens.load(), let session = try? Session(config: saved.config, token: saved.token, container: container) {
+    if let saved = try? tokens.load(), let session = try? Session(config: saved.config, token: saved.token, container: container, recoverInterruptedSends: true) {
       enter(session)
     } else {
       phase = .loggedOut
@@ -115,6 +126,8 @@ final class AppModel {
       username: username,
       password: password,
       deviceName: deviceName(),
+      platform: platform,
+      recoverInterruptedSends: true,
       tokens: tokens,
       container: container
     )

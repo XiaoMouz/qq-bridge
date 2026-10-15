@@ -61,9 +61,16 @@ public struct KeychainTokenStore: TokenStore {
   }
 }
 
-public struct KeychainError: Error, CustomStringConvertible {
+public struct KeychainError: Error, LocalizedError, CustomStringConvertible {
   public let status: OSStatus
   public var description: String { "keychain error \(status)" }
+  public var errorDescription: String? {
+    if status == errSecMissingEntitlement {
+      return "无法保存登录凭据：应用缺少钥匙串签名权限（\(status)）。请使用开发者签名版本。"
+    }
+    let reason = SecCopyErrorMessageString(status, nil) as String? ?? "未知错误"
+    return "钥匙串错误（\(status)）：\(reason)"
+  }
 }
 
 /// 内存里的令牌（测试、命令行工具用）。
@@ -85,7 +92,9 @@ public final class Session: Sendable {
   public let sender: Sender
 
   /// container：App Group 容器目录（库放在 Library/Application Support，缓存放在 Library/Caches）。
-  public init(config: ServerConfig, token: String, container: URL, cacheLimits: MediaCacheLimits = MediaCacheLimits()) throws {
+  /// recoverInterruptedSends 仅供主 App 启动使用；扩展/辅助读取者打开同库时不能中止主 App 的发送。
+  public init(config: ServerConfig, token: String, container: URL, cacheLimits: MediaCacheLimits = MediaCacheLimits(),
+              recoverInterruptedSends: Bool = false) throws {
     api = APIClient(config: config, token: token)
     store = try LocalStore.open(at: container.appendingPathComponent("Library/Application Support/qqbridge.sqlite"))
     sync = SyncEngine(api: api, store: store)
@@ -96,7 +105,7 @@ public final class Session: Sendable {
       limits: cacheLimits
     )
     sender = Sender(api: api, store: store)
-    try? store.failStalePendingOutbox()
+    if recoverInterruptedSends { try store.recoverInterruptedOutbox() }
   }
 
   /// 登录并保存令牌。
@@ -105,12 +114,14 @@ public final class Session: Sendable {
     username: String,
     password: String,
     deviceName: String,
+    platform: String = "ios",
+    recoverInterruptedSends: Bool = false,
     tokens: any TokenStore,
     container: URL
   ) async throws -> Session {
-    let res = try await APIClient.login(config: config, username: username, password: password, deviceName: deviceName)
+    let res = try await APIClient.login(config: config, username: username, password: password, deviceName: deviceName, platform: platform)
     try tokens.save(config: config, token: res.token)
-    return try Session(config: config, token: res.token, container: container)
+    return try Session(config: config, token: res.token, container: container, recoverInterruptedSends: recoverInterruptedSends)
   }
 
   /// 退出登录：服务端吊销令牌，清掉本地缓存和令牌。

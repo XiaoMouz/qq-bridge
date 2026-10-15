@@ -108,6 +108,12 @@ public final class LocalStore: Sendable {
       try db.create(index: "mediaIndex_chat", on: "mediaIndex", columns: ["chatId", "kind"])
       // 已有的消息在启动后由 backfillMediaIndex() 在后台分批补（消息多时在启动时做会卡住）。
     }
+    m.registerMigration("v3-localOutboxAttempt") { db in
+      try db.alter(table: "outbox") { t in
+        // 本机尚未获得确认的请求与服务端排队状态必须区分，重启时才不会误标服务端待发送消息。
+        t.add(column: "localAttempt", .boolean).notNull().defaults(to: false)
+      }
+    }
     return m
   }
 }
@@ -256,6 +262,13 @@ extension LocalStore {
     }
   }
 
+  public func outboxEntry(clientRandomId: Int64) throws -> Qqbridge_V1_OutboxEntry? {
+    try db.read { db in
+      try Data.fetchOne(db, sql: "select data from outbox where clientRandomId = ?", arguments: [clientRandomId])
+        .map { try Qqbridge_V1_OutboxEntry(serializedBytes: $0) }
+    }
+  }
+
   static func setPts(_ pts: Int64, _ db: Database) throws {
     // 游标只前进（同一页里乱序到达的更新不会把它拨回去）。
     try db.execute(
@@ -289,7 +302,7 @@ extension LocalStore {
     try db.execute(
       sql: """
         insert into outbox (clientRandomId, chatId, state, createdAt, data) values (?, ?, ?, ?, ?)
-        on conflict(clientRandomId) do update set state = excluded.state, data = excluded.data
+        on conflict(clientRandomId) do update set state = excluded.state, data = excluded.data, localAttempt = 0
         """,
       arguments: [o.clientRandomID, o.chatID, o.state.rawValue, o.createdAt, try o.serializedData()]
     )
