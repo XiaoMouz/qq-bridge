@@ -18,9 +18,12 @@ struct SearchView: View {
   @State private var contacts: [Qqbridge_V1_Peer] = []
   @State private var avatars = AvatarBook()
   @State private var path = NavigationPath()
-  @State private var results: [Qqbridge_V1_Message] = []
-  @State private var searching = false
-  @State private var searched = ""
+  @State private var pager: MessageSearchPager
+
+  init(session: Session) {
+    self.session = session
+    _pager = State(initialValue: MessageSearchPager(session: session))
+  }
 
   var body: some View {
     NavigationStack(path: $path) {
@@ -65,22 +68,33 @@ struct SearchView: View {
             }
           }
         }
-        if !results.isEmpty {
+        if !pager.results.isEmpty {
           Section("聊天记录") {
-            ForEach(results, id: \.searchKey) { m in
-              NavigationLink(value: m.chatID) {
+            ForEach(pager.results, id: \.searchKey) { m in
+              // 以前只推入会话页、没带 seq，聊天记录结果点进去停在最新处。
+              // 不用 openMessage：它会切到消息标签页；这里在搜索自己的导航栈里打开，聊天页出现时收下跳转。
+              Button {
+                model.messageJump = MessageJump(chatId: m.chatID, seq: m.seq)
+                path.append(m.chatID)
+              } label: {
                 VStack(alignment: .leading, spacing: 4) {
                   HStack {
                     Text(chatTitle(m.chatID)).font(.subheadline.bold()).lineLimit(1)
                     Spacer()
                     Text(Format.listTime(m.time)).font(.caption).foregroundStyle(.secondary)
                   }
-                  Text(Format.preview(m)).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
+                  (Text(pager.senderName(m) + "：").foregroundStyle(.primary) + Text(Format.preview(m)).foregroundStyle(.secondary))
+                    .font(.subheadline).lineLimit(3)
                 }
               }
+              .tint(.primary)
+              .onAppear { if m.searchKey == pager.results.last?.searchKey { Task { await pager.loadMore() } } }
+            }
+            if pager.hasMore || pager.loadingMore {
+              SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
             }
           }
-        } else if !query.isEmpty, searched != query {
+        } else if !query.isEmpty, pager.searched != query.trimmingCharacters(in: .whitespaces) {
           Section {
             Button { Task { await search() } } label: {
               Label("在聊天记录里搜索「\(query)」", systemImage: "magnifyingglass")
@@ -93,9 +107,9 @@ struct SearchView: View {
       .navigationDestination(for: Int64.self) { ChatScreen(session: session, chatId: $0) }
       .searchable(text: $query, prompt: "搜索会话和聊天记录")
       .onSubmit(of: .search) { Task { await search() } }
-      .onChange(of: query) { _, _ in results = [] }
+      .onChange(of: query) { _, _ in pager.reset() }
       .overlay {
-        if searching { ProgressView() } else if !query.isEmpty, searched == query, results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty {
+        if pager.searching { ProgressView() } else if !query.isEmpty, pager.searched != nil, pager.results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty {
           ContentUnavailableView.search(text: query)
         }
       }
@@ -143,17 +157,7 @@ struct SearchView: View {
     dialogs.first { $0.id == chatId }?.title ?? "会话 \(chatId)"
   }
 
-  private func search() async {
-    let q = query.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return }
-    searching = true
-    defer { searching = false }
-    var req = Qqbridge_V1_SearchMessagesRequest()
-    req.query = q
-    req.limit = 50
-    results = (try? await session.api.messages.searchMessages(request: req, headers: session.api.headers).get().messages) ?? []
-    searched = q
-  }
+  private func search() async { await pager.search(query) }
 }
 
 extension Qqbridge_V1_Message {

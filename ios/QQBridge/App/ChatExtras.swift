@@ -32,51 +32,58 @@ struct MessageJumpHandler: ViewModifier {
 
 // MARK: - 查找聊天记录
 
-/// 在服务端的完整聊天记录里查找：按搜索键才查，点结果回到聊天里的那条消息。
+/// 在服务端的完整聊天记录里查找：按搜索键才查，点结果回到聊天里的那条消息；滚到底继续往更早翻。
 struct ChatSearchView: View {
   let session: Session
   let chatId: Int64
   @Environment(AppModel.self) private var model
   @State private var query = ""
-  @State private var results: [Qqbridge_V1_Message] = []
-  @State private var searching = false
-  /// 上一次真正查过的关键词（还没按搜索时不显示"未找到"）。
-  @State private var searched: String?
-  @State private var failed: String?
+  @State private var pager: MessageSearchPager
+
+  init(session: Session, chatId: Int64) {
+    self.session = session
+    self.chatId = chatId
+    _pager = State(initialValue: MessageSearchPager(session: session, chatId: chatId))
+  }
 
   var body: some View {
-    List(results, id: \.searchKey) { m in
-      Button { model.openMessage(chatId: chatId, seq: m.seq) } label: {
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            Text(senderName(m)).font(.caption.bold())
-            Spacer()
-            Text(Format.chatTime(m.time)).font(.caption2).foregroundStyle(.secondary)
+    List {
+      ForEach(pager.results, id: \.searchKey) { m in
+        Button {
+          model.openMessage(chatId: chatId, seq: m.seq)
+        } label: {
+          VStack(alignment: .leading, spacing: 4) {
+            HStack {
+              Text(pager.senderName(m)).font(.caption.bold())
+              Spacer()
+              Text(Format.chatTime(m.time)).font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(highlighted(Format.preview(m))).font(.subheadline).lineLimit(4)
           }
-          Text(highlighted(Format.preview(m))).font(.subheadline).lineLimit(4)
         }
+        .tint(.primary)
+        .onAppear { if m.searchKey == pager.results.last?.searchKey { Task { await pager.loadMore() } } }
       }
-      .tint(.primary)
+      if pager.hasMore || pager.loadingMore {
+        SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
+      }
     }
     .listStyle(.plain)
     .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
-    .onSubmit(of: .search) { Task { await search() } }
+    .onSubmit(of: .search) { Task { await pager.search(query) } }
     .onChange(of: query) { _, q in
-      if q.trimmingCharacters(in: .whitespaces).isEmpty {
-        results = []
-        searched = nil
-      }
+      if q.trimmingCharacters(in: .whitespaces).isEmpty { pager.reset() }
     }
     .navigationTitle("查找聊天记录")
     .navigationBarTitleDisplayMode(.inline)
     .overlay {
-      if searching {
+      if pager.searching {
         ProgressView("正在服务器上查找…")
-      } else if let failed {
+      } else if let failed = pager.failed, pager.results.isEmpty {
         ContentUnavailableView("查找失败", systemImage: "exclamationmark.triangle", description: Text(failed))
-      } else if let searched, results.isEmpty {
+      } else if let searched = pager.searched, pager.results.isEmpty {
         ContentUnavailableView.search(text: searched)
-      } else if searched == nil {
+      } else if pager.searched == nil {
         ContentUnavailableView("输入关键词后按搜索", systemImage: "magnifyingglass", description: Text("在服务器上保存的全部聊天记录里查找，点结果回到聊天里的那条消息"))
       }
     }
@@ -84,7 +91,7 @@ struct ChatSearchView: View {
 
   private func highlighted(_ text: String) -> AttributedString {
     var out = AttributedString(text)
-    guard let key = searched, !key.isEmpty else { return out }
+    guard let key = pager.searched, !key.isEmpty else { return out }
     var from = out.startIndex
     while let r = out[from...].range(of: key, options: .caseInsensitive) {
       out[r].foregroundColor = .accentColor
@@ -93,31 +100,27 @@ struct ChatSearchView: View {
     }
     return out
   }
+}
 
-  private func senderName(_ m: Qqbridge_V1_Message) -> String {
-    guard let d = try? session.store.dialog(chatId: chatId) else { return String(m.senderID) }
-    if m.senderID == (try? session.store.selfUin(qqAccountId: d.qqAccountID)) { return "我" }
-    if !m.senderName.isEmpty { return m.senderName }
-    return (try? session.store.userName(qqAccountId: d.qqAccountID, userId: m.senderID)) ?? String(m.senderID)
-  }
+/// 搜索结果末尾：正在加载更早的结果 / 加载失败时点一下重试。
+struct SearchMoreRow: View {
+  let loading: Bool
+  let failed: String?
+  let retry: () -> Void
 
-  private func search() async {
-    let q = query.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return }
-    searching = true
-    failed = nil
-    defer { searching = false }
-    var req = Qqbridge_V1_SearchMessagesRequest()
-    req.query = q
-    req.chatID = chatId
-    req.limit = 200
-    do {
-      results = try await session.api.messages.searchMessages(request: req, headers: session.api.headers).get().messages
-      searched = q
-    } catch {
-      results = []
-      failed = LoadState.describe(error)
+  var body: some View {
+    HStack {
+      Spacer()
+      if loading {
+        ProgressView()
+      } else if let failed {
+        Button("加载失败，点此重试", action: retry).font(.footnote).help(failed)
+      } else {
+        Button("加载更早的结果", action: retry).font(.footnote)
+      }
+      Spacer()
     }
+    .listRowSeparator(.hidden)
   }
 }
 
