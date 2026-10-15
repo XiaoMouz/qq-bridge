@@ -27,7 +27,21 @@ struct SettingsView: View {
           NavigationLink { AboutView(session: session) } label: { Label("关于", systemImage: "info.circle") }
         } }
         Section {
-          Button("退出登录", role: .destructive) { confirmLogout = true }
+          Button(role: .destructive) { confirmLogout = true } label: {
+            HStack {
+              Text(model.loggingOut ? "正在退出…" : "退出登录")
+              if model.loggingOut { Spacer(); ProgressView() }
+            }
+          }
+          .disabled(model.loggingOut)
+          // 挂在按钮上：iOS 26 把确认框显示成气泡，箭头指向挂的那个视图。
+          .confirmationDialog("退出登录", isPresented: $confirmLogout, titleVisibility: .visible) {
+            Button("退出并保留本机缓存") { Task { await model.logout(clearCache: false) } }
+            Button("退出并清除本机缓存", role: .destructive) { Task { await model.logout(clearCache: true) } }
+            Button("取消", role: .cancel) {}
+          } message: {
+            Text("保留缓存：下次登录同一个 QQ 号时会话、消息和图片不用重新下载；换了号会自动清掉。")
+          }
         }
       }
       .navigationTitle(accountOnly ? "账号" : "设置")
@@ -37,9 +51,6 @@ struct SettingsView: View {
       .task { await loadStatus() }
       .platformRefreshable { await loadStatus() }
       .sheet(isPresented: $showQqLogin, onDismiss: { Task { await loadStatus() } }) { QqLoginSheet(session: session) }
-      .confirmationDialog("退出后本机缓存会被清空", isPresented: $confirmLogout, titleVisibility: .visible) {
-        Button("退出登录", role: .destructive) { Task { await model.logout() } }
-      }
     }
   }
 

@@ -142,6 +142,23 @@ extension LocalStore {
     try db.read { db in try Int64.fetchOne(db, sql: "select value from kv where key = ?", arguments: ["self:\(qqAccountId)"]) ?? 0 }
   }
 
+  /// 本地库记着的 QQ 号（服务端 qq_account id → QQ 号）。退出时保留缓存、下次登录用它判断是不是同一个号。
+  public func knownQqAccounts() throws -> [Int64: Int64] {
+    try db.read { db in
+      var out: [Int64: Int64] = [:]
+      for row in try Row.fetchAll(db, sql: "select key, value from kv where key like 'self:%'") {
+        let key: String = row["key"]
+        if let id = Int64(key.dropFirst(5)) { out[id] = row["value"] }
+      }
+      return out
+    }
+  }
+
+  /// 换了 QQ 号：连同记着的号一起清掉。
+  public func forgetQqAccounts() throws {
+    try db.write { db in try db.execute(sql: "delete from kv where key like 'self:%'") }
+  }
+
   /// 清空全部缓存（服务端要求重新同步、换账号时）。
   public func reset() throws {
     try db.write { db in

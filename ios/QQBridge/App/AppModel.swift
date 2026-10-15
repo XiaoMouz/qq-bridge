@@ -21,6 +21,8 @@ final class AppModel {
   /// 正在输入：会话 id → 截止时间。
   private(set) var typing: [Int64: Date] = [:]
   private(set) var activeCall: Qqbridge_V1_Call?
+  /// 正在退出登录（清缓存可能要几秒，设置页按钮显示进度）。
+  private(set) var loggingOut = false
   /// 通话界面的状态（来电、接听、挂断）。
   let calls = CallManager()
   /// QQ 是否在线（插件连着服务端）：nil = 还不知道（比如服务器本身连不上）。
@@ -131,18 +133,22 @@ final class AppModel {
       tokens: tokens,
       container: container
     )
+    await session.discardCacheOfOtherAccounts()
     enter(session)
   }
 
-  func logout() async {
-    guard let session else { return }
+  /// clearCache = false：保留本机的会话、消息和媒体缓存，下次登录同一个 QQ 号直接用。
+  func logout(clearCache: Bool = true) async {
+    guard let session, !loggingOut else { return }
+    loggingOut = true
+    defer { loggingOut = false }
     qqAccount = nil
     qqAvatarSha256 = nil
     UserDefaults.standard.removeObject(forKey: Self.qqAccountKey)
     UserDefaults.standard.removeObject(forKey: Self.qqAvatarKey)
     eventsTask?.cancel()
     statusTask?.cancel()
-    await session.logout(tokens: tokens)
+    await session.logout(tokens: tokens, clearCache: clearCache)
     phase = .loggedOut
   }
 

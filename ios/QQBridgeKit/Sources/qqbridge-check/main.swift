@@ -98,7 +98,7 @@ do {
   print("  pts \(before) → \(try session.store.pts())")
 
   step("退出：吊销这次的设备令牌")
-  await session.logout(tokens: tokens)
+  await session.logout(tokens: tokens).value
   print(failures == 0 ? "\n全部通过" : "\n\(failures) 项没通过")
   exit(failures == 0 ? 0 : 1)
 } catch {

@@ -124,12 +124,40 @@ public final class Session: Sendable {
     return try Session(config: config, token: res.token, container: container, recoverInterruptedSends: recoverInterruptedSends)
   }
 
-  /// 退出登录：服务端吊销令牌，清掉本地缓存和令牌。
-  public func logout(tokens: any TokenStore) async {
+  /// 退出登录：停同步、删本机令牌；clearCache 时再清掉本地库和媒体缓存，否则留给下次登录同一个 QQ 号接着用。
+  /// 服务端吊销放到后台、最多等 10 秒：首次同步还没完成时连接被同步、预取、媒体下载占着，
+  /// 以前要等这个请求返回才退出，界面一直卡着没反应。
+  /// 返回吊销的任务：App 不用等；命令行工具退出前要等它，不然进程先结束了。
+  @discardableResult
+  public func logout(tokens: any TokenStore, clearCache: Bool = true) async -> Task<Void, Never> {
     await sync.stop()
-    _ = try? await api.auth.logout(request: .init(), headers: api.headers).get()
-    try? store.reset()
-    _ = try? await media.clear()
     try? tokens.clear()
+    let api = api
+    let revoke = Task.detached { _ = try? await api.auth.logout(request: .init(), headers: api.headers).get() }
+    Task.detached {
+      try? await Task.sleep(for: .seconds(10))
+      revoke.cancel()
+    }
+    if clearCache { await clearLocalData() }
+    return revoke
+  }
+
+  /// 清掉本地库（会话、消息、发件箱等）和媒体缓存。
+  public func clearLocalData() async {
+    try? store.reset()
+    try? store.forgetQqAccounts()
+    _ = try? await media.clear()
+  }
+
+  /// 登录后、开始同步前调用：退出时保留的缓存如果属于别的 QQ 号（或别的服务端里同一个 id 对应了别的号），先清掉，
+  /// 免得旧会话、旧消息混进新账号。问不到服务端时不动（马上开始的同步遇到对不上的游标会自己重置）。
+  public func discardCacheOfOtherAccounts() async {
+    guard let known = try? store.knownQqAccounts(), !known.isEmpty,
+      let state = try? await api.getState()
+    else { return }
+    let remote = state.qqAccounts
+    let sameIds = remote.allSatisfy { a in known[a.id].map { $0 == a.uin } ?? true }
+    let overlap = remote.contains { known[$0.id] == $0.uin }
+    if !sameIds || !overlap { await clearLocalData() }
   }
 }
