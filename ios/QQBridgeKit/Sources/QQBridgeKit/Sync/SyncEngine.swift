@@ -44,6 +44,8 @@ public actor SyncEngine {
   private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
   public private(set) var connection: ConnectionState = .connecting
   private var fetchingMessages: [String: Task<Qqbridge_V1_Message?, Never>] = [:]
+  private var loadingChats: [Int64: Int] = [:]
+  private var observedChatPts: [Int64: Int64] = [:]
 
   public init(api: any SyncAPI, store: LocalStore, options: Options = Options()) {
     self.api = api
@@ -90,9 +92,11 @@ public actor SyncEngine {
       do {
         emit(.connection(.connecting))
         let state = try await api.getState()
+        try Task.checkCancellation()
         try store.setQqAccounts(state.qqAccounts)
         try await catchUp()
         await prefetch()
+        try Task.checkCancellation()
         emit(.connection(.online))
         backoff = 1
         try await consume(api.subscribe(pts: try store.pts()))
@@ -100,6 +104,8 @@ public actor SyncEngine {
       } catch is CancellationError {
         return
       } catch let error as APIError where error.isUnauthenticated {
+        // 停止后迟到的鉴权错误属于旧连接，不能让已恢复的新连接退出登录。
+        guard !Task.isCancelled else { return }
         emit(.connection(.unauthenticated))
         return
       } catch {
@@ -119,6 +125,12 @@ public actor SyncEngine {
     while true {
       try Task.checkCancellation()
       let d = try await api.getDifference(pts: pts, limit: options.differenceLimit)
+      // 2026-10-14 延迟响应检查：传输层可能在取消后仍返回；写库或 tooLong 清库前必须再检查。
+      try Task.checkCancellation()
+      guard try store.pts() == pts else {
+        pts = try store.pts()
+        continue
+      }
       if d.tooLong {
         // 游标太旧：清空本地缓存，从 0 全量重拉。
         try store.reset()
@@ -126,6 +138,7 @@ public actor SyncEngine {
         continue
       }
       try store.apply(difference: d)
+      try await repairLoadedChats(d.dialogs)
       pts = d.pts
       if d.isFinal { return }
     }
@@ -142,6 +155,7 @@ public actor SyncEngine {
           throw ResyncNeeded()
         }
         try store.apply(difference: d)
+        try await repairLoadedChats(d.dialogs)
       case .dialog(let u):
         try await withPts(u.pts) { try self.store.apply(dialog: u.dialog, pts: u.pts) }
       case .peer(let u):
@@ -180,6 +194,24 @@ public actor SyncEngine {
 
   private struct ResyncNeeded: Error {}
 
+  /// 差量回放只有会话摘要；已缓存会话必须补消息，不能依赖最近 30 个会话的预取。
+  private func repairLoadedChats(_ dialogs: [Qqbridge_V1_Dialog]) async throws {
+    for dialog in dialogs {
+      try Task.checkCancellation()
+      let local = try store.chatState(chatId: dialog.chatID).chatPts
+      if local > 0, local < dialog.chatPts { try await catchUpChat(dialog.chatID) }
+    }
+  }
+
+  private func beginLoading(_ chatId: Int64) {
+    loadingChats[chatId, default: 0] += 1
+  }
+
+  private func endLoading(_ chatId: Int64) {
+    if let count = loadingChats[chatId], count > 1 { loadingChats[chatId] = count - 1 }
+    else { loadingChats[chatId] = nil; observedChatPts[chatId] = nil }
+  }
+
   /// 按全局 pts 规则应用一条更新。
   private func withPts(_ pts: Int64, apply: () throws -> Void) async throws {
     let local = try store.pts()
@@ -195,6 +227,8 @@ public actor SyncEngine {
 
   /// 按会话 chat_pts 规则应用一条更新。apply 收到"最新已加载区间的下界"（新消息顺延这个区间）。
   private func withChatPts(_ chatId: Int64, _ chatPts: Int64, apply: (Int64?) throws -> Void) async throws {
+    // 首屏请求期间到达的消息尚不能直接写入连续区间，但必须记住追平目标，避免旧首屏漏消息。
+    if loadingChats[chatId] != nil { observedChatPts[chatId] = max(observedChatPts[chatId] ?? 0, chatPts) }
     let state = try store.chatState(chatId: chatId)
     if state.chatPts == 0 { return }  // 没加载过的会话不跟踪消息
     if chatPts <= state.chatPts { return }
@@ -214,12 +248,18 @@ public actor SyncEngine {
     try await catchUpChat(chatId)
   }
 
-  /// 把一个会话的变化追到最新（chat_pts = 0 时得到最新一屏）。
+  /// 把一个会话的变化追到最新；是否还有下一页以响应为准，不能因本地尚未缓存就提前结束。
   public func catchUpChat(_ chatId: Int64) async throws {
+    beginLoading(chatId)
+    defer { endLoading(chatId) }
     while true {
       try Task.checkCancellation()
       let local = try store.chatState(chatId: chatId)
       let res = try await api.getChatDifference(chatId: chatId, chatPts: local.chatPts, limit: options.chatPageSize)
+      try Task.checkCancellation()
+      // actor 在网络等待期间可重入：预取、另一个窗口或实时推送可能已经推进了游标。
+      // 旧响应尤其不能用 tooLong 清掉新窗口；按当前游标重取，确保调用方等到真正追平。
+      guard try store.chatState(chatId: chatId).chatPts == local.chatPts else { continue }
       let firstScreen = local.chatPts == 0 || res.tooLong
       try store.applyChat(
         chatId: chatId,
@@ -229,7 +269,7 @@ public actor SyncEngine {
         reset: res.tooLong,
         contiguous: firstScreen ? Self.span(res.messages) : nil
       )
-      if res.isFinal || firstScreen { return }
+      if res.isFinal, res.chatPts >= (observedChatPts[chatId] ?? 0) { return }
     }
   }
 
@@ -239,6 +279,7 @@ public actor SyncEngine {
     let state = try store.chatState(chatId: chatId)
     let before = state.newestLoadedLowerBound
     let res = try await api.getHistory(chatId: chatId, beforeSeq: before, limit: limit ?? options.chatPageSize)
+    try Task.checkCancellation()
     let lowest = res.messages.map(\.seq).min()
     // 这一页与已加载区间连在一起：[这一页最早的, 原来的下界 - 1]。
     let range = lowest.map { SeqRange($0, (before ?? (res.messages.map(\.seq).max() ?? $0) + 1) - 1) }
@@ -278,18 +319,29 @@ public actor SyncEngine {
       if local == 0 || local < d.chatPts { wanted.append((d.chatID, local)) }
     }
     guard !wanted.isEmpty else { return }
+    for item in wanted { beginLoading(item.chatId) }
+    defer { for item in wanted { endLoading(item.chatId) } }
     guard let results = try? await api.getChatDifferences(wanted, perChatLimit: 30) else { return }
+    guard !Task.isCancelled else { return }
     let localPts = Dictionary(uniqueKeysWithValues: wanted.map { ($0.chatId, $0.chatPts) })
     for r in results {
-      let firstScreen = (localPts[r.chatID] ?? 0) == 0 || r.tooLong
+      guard !Task.isCancelled else { return }
+      guard let requestedPts = localPts[r.chatID], let current = try? store.chatState(chatId: r.chatID) else { continue }
+      if current.chatPts != requestedPts {
+        // 打开会话与批量预取交错时不应用旧快照；仍落后的会话从新的游标补齐。
+        if current.chatPts < max(r.chatPts, observedChatPts[r.chatID] ?? 0) { try? await catchUpChat(r.chatID) }
+        continue
+      }
+      let firstScreen = requestedPts == 0 || r.tooLong
       try? store.applyChat(
         chatId: r.chatID,
         messages: r.messages,
         events: r.events,
         newChatPts: r.chatPts,
-        reset: r.tooLong && (localPts[r.chatID] ?? 0) > 0,
+        reset: r.tooLong && requestedPts > 0,
         contiguous: firstScreen ? Self.span(r.messages) : nil
       )
+      if !r.isFinal || r.chatPts < (observedChatPts[r.chatID] ?? 0) { try? await catchUpChat(r.chatID) }
     }
   }
 

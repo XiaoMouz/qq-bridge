@@ -12,6 +12,9 @@ final class FakeServer: SyncAPI, @unchecked Sendable {
   var history: [String: Qqbridge_V1_GetHistoryResponse] = [:]  // "chatId:beforeSeq"
   var calls: [String] = []
   var stateError: APIError?
+  var differenceOverride: (@Sendable (Int64) async throws -> Qqbridge_V1_Difference)?
+  var chatDifferenceOverride: (@Sendable () async throws -> Qqbridge_V1_GetChatDifferenceResponse)?
+  var prefetchOverride: (@Sendable () async throws -> [Qqbridge_V1_ChatDifferenceResult])?
   private var subscribers: [AsyncThrowingStream<Qqbridge_V1_SubscribeResponse, any Error>.Continuation] = []
 
   private func record(_ call: String) {
@@ -22,17 +25,20 @@ final class FakeServer: SyncAPI, @unchecked Sendable {
 
   func getDifference(pts: Int64, limit: UInt32) async throws -> Qqbridge_V1_Difference {
     record("diff:\(pts)")
+    if let override = lock.withLock({ differenceOverride }) { return try await override(pts) }
     if let error = lock.withLock({ stateError }) { throw error }
     return lock.withLock { differencePages[pts] } ?? { var d = Qqbridge_V1_Difference(); d.pts = pts; d.isFinal = true; return d }()
   }
 
   func getChatDifference(chatId: Int64, chatPts: Int64, limit: UInt32) async throws -> Qqbridge_V1_GetChatDifferenceResponse {
     record("chat:\(chatId):\(chatPts)")
+    if let override = lock.withLock({ chatDifferenceOverride }) { return try await override() }
     return lock.withLock { chatPages["\(chatId):\(chatPts)"] } ?? { var r = Qqbridge_V1_GetChatDifferenceResponse(); r.chatPts = chatPts; r.isFinal = true; return r }()
   }
 
   func getChatDifferences(_ chats: [(chatId: Int64, chatPts: Int64)], perChatLimit: UInt32) async throws -> [Qqbridge_V1_ChatDifferenceResult] {
     record("chats:" + chats.map { "\($0.chatId)@\($0.chatPts)" }.joined(separator: ","))
+    if let override = lock.withLock({ prefetchOverride }) { return try await override() }
     return chats.compactMap { c in
       guard let page = lock.withLock({ chatPages["\(c.chatId):\(c.chatPts)"] }) else { return nil }
       var r = Qqbridge_V1_ChatDifferenceResult()
