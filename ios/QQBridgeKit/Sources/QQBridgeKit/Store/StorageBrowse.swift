@@ -153,7 +153,7 @@ extension LocalStore {
   }
 
   /// 缓存里的具体文件（chatId = nil 时全部），从大到小。
-  public func cacheItems(chatId: Int64?, kinds: [LocalStorageKind], limit: Int = 300) throws -> [LocalStorageItem] {
+  public func cacheItems(chatId: Int64?, kinds: [LocalStorageKind], limit: Int = 300, offset: Int = 0) throws -> [LocalStorageItem] {
     try db.read { db in
       let rows = try Row.fetchAll(
         db,
@@ -163,7 +163,7 @@ extension LocalStore {
                  (select min(chatId) from mediaIndex i where i.sha256 = c.sha256) as firstChat,
                  (select count(distinct chatId) from mediaIndex i where i.sha256 = c.sha256) as refs
             from mediaCache c left join \(Self.kindOf) k on k.sha256 = c.sha256
-           order by c.size desc
+           order by c.size desc, c.sha256
           """
       )
       return rows.compactMap { row -> LocalStorageItem? in
@@ -180,7 +180,8 @@ extension LocalStore {
           chatId: chatId ?? first ?? row["cacheChat"], seq: seq ?? 0, refChats: max(1, row["refs"] as Int)
         )
       }
-      .prefix(limit)
+      .dropFirst(max(0, offset))
+      .prefix(max(0, limit))
       .map { $0 }
     }
   }
