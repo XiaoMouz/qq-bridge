@@ -469,10 +469,12 @@ enum Block {
   case markdown(String)
   /// 机器人消息下面的按钮。
   case keyboard([[BotButton]])
+  /// 还不支持的元素（红包、长消息……）：一张能点开看原始数据的卡片。
+  case unsupported(UnsupportedItem)
 
   var isBare: Bool {
     switch self {
-    case .sticker: true
+    case .sticker, .unsupported: true
     case .image(let i): i.sticker
     case .text(let runs): Inline.jumboFaces(runs) != nil
     default: false
@@ -556,7 +558,7 @@ enum Block {
           if !rows.isEmpty { keyboard = rows }
         case "dice": text += AttributedString("[骰子]")
         case "rps": text += AttributedString("[猜拳]")
-        default: text += AttributedString("[暂不支持的消息]")
+        default: flush(); out.append(.unsupported(UnsupportedItem(u)))
         }
       case .none: break
       }
@@ -709,6 +711,8 @@ struct BlockView: View {
       BotKeyboard(rows: rows, outgoing: outgoing) { button in
         if let message { context.actions.botButton(button, message.senderID) }
       }
+    case .unsupported(let item):
+      UnsupportedCard(item: item) { context.actions.openUnsupported($0) }
     }
   }
 

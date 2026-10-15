@@ -114,11 +114,31 @@ export function plainText(segments: readonly Segment[]): string {
         case 'markdown':
           return markdownText(seg.content);
         case 'unknown':
-          return seg.original === 'keyboard' ? '' : `[${seg.original}]`;
+          return unknownText(seg);
       }
     })
     .join('')
     .trim();
+}
+
+/**
+ * 还不支持的元素：认得是什么的写成能看懂的（预览、推送、检索用），其余保留类型号。
+ * nt:9 QQ 红包（walletElement.receiver.title 是「恭喜发财」之类）、nt:13 长消息（2026-10-15 库里的样本）。
+ */
+function unknownText(seg: Extract<Segment, { type: 'unknown' }>): string {
+  const data = (seg.data ?? {}) as { walletElement?: { receiver?: { title?: unknown } } };
+  switch (seg.original) {
+    case 'keyboard':
+      return '';
+    case 'nt:9': {
+      const title = data.walletElement?.receiver?.title;
+      return typeof title === 'string' && title.trim() ? `[QQ红包] ${title.trim()}` : '[QQ红包]';
+    }
+    case 'nt:13':
+      return '[长消息]';
+    default:
+      return `[${seg.original}]`;
+  }
 }
 
 /** 把媒体段里的 MediaInfo 按 ord 替换（媒体下载完成后更新消息内容用）。 */

@@ -77,3 +77,12 @@ describe('gray tips', () => {
     expect(m.segments[0]).toMatchObject({ type: 'unknown', original: 'nt:8' });
   });
 });
+
+describe('unsupported elements text', () => {
+  it('red packets and long messages read as words, others keep the type', async () => {
+    const { plainText } = await import('@qqbridge/domain');
+    expect(plainText([{ type: 'unknown', original: 'nt:9', data: { walletElement: { receiver: { title: '恭喜发财' } } } }])).toBe('[QQ红包] 恭喜发财');
+    expect(plainText([{ type: 'unknown', original: 'nt:13', data: {} }])).toBe('[长消息]');
+    expect(plainText([{ type: 'unknown', original: 'nt:21', data: {} }])).toBe('[nt:21]');
+  });
+});

@@ -158,6 +158,8 @@ final class ChatActions {
   var botButton: (BotButton, Int64) -> Void = { _, _ in }
   /// 点了群相册卡片。
   var openAlbum: (AlbumRef) -> Void = { _ in }
+  /// 点了不支持的消息卡片（看原始数据）。
+  var openUnsupported: (UnsupportedItem) -> Void = { _ in }
   /// 点了消息里的号码（5 位以上）。
   var openNumber: (String) -> Void = { _ in }
   /// 跳到这条消息（点回复引用）；返回是否跳到了。

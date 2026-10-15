@@ -45,6 +45,7 @@ struct ChatScreen: View {
   @State private var profileUser: ProfileTarget?
   /// 点开的群相册（群相册卡片）。
   @State private var albumTarget: AlbumRef?
+  @State private var unsupportedItem: UnsupportedItem?
   /// 点了消息里的号码：查 QQ 用户 / 拨打 / 复制。
   @State private var tappedNumber: String?
   @State private var mediaTarget: MediaTarget?
@@ -526,6 +527,7 @@ struct ChatScreen: View {
           .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { albumTarget = nil } } }
       }
     }
+    .modifier(UnsupportedSheet(item: $unsupportedItem))
     .alert("发送失败", isPresented: .constant(sendFailure != nil), presenting: sendFailure) { _ in
       Button("好") { sendError = nil; composer.attachmentQueue.error = nil }
     } message: { Text($0) }
@@ -1049,6 +1051,7 @@ struct ChatScreen: View {
     actions.showProfile = { profileUser = ProfileTarget(userId: $0) }
     actions.openNumber = { tappedNumber = $0 }
     actions.openAlbum = { albumTarget = $0 }
+    actions.openUnsupported = { unsupportedItem = $0 }
     actions.botButton = { button, botId in pressBotButton(button, botId: botId) }
     actions.react = { m, emoji in
       Task {
