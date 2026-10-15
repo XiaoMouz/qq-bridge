@@ -3,7 +3,7 @@
 // - 接听：AnswerCall 拿 LiveKit 的地址和令牌 → 进房间、开麦克风；QQ 那边的声音由通话网关送进同一个房间。
 // - 挂断 / 拒接：HangupCall（响铃中是拒接，接通后是结束），然后离开房间。对方挂断时服务端推 ended，这边自动收起。
 // - 静音：只关自己的麦克风轨道；免提：切到扬声器。
-// 还没有：主动拨打、视频、群通话、CallKit（中国区上架不能用）。
+// 支持一对一语音呼入 / 呼出、群语音加入；尚未提供视频通话界面。
 import AudioToolbox
 import AVFoundation
 import LiveKit
@@ -21,6 +21,8 @@ final class CallManager {
   /// 已经进了 LiveKit 房间。
   private(set) var joined = false
   private(set) var muted = false
+  private var muteOperation: UUID?
+  var changingMicrophone: Bool { muteOperation != nil }
   private(set) var speaker = false
   /// 出错时显示一行字。
   private(set) var error: String?
@@ -31,7 +33,7 @@ final class CallManager {
   /// 群语音所在群的名字（会话列表里的）。
   private(set) var groupTitle: String?
   var isGroup: Bool { (call?.groupID ?? 0) != 0 }
-  /// 交给 CallKit（系统来电界面）的那通：响铃由系统负责，App 里不再响铃、不弹来电界面。
+  /// 交给 CallKit 的那通：包括被系统勿扰等规则过滤的来电，App 不另行响铃。
   var callKitCallId: String?
   /// 通话界面收起成顶部的小条。
   var minimized = false
@@ -94,20 +96,52 @@ final class CallManager {
   }
   var ended: Bool { call?.phase == .ended }
 
+  /// 推送可能晚于 Subscribe：交给系统后立即停止 App 的铃声，避免两边同时响。
+  func presentUsingCallKit(_ id: String) {
+    callKitCallId = id
+    if call?.id == id {
+      quiet = true
+      stopRinging()
+    }
+  }
+
+  /// 系统能力故障时恢复 App 内来电；勿扰、屏蔽等系统过滤不能走这个兜底。
+  func recoverFromCallKitFailure(_ id: String, message: String) {
+    guard callKitCallId == id else { return }
+    callKitCallId = nil
+    guard let call, call.id == id, call.phase == .ringing else { return }
+    configureNotificationPolicy(call)
+    error = "系统来电提醒不可用：\(message)"
+    if !quiet { startRinging() }
+  }
+
+  private func configureNotificationPolicy(_ call: Qqbridge_V1_Call) {
+    quiet = false
+    groupTitle = nil
+    guard call.groupID != 0 else { return }
+    let item = (try? session?.store.dialogItems(limit: 5000))?.first { $0.isGroup && $0.dialog.peerID == call.groupID }
+    groupTitle = item?.title
+    quiet = item == nil || item!.isMuted || ["mentions", "archived", "muted"].contains(item!.dialog.notifyPolicy)
+  }
+
   /// 服务端推来的状态（Subscribe 的 CallUpdate、启动时的 GetActiveCall）。
   func update(_ new: Qqbridge_V1_Call) {
     // 打出去的：只认这台设备自己发起的那通。
     guard new.incoming || call?.id == new.id else { return }
     if let current = call, current.id != new.id, current.phase != .ended, new.phase == .ended { return }
     if call?.id != new.id {
+      if new.phase == .ended {
+        // 推送唤醒后第一次取状态时，来电可能已经结束。
+        CallKitBridge.shared.reportEnded(new.id, answeredElsewhere: new.connectedAt > 0)
+        if callKitCallId == new.id { callKitCallId = nil }
+        return
+      }
+      // 冷启动时 CallKit 已报来电，首次同步重置旧状态不能丢掉系统归属。
+      let reportedId = callKitCallId == new.id ? new.id : nil
       reset()
-      guard new.phase != .ended else { return }  // 已经结束的旧来电（例如重连时收到）不弹出来
+      callKitCallId = reportedId
     }
-    if call?.id != new.id, new.groupID != 0, let session {
-      let item = (try? session.store.dialogItems(limit: 5000))?.first { $0.isGroup && $0.dialog.peerID == new.groupID }
-      groupTitle = item?.title
-      quiet = item == nil || item!.isMuted || ["mentions", "archived", "muted"].contains(item!.dialog.notifyPolicy)
-    }
+    if call?.id != new.id { configureNotificationPolicy(new) }
     if callKitCallId == new.id { quiet = true }
     call = new
     switch new.phase {
@@ -221,9 +255,26 @@ final class CallManager {
     await setMuted(!muted)
   }
 
-  func setMuted(_ value: Bool, fromCallKit: Bool = false) async {
-    muted = value
-    try? await room?.localParticipant.setMicrophone(enabled: !value)
+  @discardableResult
+  func setMuted(_ value: Bool) async -> Bool {
+    guard let call, !ended, joined, !joining, let room, !changingMicrophone else { return false }
+    let operation = UUID()
+    muteOperation = operation
+    defer {
+      if muteOperation == operation { muteOperation = nil }
+    }
+    do {
+      try await room.localParticipant.setMicrophone(enabled: !value)
+      // 操作期间可能挂断并接入另一通电话，旧房间的结果不能覆盖新通话。
+      guard muteOperation == operation, self.room === room, self.call?.id == call.id, !ended else { return false }
+      muted = value
+      error = nil
+      return true
+    } catch {
+      guard muteOperation == operation, self.room === room, self.call?.id == call.id, !ended else { return false }
+      self.error = "\(value ? "静音" : "开启麦克风")失败：\(LoadState.describe(error))"
+      return false
+    }
   }
 
   func toggleSpeaker() {
@@ -253,6 +304,7 @@ final class CallManager {
   }
 
   private func leaveRoom() async {
+    muteOperation = nil
     meter?.cancel()
     meter = nil
     let r = room
@@ -277,6 +329,7 @@ final class CallManager {
   }
 
   private func reset() {
+    muteOperation = nil
     stopRinging()
     meter?.cancel()
     meter = nil
@@ -448,6 +501,7 @@ struct CallScreen: View {
         CallButton(title: manager.muted ? "取消静音" : "静音", systemImage: manager.muted ? "mic.slash.fill" : "mic.fill", selected: manager.muted) {
           Task { await manager.toggleMute() }
         }
+        .disabled(manager.joining || !manager.joined || manager.changingMicrophone)
         Spacer()
         CallButton(title: "挂断", systemImage: "phone.down.fill", tint: .red) { Task { await manager.hangup() } }
         Spacer()

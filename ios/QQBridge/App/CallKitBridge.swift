@@ -2,7 +2,7 @@
 // - 收到 VoIP 推送必须马上报一个来电给 CallKit（系统规定，不报会被系统杀掉、以后不再投递）。
 // - 接听 / 挂断 / 静音由系统界面发起，转给 CallManager；通话结束（对方挂断、别的设备接了）时告诉 CallKit。
 // - 音频：CallKit 负责激活音频会话；LiveKit 关掉自动配置，等 CallKit 激活后再开引擎（LiveKit 推荐的 CallKit 用法）。
-// App 在前台时服务端不发 VoIP 推送，来电由 App 内的界面显示（见 CallManager）。
+// iOS 前台来电由 App 内界面显示；Mac 的 Subscribe 常驻，来电仍由系统推送提醒。
 import AVFoundation
 import CallKit
 import LiveKit
@@ -35,9 +35,14 @@ final class CallKitBridge: NSObject {
     provider.setDelegate(self, queue: nil)
   }
 
-  /// 启动时调用：注册 VoIP 推送（拿到令牌后交给服务端）。
+  /// 启动及登录后调用；凭据可能早于 Session 到达，登录后补交当前令牌。
   func register() {
-    guard registry == nil else { return }
+    if let registry {
+      if let token = registry.pushToken(for: .voIP) {
+        AppModel.shared.didReceiveVoipToken(token.map { String(format: "%02x", $0) }.joined())
+      }
+      return
+    }
     let registry = PKPushRegistry(queue: .main)
     registry.delegate = self
     registry.desiredPushTypes = [.voIP]
@@ -103,14 +108,26 @@ final class CallKitBridge: NSObject {
     update.supportsUngrouping = false
     update.supportsDTMF = false
     provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
-      MainActor.assumeIsolated {
-        if error != nil { self?.reported[id] = nil }
+      let failed = error != nil
+      let nsError = error as NSError?
+      // 系统过滤（勿扰、屏蔽等）保持静默，只有能力故障才恢复 App 内提醒。
+      let canFallback = nsError.map {
+        $0.domain != CXErrorDomainIncomingCall ||
+        [CXErrorCodeIncomingCallError.unknown.rawValue, CXErrorCodeIncomingCallError.unentitled.rawValue].contains($0.code)
+      } ?? false
+      let message = error?.localizedDescription ?? ""
+      Task { @MainActor in
+        if failed {
+          self?.reported[id] = nil
+          if self?.reported.isEmpty == true { self?.stopPolling() }
+          if canFallback { AppModel.shared.calls.recoverFromCallKitFailure(id, message: message) }
+        }
         completion()
       }
     }
     let model = AppModel.shared
     model.launch()
-    model.calls.callKitCallId = id
+    model.calls.presentUsingCallKit(id)
     startPolling()
   }
 
@@ -191,11 +208,24 @@ extension CallKitBridge: CXProviderDelegate {
   }
 
   nonisolated func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
+    // provider 使用主队列；action 只由下面的 MainActor 任务完成，不跨并发执行域访问。
     nonisolated(unsafe) let action = action
     let muted = action.isMuted
+    let uuid = action.callUUID
     MainActor.assumeIsolated {
-      Task { await AppModel.shared.calls.setMuted(muted, fromCallKit: true) }
-      action.fulfill()
+      guard let id = callId(for: uuid), AppModel.shared.calls.call?.id == id else {
+        action.fail()
+        return
+      }
+      Task {
+        let calls = AppModel.shared.calls
+        guard calls.call?.id == id else { action.fail(); return }
+        if await calls.setMuted(muted) {
+          action.fulfill()
+        } else {
+          action.fail()
+        }
+      }
     }
   }
 
