@@ -72,6 +72,14 @@ export function markdownText(md: string): string {
     .trim();
 }
 
+/** 灰色提示（系统提示消息）的一行字：人名不带 @，没换到名字的人写「某人」。 */
+export function serviceText(segments: readonly Segment[]): string {
+  return segments
+    .map((seg) => (seg.type === 'text' ? seg.text : seg.type === 'mention' ? seg.name || (seg.userId ? String(seg.userId) : '某人') : plainText([seg])))
+    .join('')
+    .trim();
+}
+
 /** 纯文本表示：用于全文检索和会话列表预览。非文本内容用简短占位符。 */
 export function plainText(segments: readonly Segment[]): string {
   return segments

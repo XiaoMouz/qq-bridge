@@ -13,6 +13,7 @@ import type {
   Scene,
   Segment,
 } from '@qqbridge/domain';
+import { grayTipSegments } from './gray-tip.ts';
 import { NtChatType, NtElementType, type NapcatEvent, type NtElement, type NtRawMessage, type Ob11Segment } from './types.ts';
 
 export type UpstreamAction =
@@ -215,6 +216,7 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
   const segments: Segment[] = [];
   const media: IncomingMedia[] = [];
   const locatorBase = { chatType: raw.chatType, peerUid: raw.peerUid ?? '', msgId: raw.msgId ?? '' };
+  let grayTip = false;
 
   for (const original of raw.elements ?? []) {
     const el = withElementType(original);
@@ -385,6 +387,14 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
         // 按钮只在 QQ 里能点，存档保留原文，预览和正文里不显示。
         segments.push({ type: 'unknown', original: 'keyboard', data: el });
         break;
+      case NtElementType.GREY_TIP: {
+        const tip = grayTipSegments((el as { grayTipElement?: unknown }).grayTipElement, scene);
+        if (tip) {
+          segments.push(...tip);
+          grayTip = true;
+        } else segments.push({ type: 'unknown', original: `nt:${el.elementType}`, data: el });
+        break;
+      }
       default:
         // 未知类型保留原文，绝不丢弃（以后支持了可以从 raw 重新映射）。
         segments.push({ type: 'unknown', original: `nt:${el.elementType}`, data: el });
@@ -402,6 +412,8 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
     ...(int(raw.msgRandom) ? { random: int(raw.msgRandom) } : {}),
     segments,
     media,
+    // 整条只有认得的灰条：系统提示（原文仍在 raw 里）。
+    ...(grayTip && segments.every((s) => s.type === 'text' || s.type === 'mention') ? { kind: 'service' as const } : {}),
     self: senderId === opts.selfUin,
     source: opts.source,
     raw,

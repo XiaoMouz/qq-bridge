@@ -90,6 +90,8 @@ final class MessageSearchPager {
 
   /// 结果里显示的发送人：自己的显示「我」，群里优先群名片（消息里带的），再退到本地资料的名字和号码。
   func senderName(_ m: Qqbridge_V1_Message) -> String {
+    // 灰色提示没有发送者（号码是 0）。
+    if m.kind == .service { return "提示" }
     guard let d = try? session.store.dialog(chatId: m.chatID) else {
       return !m.senderName.isEmpty ? m.senderName : String(m.senderID)
     }

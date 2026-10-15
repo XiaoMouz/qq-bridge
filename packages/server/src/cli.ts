@@ -8,12 +8,14 @@
 //   pnpm cli media:apply-on-demand         按下载规则整理已有的媒体（改为按需 / 排进下载队列，去掉自动清理标记）
 //   pnpm cli media:tier                    立即执行一次冷热分层（平时服务端每天自动跑）
 //   pnpm cli inbox:reprocess <ignored|failed>  重新处理收件箱里被忽略 / 失败的上游事件（映射新增支持后用）
+//   pnpm cli messages:remap-gray-tips      把以前存成未知元素的 QQ 灰色提示（撤回、拍一拍、文件已接收……）改成系统提示
 import { createDeps, startServer } from './app.ts';
 import { AuthService } from './auth/service.ts';
 import { loadConfig } from './config.ts';
 import { sql } from 'drizzle-orm';
 import { createDb, rows, runMigrations } from './db/client.ts';
 import { dropPlayableCopies, reprocessMedia } from './media/reprocess.ts';
+import { remapGrayTips } from './messages/remap-gray-tips.ts';
 import { InboxProcessor } from './upstream/inbox.ts';
 
 async function main(argv: string[]): Promise<void> {
@@ -132,8 +134,18 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify({ requeued: count, states: Object.fromEntries(summary.map((r) => [r.state, r.n])) }));
       return;
     }
+    case 'messages:remap-gray-tips': {
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      await runMigrations(db);
+      const deps = createDeps(db, { mediaRoot: config.MEDIA_ROOT, mediaUrlSecret: config.MEDIA_URL_SECRET, logLevel: config.LOG_LEVEL });
+      const result = await remapGrayTips(db, deps.ingest);
+      await db.$client.end();
+      console.log(JSON.stringify(result));
+      return;
+    }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips>');
   }
 }
 

@@ -86,6 +86,9 @@ struct MessageRow: View {
       switch item {
       case .event(let e):
         Notice(text: EventText.describe(e, context: context), people: EventText.people(e, context: context)) { context.actions.showProfile($0) }
+      case .message(let m) where m.kind == .service:
+        // QQ 的灰色提示（撤回、拍一拍、文件已接收……）：和服务事件一样居中一行，名字点开资料卡。
+        Notice(text: m.text, people: Self.people(in: m)) { context.actions.showProfile($0) }
       case .message(let m):
         if context.selection.active {
           // 多选：左边一个勾，整行点一下勾选 / 取消（不再打开图片、播放语音）。
@@ -122,6 +125,13 @@ struct MessageRow: View {
   private var isHighlighted: Bool {
     if case .message(let m) = item { return context.highlight.seq == m.seq }
     return false
+  }
+
+  /// 系统提示里提到的人（换到了号码和名字的）。
+  static func people(in m: Qqbridge_V1_Message) -> [(id: Int64, name: String)] {
+    m.segments.compactMap { seg in
+      if case .mention(let p) = seg.kind, p.userID != 0, !p.name.isEmpty { (p.userID, p.name) } else { nil }
+    }
   }
 
   /// 行内坐标系的名字（气泡位置用）。

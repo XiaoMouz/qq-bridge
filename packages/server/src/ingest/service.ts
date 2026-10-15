@@ -6,6 +6,7 @@ import {
   MessageFlag,
   messageFlags,
   plainText,
+  serviceText,
   updateMediaInfo,
   type IncomingMedia,
   type IncomingMessage,
@@ -129,7 +130,7 @@ export class IngestService {
     const result = await this.writers.forAccount(qq.accountId).run(async (w) => {
       const chat = await lockOrCreateChat(w.tx, qqAccountId, msg.scene, msg.peerId, initialReadMarker(msg, qq.uin));
       const existing = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${chat.id} and seq = ${msg.seq}`);
-      if (existing) return { chatId: chat.id, inserted: false };
+      if (existing) return { chatId: chat.id, inserted: false, service: false };
 
       // 下载前去重：QQ 给了 md5 且已有同样内容，直接复用，不再下载。
       let segments: Segment[] = msg.segments;
@@ -149,6 +150,8 @@ export class IngestService {
           .map((m) => m.ord),
       );
       for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
+      const service = msg.kind === 'service';
+      if (service) segments = await resolveTipPeople(w.tx, qqAccountId, msg.scene === 'group' ? msg.peerId : null, segments);
 
       const flags = messageFlags(segments, qq.uin);
       const reply = segments.find((s): s is Extract<Segment, { type: 'reply' }> => s.type === 'reply');
@@ -158,8 +161,8 @@ export class IngestService {
         await one(
           w.tx,
           sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, sender_name, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
-              values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, 'normal',
-                      ${pgJson(segments)}::jsonb, ${plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts},
+              values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, ${service ? 'service' : 'normal'},
+                      ${pgJson(segments)}::jsonb, ${service ? serviceText(segments) : plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts},
                       ${msg.source}, ${msg.raw === undefined ? null : pgJson(msg.raw)}::jsonb)
               returning ${MESSAGE_COLUMNS}`,
         ),
@@ -195,7 +198,8 @@ export class IngestService {
       w.emit({ type: 'chatMessage', chatId: chat.id, chatPts, message });
 
       const fromOther = msg.senderId !== qq.uin;
-      const countsUnread = fromOther && msg.seq > chat.read_inbox_max_seq;
+      // 灰条（撤回、拍一拍……）不算未读、不推送。
+      const countsUnread = fromOther && !service && msg.seq > chat.read_inbox_max_seq;
       await w.tx.execute(
         sql`update chats set
               top_seq = case when top_seq is null or ${msg.seq} >= top_seq then ${msg.seq} else top_seq end,
@@ -211,10 +215,39 @@ export class IngestService {
         await setReadMarker(w.tx, chat.id, msg.seq, qq.uin);
       }
       w.touchDialog(chat.id);
-      return { chatId: chat.id, inserted: true };
+      return { chatId: chat.id, inserted: true, service };
     });
-    if (result.inserted && msg.senderId !== qq.uin) this.onNewMessage?.({ accountId: qq.accountId, chatId: result.chatId, seq: msg.seq });
+    if (result.inserted && !result.service && msg.senderId !== qq.uin) this.onNewMessage?.({ accountId: qq.accountId, chatId: result.chatId, seq: msg.seq });
     return result;
+  }
+
+  /**
+   * 已存的消息重新映射成灰色提示（以前认不得、存成了未知元素）：换成系统提示，分配新 chat_pts 让各端同步。
+   * 映射改进后可以重跑：已经是系统提示、文字也没变的不动。返回是否改了。
+   */
+  async rewriteAsServiceTip(chatId: number, seq: number, segments: Segment[]): Promise<boolean> {
+    const owner = await maybeOne<{ account_id: number; qq_account_id: number; scene: string; peer_id: number }>(
+      this.db,
+      sql`select q.account_id, c.qq_account_id, c.scene, c.peer_id from chats c join qq_accounts q on q.id = c.qq_account_id where c.id = ${chatId}`,
+    );
+    if (!owner) return false;
+    return this.writers.forAccount(owner.account_id).run(async (w) => {
+      const current = await maybeOne<{ kind: string; text: string }>(w.tx, sql`select kind, text from messages where chat_id = ${chatId} and seq = ${seq} for update`);
+      if (!current) return false;
+      const resolved = await resolveTipPeople(w.tx, owner.qq_account_id, owner.scene === 'group' ? Number(owner.peer_id) : null, segments);
+      if (current.kind === 'service' && current.text === serviceText(resolved)) return false;
+      const chatPts = await w.allocChatPts(chatId);
+      const message = toMessage(
+        await one(
+          w.tx,
+          sql`update messages set kind = 'service', segments = ${pgJson(resolved)}::jsonb, text = ${serviceText(resolved)}, version = ${chatPts}
+               where chat_id = ${chatId} and seq = ${seq}
+               returning ${MESSAGE_COLUMNS}`,
+        ),
+      );
+      w.emit({ type: 'chatMessage', chatId, chatPts, message });
+      return true;
+    });
   }
 
   /** 消息撤回：保留原内容，只标记状态（防撤回）。 */
@@ -854,6 +887,47 @@ interface MediaRefTarget {
   forward_bundle_id?: string | null;
   node_path?: number[] | null;
   ordinal: number;
+}
+
+/**
+ * 灰条里的人：QQ 只给了 uid 的按本地资料换成号码；名字空的补上（群里优先群名片）。
+ * 换不到的保持原样（客户端显示「某人」，以后资料到了可以 messages:remap-gray-tips 重做）。
+ */
+export async function resolveTipPeople(tx: Db | Tx, qqAccountId: number, groupId: number | null, segments: Segment[]): Promise<Segment[]> {
+  const out: Segment[] = [];
+  for (const seg of segments) {
+    if (seg.type !== 'mention' || (seg.userId && seg.name)) {
+      out.push(seg);
+      continue;
+    }
+    let userId = seg.userId;
+    let name = seg.name;
+    if (!userId && seg.uid) {
+      const hit = await maybeOne<{ peer_id: number; name: string | null }>(
+        tx,
+        sql`select peer_id, coalesce(nullif(remark, ''), name) as name from peers
+             where qq_account_id = ${qqAccountId} and kind = 'user' and uid = ${seg.uid} limit 1`,
+      );
+      if (hit) {
+        userId = Number(hit.peer_id);
+        name ||= hit.name ?? undefined;
+      }
+    }
+    if (userId && !name) {
+      const hit = await maybeOne<{ name: string | null }>(
+        tx,
+        groupId
+          ? sql`select coalesce(nullif(m.card, ''), nullif(p.remark, ''), nullif(m.nickname, ''), p.name) as name
+                  from group_members m left join peers p on p.qq_account_id = m.qq_account_id and p.kind = 'user' and p.peer_id = m.user_id
+                 where m.qq_account_id = ${qqAccountId} and m.group_id = ${groupId} and m.user_id = ${userId}`
+          : sql`select coalesce(nullif(remark, ''), name) as name from peers
+                 where qq_account_id = ${qqAccountId} and kind = 'user' and peer_id = ${userId}`,
+      );
+      name = hit?.name ?? undefined;
+    }
+    out.push({ type: 'mention', userId, ...(name ? { name } : {}), ...(seg.uid ? { uid: seg.uid } : {}) });
+  }
+  return out;
 }
 
 async function updateMessageMedia(w: WriteContext, ref: MediaRefTarget, patch: Partial<Omit<MediaInfo, 'ord'>>): Promise<void> {

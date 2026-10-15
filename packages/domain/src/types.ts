@@ -38,7 +38,8 @@ export interface MediaInfo {
 /** 规范化消息段，与 Milky IncomingSegment 一一对应；未知类型保留原文，绝不丢弃。 */
 export type Segment =
   | { type: 'text'; text: string }
-  | { type: 'mention'; userId: number; name?: string }
+  /** uid：灰色提示里只给了 QQ 内部 uid 的人，入库时换成号码（userId 为 0 表示还没换到）。 */
+  | { type: 'mention'; userId: number; name?: string; uid?: string }
   | { type: 'mention_all' }
   /** name：QQ 给的表情名（如「微笑」），客户端本地没有这个表情时用来显示。 */
   | { type: 'face'; faceId: string; isLarge?: boolean; name?: string }
@@ -89,6 +90,8 @@ export interface IncomingMessage {
   random?: number;
   segments: Segment[];
   media: IncomingMedia[];
+  /** service：QQ 的灰色提示（撤回、进群、文件已接收、拍一拍……），不算未读、不推送，客户端居中显示成一行提示。 */
+  kind?: 'normal' | 'service';
   /** 本 QQ 号自己发出的（含在手机等其他设备上发出的）。 */
   self: boolean;
   source: 'realtime' | 'backfill' | 'self';
