@@ -7,10 +7,19 @@ import UserNotifications
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+  static var isRunningStateTests: Bool {
+    #if DEBUG
+    ProcessInfo.processInfo.environment["BETTERCHAT_STATE_TESTS"] == "1"
+    #else
+    false
+    #endif
+  }
+
   /// 由 QQBridgeApp 在启动时接上。
   weak var model: AppModel?
 
   func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    if Self.isRunningStateTests { return true }
     UNUserNotificationCenter.current().delegate = self
     // VoIP 推送（来电交给 CallKit）：要在启动时马上注册，被推送拉起时才接得住。
     CallKitBridge.shared.register()
@@ -45,6 +54,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     let senderId = (sender?["id"] as? NSNumber)?.int64Value ?? 0
     // App 在前台：不弹系统通知；不是正在看的会话就显示 App 内横幅（点开可以快速回复）。
     Task { @MainActor in
+      #if targetEnvironment(macCatalyst)
+      if UIApplication.shared.applicationState != .active {
+        completionHandler([.banner, .sound, .badge])
+        return
+      }
+      #endif
       if let model, let chatId, chatId != model.openChatId {
         model.showBanner(InAppBanner(chatId: chatId, title: title, body: body, avatar: avatar, senderId: senderId))
       }
@@ -102,6 +117,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 extension AppModel {
   /// 登录后调用：问通知权限（只问一次，之后系统记住），并向 APNs 要令牌。
   func registerForPush() {
+    CallKitBridge.shared.register()
     Task {
       let center = UNUserNotificationCenter.current()
       let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
@@ -142,20 +158,26 @@ extension AppModel {
     let count = dialogs.reduce(0) { $0 + $1.badgeCount }
     if count != unreadBadge { unreadBadge = count }
     UNUserNotificationCenter.current().setBadgeCount(count)
-    let read = Set(dialogs.filter { $0.dialog.unreadCount == 0 }.map(\.id))
-    if !read.isEmpty { clearNotifications(where: { read.contains($0) }) }
+    let readThrough = Dictionary(dialogs.map { ($0.id, $0.dialog.readInboxMaxSeq) }, uniquingKeysWith: max)
+    clearNotifications(readThrough: readThrough)
   }
 
-  /// 收掉某个会话已经显示的系统通知。
+  /// 打开会话时也只清除已读范围内的通知，稍后同步推进游标时会继续清理。
   func clearNotifications(chatId: Int64) {
-    clearNotifications(where: { $0 == chatId })
+    guard let dialog = try? session?.store.dialog(chatId: chatId) else { return }
+    clearNotifications(readThrough: [chatId: dialog.readInboxMaxSeq])
   }
 
-  nonisolated private func clearNotifications(where match: @escaping @Sendable (Int64) -> Bool) {
+  nonisolated private func clearNotifications(readThrough: [Int64: Int64]) {
     let center = UNUserNotificationCenter.current()
     center.getDeliveredNotifications { list in
       let ids = list.compactMap { n -> String? in
-        guard let id = (n.request.content.userInfo["chatId"] as? NSNumber)?.int64Value, match(id) else { return nil }
+        let info = n.request.content.userInfo
+        guard NotificationReadPolicy.isRead(
+          chatId: (info["chatId"] as? NSNumber)?.int64Value,
+          seq: (info["seq"] as? NSNumber)?.int64Value,
+          readThrough: readThrough
+        ) else { return nil }
         return n.request.identifier
       }
       if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
