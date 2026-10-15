@@ -163,6 +163,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
       keyId: config.APNS_KEY_ID,
       teamId: config.APNS_TEAM_ID,
       topic: config.APNS_TOPIC,
+      macosTopic: config.APNS_MACOS_TOPIC,
       logger: deps.logger.child({ component: 'apns' }),
     });
     const notifier = new PushNotifier(db, apns, {

@@ -1,9 +1,10 @@
 // 推送：APNs 客户端（对着本地的 HTTP/2 服务）和"哪些消息要推、通知里写什么"。
-import { generateKeyPairSync, verify } from 'node:crypto';
+import { generateKeyPairSync, randomUUID, verify } from 'node:crypto';
 import http2 from 'node:http2';
 import type { AddressInfo } from 'node:net';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { CallRecord } from '../src/calls/service.ts';
 import { DialogPrefs } from '../src/dialogs/prefs.ts';
 import { one } from '../src/db/client.ts';
 import { ApnsClient, type ApnsMessage, type ApnsResult, type PushSender } from '../src/push/apns.ts';
@@ -40,6 +41,7 @@ describe('ApnsClient', () => {
       keyId: 'KEYID00001',
       teamId: 'TEAMID0001',
       topic: 'com.example.app',
+      macosTopic: 'com.example.app.mac',
       origins: { sandbox: origin, production: origin },
     });
 
@@ -58,6 +60,20 @@ describe('ApnsClient', () => {
     expect(verify('sha256', Buffer.from(`${h}.${p}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(s!, 'base64url'))).toBe(true);
   });
 
+  it('routes Mac notifications and VoIP to the Mac topic without changing iOS', async () => {
+    const c = client();
+    try {
+      await c.send({ token: 'mac', platform: 'macos', env: 'sandbox', payload: {} });
+      expect(seen.at(-1)!.headers['apns-topic']).toBe('com.example.app.mac');
+      await c.send({ token: 'mac-voip', platform: 'macos', env: 'production', pushType: 'voip', payload: {} });
+      expect(seen.at(-1)!.headers['apns-topic']).toBe('com.example.app.mac.voip');
+      await c.send({ token: 'phone', platform: 'ios', env: 'sandbox', payload: {} });
+      expect(seen.at(-1)!.headers['apns-topic']).toBe('com.example.app');
+    } finally {
+      c.close();
+    }
+  });
+
   it('reports dead tokens so they can be dropped', async () => {
     reply = (token) => (token === 'dead' ? { status: 410, reason: 'Unregistered' } : { status: 400, reason: 'PayloadTooLarge' });
     const c = client();
@@ -65,6 +81,91 @@ describe('ApnsClient', () => {
     expect(await c.send({ token: 'beef', env: 'production', payload: {} })).toEqual({ ok: false, status: 400, reason: 'PayloadTooLarge', invalidToken: false });
     c.close();
     reply = () => ({ status: 200 });
+  });
+});
+
+describe('来电推送与桌面持续同步', () => {
+  let t: TestDb;
+  let acc: TestAccount;
+  let prefs: DialogPrefs;
+  let groupChat: number;
+  let notifier: PushNotifier;
+  let online = true;
+  let rejectVoip = false;
+  const sent: ApnsMessage[] = [];
+  const sender: PushSender = {
+    send: async (message) => {
+      sent.push(message);
+      return rejectVoip && message.pushType === 'voip'
+        ? { ok: false, status: 503, reason: 'ServiceUnavailable', invalidToken: false }
+        : { ok: true };
+    },
+    close: () => undefined,
+  };
+  const incoming = (): CallRecord => ({
+    callId: randomUUID(), qqAccountId: acc.qqAccountId, phase: 'ringing', incoming: true,
+    media: 'voice', peerUin: 400, peerName: '测试来电', groupId: null,
+    inviteAt: new Date(), acceptedAt: null, connectedAt: null, endedAt: null,
+    endReason: null, answeredDeviceId: null, room: null,
+  });
+  beforeAll(async () => {
+    t = await startTestDb();
+    const svc = services(t.db);
+    acc = await createTestAccount(t.db, svc.ingest);
+    prefs = new DialogPrefs(svc.writers);
+    groupChat = (await svc.ingest.ingestMessage(acc.qqAccountId, textMessage('group', 300, 1, 400))).chatId;
+    await t.db.execute(sql`insert into devices (account_id, name, platform, token_hash, apns_token, apns_voip_token, apns_env)
+      values (${acc.accountId}, 'iPhone', 'ios', '\\x11', 'ios-alert', 'ios-voip', 'sandbox'),
+             (${acc.accountId}, 'Mac', 'macos', '\\x12', 'mac-alert', 'mac-voip', 'sandbox')`);
+  });
+  beforeEach(async () => {
+    sent.length = 0;
+    online = true;
+    rejectVoip = false;
+    notifier = new PushNotifier(t.db, sender, { isOnline: () => online });
+    await prefs.setNotifyPolicy(acc.accountId, groupChat, 'all');
+  });
+  afterAll(async () => { await t?.stop(); });
+
+  it('连接 Subscribe 时 Mac 仍收到系统来电，iOS 保持前台不推送', async () => {
+    const call = incoming();
+    expect(await notifier.notifyCall(acc.accountId, call)).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ token: 'mac-voip', platform: 'macos', pushType: 'voip', payload: { call: { id: call.callId } } });
+    expect(await notifier.notifyCall(acc.accountId, call)).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('断开 Subscribe 后 iOS 与 Mac 都收到来电', async () => {
+    online = false;
+    expect(await notifier.notifyCall(acc.accountId, incoming())).toBe(2);
+    expect(sent.map((m) => m.token).sort()).toEqual(['ios-voip', 'mac-voip']);
+  });
+
+  it('Mac 的 VoIP 投递失败时回退普通来电通知', async () => {
+    rejectVoip = true;
+    expect(await notifier.notifyCall(acc.accountId, incoming())).toBe(1);
+    expect(sent.map((m) => m.token)).toEqual(['mac-voip', 'mac-alert']);
+    expect(sent[1]).toMatchObject({ platform: 'macos', payload: { aps: { 'interruption-level': 'time-sensitive' } } });
+  });
+
+  it.each(['muted', 'archived', 'mentions'] as const)('Mac 群语音仍遵守 %s 设置', async (policy) => {
+    await prefs.setNotifyPolicy(acc.accountId, groupChat, policy);
+    expect(await notifier.notifyCall(acc.accountId, { ...incoming(), groupId: 300 })).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('呼出不会变成来电；响铃结束后发送无声未接通知', async () => {
+    expect(await notifier.notifyCall(acc.accountId, { ...incoming(), incoming: false })).toBe(0);
+    const call = incoming();
+    await notifier.notifyCall(acc.accountId, call);
+    sent.length = 0;
+    expect(await notifier.notifyCall(acc.accountId, { ...call, phase: 'ended', endedAt: new Date() })).toBe(2);
+    expect(sent.map((m) => m.token).sort()).toEqual(['ios-alert', 'mac-alert']);
+    for (const message of sent) {
+      expect(message.payload).toMatchObject({ aps: { alert: { body: '未接语音通话' } } });
+      expect((message.payload as { aps: Record<string, unknown> }).aps.sound).toBeUndefined();
+    }
   });
 });
 
@@ -121,6 +222,18 @@ describe('PushNotifier', () => {
       // 发送者：通知扩展据此显示头像（测试里没有头像）。
       sender: { id: 400, name: '小明' },
     });
+  });
+
+  it('preserves the stored device platform when delivering notifications', async () => {
+    await t.db.execute(sql`update devices set apns_token = 'mac-token', apns_env = 'sandbox' where account_id = ${acc.accountId} and platform = 'macos'`);
+    try {
+      const { n } = await receive(textMessage('friend', 400, seq++, 400, { text: 'Mac 消息' }));
+      expect(n).toBe(3);
+      expect(sent.find((m) => m.token === 'mac-token')).toMatchObject({ platform: 'macos', env: 'sandbox' });
+      expect(sent.find((m) => m.token === 'aaaa')).toMatchObject({ platform: 'ios' });
+    } finally {
+      await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
+    }
   });
 
   it('prefixes the group member name (card first)', async () => {

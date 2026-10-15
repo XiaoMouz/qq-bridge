@@ -13,6 +13,8 @@ export interface ApnsOptions {
   teamId: string;
   /** App 的 bundle id。 */
   topic: string;
+  /** 独立 Mac Catalyst App 的 bundle id；不接受客户端自选 topic。 */
+  macosTopic?: string;
   /** 测试时换成本地的 h2c 服务。 */
   origins?: Partial<Record<ApnsEnv, string>>;
   logger?: Logger;
@@ -20,6 +22,7 @@ export interface ApnsOptions {
 
 export interface ApnsMessage {
   token: string;
+  platform?: string;
   env: ApnsEnv;
   payload: unknown;
   pushType?: 'alert' | 'background' | 'voip';
@@ -74,11 +77,12 @@ export class ApnsClient implements PushSender {
 
   private post(message: ApnsMessage): Promise<ApnsResult> {
     const body = Buffer.from(JSON.stringify(message.payload));
+    const topic = message.platform === 'macos' ? (this.opts.macosTopic ?? this.opts.topic) : this.opts.topic;
     const headers: http2.OutgoingHttpHeaders = {
       ':method': 'POST',
       ':path': `/3/device/${message.token}`,
       authorization: `bearer ${this.providerToken()}`,
-      'apns-topic': message.pushType === 'voip' ? `${this.opts.topic}.voip` : this.opts.topic,
+      'apns-topic': message.pushType === 'voip' ? `${topic}.voip` : topic,
       'apns-push-type': message.pushType ?? 'alert',
       'apns-priority': String(message.priority ?? 10),
       'apns-expiration': String(message.ttlSec ? Math.floor(Date.now() / 1000) + message.ttlSec : 0),

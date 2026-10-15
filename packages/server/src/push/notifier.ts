@@ -151,21 +151,22 @@ export class PushNotifier {
     const body = ringing
       ? groupName ? `${callerName} 邀请你加入群${kind}通话` : `邀请你${kind}通话`
       : groupName ? `${callerName} 发起的群${kind}通话已结束` : `未接${kind}通话`;
-    const devices = await rows<{ id: number; apns_token: string | null; apns_voip_token: string | null; apns_env: string | null }>(
+    const devices = await rows<{ id: number; platform: string; apns_token: string | null; apns_voip_token: string | null; apns_env: string | null }>(
       this.db,
-      sql`select id, apns_token, apns_voip_token, apns_env from devices
+      sql`select id, platform, apns_token, apns_voip_token, apns_env from devices
            where account_id = ${accountId} and revoked_at is null and (apns_token is not null or apns_voip_token is not null)`,
     );
     const avatar = devices.length > 0 && call.peerUin ? await this.avatarThumb(call.qqAccountId, call.peerUin) : null;
     let sent = 0;
     for (const d of devices) {
       const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
-      // App 在前台（连着 Subscribe）：来电界面由 App 自己显示，不再推。
-      if (ringing && this.opts.isOnline?.(d.id)) continue;
+      // iOS 在前台才持续 Subscribe；Mac 后台也保持连接，不能据此跳过系统来电。
+      if (ringing && d.platform !== 'macos' && this.opts.isOnline?.(d.id)) continue;
       if (ringing && d.apns_voip_token) {
         // VoIP 推送：App 收到后交给 CallKit（系统来电界面，锁屏也能接）。
         const result = await this.sender.send({
           token: d.apns_voip_token,
+          platform: d.platform,
           env,
           pushType: 'voip',
           priority: 10,
@@ -193,6 +194,7 @@ export class PushNotifier {
       // 普通通知（没有 VoIP 令牌时的来电、未接来电）：带上来电人的头像，通知扩展做成通讯通知。
       const result = await this.sender.send({
         token: d.apns_token,
+        platform: d.platform,
         env,
         collapseId: `call-${call.callId}`,
         ttlSec: ringing ? 60 : 24 * 3600,
@@ -225,9 +227,9 @@ export class PushNotifier {
   async notify(event: NewMessageEvent): Promise<number> {
     const n = await this.build(event);
     if (!n) return 0;
-    const devices = await rows<{ id: number; apns_token: string; apns_env: string | null }>(
+    const devices = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null }>(
       this.db,
-      sql`select id, apns_token, apns_env from devices
+      sql`select id, platform, apns_token, apns_env from devices
            where account_id = ${event.accountId} and revoked_at is null and apns_token is not null`,
     );
     const avatar = devices.length > 0 ? await this.avatarThumb(n.qqAccountId, n.senderId) : null;
@@ -236,6 +238,7 @@ export class PushNotifier {
       const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
       const result = await this.sender.send({
         token: d.apns_token,
+        platform: d.platform,
         env,
         ttlSec: 24 * 3600,
         payload: {

@@ -48,6 +48,7 @@ const ConfigSchema = z.object({
   APNS_TEAM_ID: optionalString(z.string().length(10)),
   /** App 的 bundle id（APNs 的 topic）。 */
   APNS_TOPIC: z.string().default('com.xiaomouz.betterchat'),
+  APNS_MACOS_TOPIC: z.string().default('com.xiaomouz.betterchat.mac'),
   /** 0：通知里不写消息内容，只写"新消息"（内容不经过 Apple 的服务器）。 */
   APNS_PREVIEW: z.preprocess((v) => !(v === '0' || v === 'false'), z.boolean()).default(true),
   /** 开放 /lab/call 通话测试页（iOS 客户端完成前代替 iPhone 接听）。 */
