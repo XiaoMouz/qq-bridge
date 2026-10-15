@@ -29,4 +29,5 @@ tailscale serve status                                            # 7443 → 127
 - **重启 NapCat**：登录态可能失效，要用户扫码（二维码在容器 `/app/napcat/cache/qrcode.png`，App 里「QQ 已掉线」也能扫）。插件热重载用 `tools/qq-plugin.sh deploy`，不用重启 NapCat。
 - **拷进容器的文件**（插件、`host.cjs`）重启容器后还在，重建容器时以镜像为准——长期改动要重建镜像。
 - **拉镜像**：OrbStack 的 Docker 引擎要经 `~/.orbstack/config/docker.json` 里的代理（host.internal:6152）；QQ / 腾讯的域名在代理里要直连（避免异地登录风控）。
+- **公网入口（Cloudflare Tunnel）**：`qq.mou.best` → `127.0.0.1:8080`，挂在本机已有的 `comfyui` 隧道上（`~/.cloudflared/config.yml`，launchd `com.cloudflare.cloudflared`）。改配置后 `cloudflared tunnel ingress validate` 再 `launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared`（comfyui.mou.best 会断几秒）。凭据文件 `~/.cloudflared/*.json` 不打印。通话的 LiveKit 没走隧道。
 - **LiveKit 的 Tailscale 转发**（`tailscale serve --bg --https=7443 http://127.0.0.1:7880`）曾经丢过，接听报连不上时先看这个。

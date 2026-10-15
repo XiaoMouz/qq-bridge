@@ -18,7 +18,8 @@ Swift 6（严格并发）、SwiftUI + UIKit 聊天列表，iOS 26+。XcodeGen �
 | `App/VoiceExtras.swift` / `VoicePlayer.swift` / `VoiceTranscripts.swift` / `AiVoiceSheet.swift` / `AiVoiceViewModel.swift` / `AiVoicePreview.swift` | 语音播放/进度/任务归属、转文字显示/缓存/请求状态、AI 语音页面/状态/试听生命周期、`CappedWidth` 布局 |
 | `App/CallManager.swift` / `CallKitBridge.swift` | 通话：来电、接听、打出去、通话界面、横幅；CallKit + PushKit |
 | `App/Push.swift` / `QuickReply.swift` | 推送注册、前台通知变 App 内横幅、快速回复 |
-| `App/SettingsViews.swift` / `StorageBrowseViews.swift` / `QqLoginSheet.swift` / `LoginView.swift` / `OtherTabs.swift` | 设置、偏好、存储页、QQ 扫码、登录、搜索标签页 |
+| `App/SettingsViews.swift` / `StorageBrowseViews.swift` / `QqLoginSheet.swift` / `LoginView.swift` / `OtherTabs.swift` | 设置、偏好、存储页、QQ 扫码、登录（退出时可选保留缓存）、搜索标签页 |
+| `App/MessageSearch.swift` | 聊天记录服务端搜索的分页（`MessageSearchPager`，首页搜索和「查找聊天记录」共用）、结果的发送人 |
 | `NotificationService/` | 通知扩展：把推送做成通讯通知（发送者头像） |
 | `Shared/CommunicationContent.swift` | App 和通知扩展共用的通讯通知生成 |
 | `Resources/QQFaces/` | 小黄脸静态图 `sNNN.png` |
@@ -43,6 +44,7 @@ git checkout -- ../QQBridgeKit/Package.resolved   # 构建后还原
 - **并发**：见 [lessons.md](../../docs/lessons.md) L1。`@MainActor` 的类、系统回调里先取 Sendable 的值。引入 LiveKit 的文件里 `Session` 会和 LiveKit 的重名，用 `BridgeSession`。
 - **布局**：见 L4。聊天页的 body 修饰链已经很长，新的 sheet / 浮层写成单独的 `ViewModifier`（否则编译器推断超时）。
 - **等服务端结果**：用 `MediaReady`（Subscribe 推送）或 `session.store.observeMessage` 订阅本地库，不轮询。
+- **系统提示消息**：`kind == .service` 的消息（QQ 灰色提示）不画气泡，和服务事件一样用 `Notice` 居中一行，人名来自其中的 mention 段。
 - **本地优先**：资料、头像先显示本地缓存再静默刷新；头像没有就 `AvatarBook.want(...)` 按需要。
 - **模拟器测试**：见 L3。截图像素 ÷ 3 = 点；会话列表一直在变，用 `-debugJump` / 置顶会话 / `simctl push` 打开。模拟器没有相机、麦克风常报 -4010、收不到 VoIP 推送，这些要真机测。
 - **发布**：只在用户要求时；升 `project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`，`xcodebuild … -configuration Release -destination 'generic/platform=iOS' -archivePath ~/Library/Developer/Xcode/Archives/<日期>/BetterChat-<版本>-<构建号>.xcarchive -allowProvisioningUpdates archive`，然后 `open` 归档让用户在 Organizer 上传。新用到的系统能力要加 `Info.plist` 权限说明（审核会查第三方库引用的 API，例如 LiveKit 要相机说明）。
