@@ -488,6 +488,8 @@ enum Block {
   case card(String)
   /// 小程序 / 分享卡片（哔哩哔哩、新闻、音乐……）：能打开的点开用浏览器。
   case app(AppCard)
+  /// 推荐联系人 / 群名片。
+  case contact(ContactCard)
   /// 机器人发的 markdown（带图片）。
   case markdown(String)
   /// 机器人消息下面的按钮。
@@ -570,7 +572,8 @@ enum Block {
         }
       case .lightApp(let a):
         flush()
-        if let card = AppCard.parse(json: a.json, app: a.appName) { out.append(.app(card)) } else { out.append(.card(CardText.from(json: a.json, app: a.appName))) }
+        if let contact = ContactCard.parse(json: a.json, app: a.appName) { out.append(.contact(contact)) }
+        else if let card = AppCard.parse(json: a.json, app: a.appName) { out.append(.app(card)) } else { out.append(.card(CardText.from(json: a.json, app: a.appName))) }
       case .xml: flush(); out.append(.card("[卡片消息]"))
       case .markdown(let m): flush(); out.append(.markdown(m.content))
       case .unknown(let u):
@@ -728,6 +731,8 @@ struct BlockView: View {
       Label(text, systemImage: "rectangle.on.rectangle").font(.subheadline)
     case .app(let card):
       AppCardView(card: card, outgoing: outgoing) { context.actions.openAlbum($0) }
+    case .contact(let card):
+      ContactCardView(card: card) { context.actions.openContact($0) }
     case .markdown(let content):
       MarkdownBlock(content: content, outgoing: outgoing)
     case .keyboard(let rows):

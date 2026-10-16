@@ -160,6 +160,8 @@ final class ChatActions {
   var openAlbum: (AlbumRef) -> Void = { _ in }
   /// 点了不支持的消息卡片（看原始数据）。
   var openUnsupported: (UnsupportedItem) -> Void = { _ in }
+  /// 点了推荐联系人 / 群名片。
+  var openContact: (ContactCard) -> Void = { _ in }
   /// 点了消息里的号码（5 位以上）。
   var openNumber: (String) -> Void = { _ in }
   /// 跳到这条消息（点回复引用）；返回是否跳到了。

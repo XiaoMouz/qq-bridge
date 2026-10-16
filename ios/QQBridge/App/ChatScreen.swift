@@ -1053,6 +1053,15 @@ struct ChatScreen: View {
     actions.openNumber = { tappedNumber = $0 }
     actions.openAlbum = { albumTarget = $0 }
     actions.openUnsupported = { unsupportedItem = $0 }
+    actions.openContact = { card in
+      switch card.kind {
+      case .user: profileUser = ProfileTarget(userId: card.uin)
+      case .group:
+        // 还没有「按群号看别人的群」的资料页：先复制群号。
+        UIPasteboard.general.string = String(card.uin)
+        show("已复制群号 \(card.uin)")
+      }
+    }
     actions.botButton = { button, botId in pressBotButton(button, botId: botId) }
     actions.react = { m, emoji in
       Task {

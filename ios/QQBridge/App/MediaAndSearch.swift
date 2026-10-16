@@ -314,8 +314,21 @@ struct ForwardSegmentView: View {
   let seq: Int64
   let path: [Int32]
   @State private var media: MediaTarget?
+  @State private var unsupported: UnsupportedItem?
+  @State private var profile: ProfileTarget?
+  @State private var copied = false
 
   var body: some View {
+    content
+      .sheet(item: $unsupported) { UnsupportedDetailView(item: $0) }
+      .profileCard(item: $profile) { target in
+        NavigationStack {
+          UserProfileView(session: session, userId: target.userId, groupMember: nil, asCard: true, onClose: { profile = nil })
+        }
+      }
+  }
+
+  @ViewBuilder private var content: some View {
     switch segment.kind {
     case .text(let t): Text(t.text).textSelection(.enabled)
     case .mention(let m): Text("@\(m.name.isEmpty ? String(m.userID) : m.name)").bold()
@@ -361,7 +374,42 @@ struct ForwardSegmentView: View {
     case .file(let f): Label(f.name, systemImage: "doc")
     case .record: Label("语音", systemImage: "waveform")
     case .marketFace(let f): Text(f.summary.isEmpty ? "[表情]" : f.summary)
-    default: Text("[暂不支持的内容]").foregroundStyle(.secondary)
+    case .reply:
+      // 引用的是原会话里的消息，聊天记录里拿不到原文：只标一下是回复。
+      Label("回复了一条消息", systemImage: "arrowshape.turn.up.left").font(.caption).foregroundStyle(.secondary)
+    case .lightApp(let a):
+      if let card = ContactCard.parse(json: a.json, app: a.appName) {
+        ContactCardView(card: card) { card in
+          switch card.kind {
+          case .user: profile = ProfileTarget(userId: card.uin)
+          case .group:
+            UIPasteboard.general.string = String(card.uin)
+            copied = true
+          }
+        }
+        .padding(10)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+          if copied { Text("已复制群号").font(.caption2).padding(6).task { try? await Task.sleep(for: .seconds(1.5)); copied = false } }
+        }
+      } else if let card = AppCard.parse(json: a.json, app: a.appName) {
+        AppCardView(card: card, outgoing: false)
+          .padding(10)
+          .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      } else {
+        Label(CardText.from(json: a.json, app: a.appName), systemImage: "rectangle.on.rectangle").font(.subheadline)
+      }
+    case .xml: Label("[卡片消息]", systemImage: "rectangle.on.rectangle").font(.subheadline)
+    case .markdown(let m): MarkdownBlock(content: m.content, outgoing: false)
+    case .mentionAll: Text("@全体成员").bold()
+    case .unknown(let u):
+      switch u.original {
+      case "keyboard": EmptyView()
+      case "dice": Text("[骰子]")
+      case "rps": Text("[猜拳]")
+      default: UnsupportedCard(item: UnsupportedItem(u)) { unsupported = $0 }
+      }
+    case .none: EmptyView()
     }
   }
 }
