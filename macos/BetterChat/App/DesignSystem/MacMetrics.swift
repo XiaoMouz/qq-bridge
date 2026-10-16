@@ -18,9 +18,6 @@ enum MacMetrics {
   static let searchSpacingTop: CGFloat = 4
   static let searchSpacingBottom: CGFloat = 8
 
-  /// 底部分区栏只规定外边距；栏高由系统 UITabBar 的 sizeThatFits 决定，不写死。
-  static let tabBarVerticalInset: CGFloat = 8
-
   /// 会话、群助手、联系人、搜索结果的头像与间距同一组数值，切换分区时文字起点不跳动。
   /// 会话行三行预览时头像放大到 rowTallAvatar（与 iOS 的放大规则一致）。
   static let rowAvatar: CGFloat = 40
@@ -35,12 +32,6 @@ enum MacMetrics {
   /// 输入区与工具栏符号的统一字号。
   static let toolbarSymbolPointSize: CGFloat = 17
   static let composerButton = CGSize(width: 36, height: 40)
-
-  /// 分区栏符号：只统一比例与字重，字号仍由 UITabBar 按系统规格决定。
-  /// 计算属性：避免在非隔离的静态存储里持有 UIKit 对象（Swift 6 严格并发）。
-  @MainActor static var tabSymbolConfiguration: UIImage.SymbolConfiguration {
-    UIImage.SymbolConfiguration(scale: .medium).applying(UIImage.SymbolConfiguration(weight: .regular))
-  }
 
   static let statusMaxWidth: CGFloat = 580
   /// 新消息横幅：固定宽度，浮在窗口右上角（和系统通知的宽度相近）。

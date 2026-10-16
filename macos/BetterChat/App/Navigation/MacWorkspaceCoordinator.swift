@@ -49,9 +49,9 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     sidebarView.install(factory.sidebar(MacSidebarView(
       session: dependencies.session, sidebar: sidebar, search: search, contacts: contacts, dialogs: dialogs,
       actions: MacSidebarActions(
-        selectSection: { [weak self] in self?.reselectOrSelect($0) },
         selectContact: { [weak self] in self?.showContact($0) }))))
     toolbar = MacSidebarToolbar(item: sidebarView.navigationItem, actions: .init(
+      selectSection: { [weak self] in self?.reselectOrSelect($0) },
       refreshContacts: { [weak self] in self?.contacts.refresh() }))
     wireIntents()
     detail.show(chat.controller)
@@ -96,7 +96,8 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     let state = withObservationTracking {
       MacSidebarToolbar.State(section: sidebar.section,
                               contactsRefreshing: contacts.isRefreshing,
-                              showsArchived: dialogs.showsArchived)
+                              showsArchived: dialogs.showsArchived,
+                              hasUnread: sidebar.unread > 0)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in self?.observeSidebar() }
     }
