@@ -16,10 +16,12 @@
 # 自动更新（Sparkle，见 MacUpdater.swift）：
 #   SPARKLE_FEED_URL / SPARKLE_PUBLIC_KEY   写进 App 的 Info.plist（更新源、EdDSA 公钥）；不给就打出不会自动更新的包
 #   SPARKLE_ED_KEY                          EdDSA 私钥（generate_keys -x 导出的那一行），给了就签名 DMG 并生成 appcast.xml
-#   SPARKLE_DOWNLOAD_BASE                   DMG 的公开下载目录（appcast 里的下载链接 = 它 + 文件名）
+#   SPARKLE_DOWNLOAD_BASE                   更新目录的公开地址（appcast 里的下载链接 = 它 + /latest.dmg）
 #   RELEASE_NOTES                           可选：这一版的更新说明（纯文本，Sparkle 弹窗里显示）
-#   R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_PREFIX(默认 mac)
-#                                           给了就把 DMG 和 appcast.xml 传到 Cloudflare R2（aws cli，S3 兼容接口）
+#   R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_PATH
+#                                           给了就把 latest.dmg 和 appcast.xml 传到 Cloudflare R2（aws cli，S3 兼容接口）。
+#                                           更新桶多个项目共用，按「项目/设备/架构」分目录、每个目录只放最新一份，
+#                                           例如 R2_PATH=betterchat/macos/arm64（以后别的端换了打包方式，同目录下换后缀即可）。
 #
 # 没给 API 密钥时，签名和公证走本机 Xcode 里登录的开发者账号（团队 L7V7ULL3VT 的云端 Developer ID 证书），
 # 和 Organizer 的「直接分发」一样，本机不需要装 Developer ID 证书。
@@ -154,7 +156,8 @@ if [ -n "${SPARKLE_ED_KEY:-}" ]; then
   [ -n "$sign_update" ] && [ -x "$sign_update" ] || { echo "找不到 Sparkle 的 sign_update" >&2; exit 1; }
   # 输出形如：sparkle:edSignature="…" length="…"
   signature=$(printf '%s' "$SPARKLE_ED_KEY" | "$sign_update" --ed-key-file - "$dmg")
-  url="${SPARKLE_DOWNLOAD_BASE:?设了 SPARKLE_ED_KEY 也要设 SPARKLE_DOWNLOAD_BASE}/$(basename "$dmg")"
+  # 只保留 latest.dmg：链接带上构建号，Cloudflare 边缘缓存不会把旧包当新包发出去（签名就对不上了）。
+  url="${SPARKLE_DOWNLOAD_BASE:?设了 SPARKLE_ED_KEY 也要设 SPARKLE_DOWNLOAD_BASE}/latest.dmg?build=$build"
   notes=$(printf '%s' "${RELEASE_NOTES:-BetterChat for Mac $version}" | sed 's/]]>/]]]]><![CDATA[>/g')
   {
     echo '<?xml version="1.0" encoding="utf-8"?>'
@@ -176,14 +179,15 @@ if [ -n "${SPARKLE_ED_KEY:-}" ]; then
 fi
 
 if [ -n "${R2_BUCKET:-}" ]; then
-  step "上传 Cloudflare R2（$R2_BUCKET/${R2_PREFIX:-mac}）"
+  r2_path="${R2_PATH:?设了 R2_BUCKET 也要设 R2_PATH（项目/设备/架构，例如 betterchat/macos/arm64）}"
+  step "上传 Cloudflare R2（${r2_path}/latest.dmg、appcast.xml）"
   export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION=auto
   endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
-  dest="s3://$R2_BUCKET/${R2_PREFIX:-mac}"
-  aws s3 cp "$dmg" "$dest/$(basename "$dmg")" --endpoint-url "$endpoint" --content-type application/x-apple-diskimage
-  # 固定名字的「最新版」：给人直接下载用。
-  aws s3 cp "$dmg" "$dest/BetterChat-Mac-latest.dmg" --endpoint-url "$endpoint" --content-type application/x-apple-diskimage --cache-control no-cache
-  # appcast 最后传：DMG 都到位了才让已装的 App 看到新版本。
+  dest="s3://$R2_BUCKET/$r2_path"
+  # 只放最新一份；带版本号的 DMG 在 GitHub Release 里。
+  aws s3 cp "$dmg" "$dest/latest.dmg" --endpoint-url "$endpoint" --content-type application/x-apple-diskimage \
+    --cache-control no-cache --content-disposition "attachment; filename=\"$(basename "$dmg")\""
+  # appcast 最后传：DMG 到位了才让已装的 App 看到新版本。
   if [ -f "$out/appcast.xml" ]; then
     aws s3 cp "$out/appcast.xml" "$dest/appcast.xml" --endpoint-url "$endpoint" --content-type application/xml --cache-control no-cache
   fi

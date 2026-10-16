@@ -15,7 +15,8 @@
 #                   App ID com.xiaomouz.betterchat.mac，勾选上面那张证书）。API 密钥自动生成不了这种描述文件。
 # 自动更新（Sparkle）和 R2 托管：
 #   Secrets：SPARKLE_ED_KEY（generate_keys -x 导出的私钥那一行）、R2_ACCOUNT_ID、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET
-#   Variables：SPARKLE_PUBLIC_KEY（公钥）、SPARKLE_BASE_URL（R2 公开地址，到 mac/ 这一层，例如 https://dl.example.com/mac）
+#   Variables：SPARKLE_PUBLIC_KEY（公钥）、UPDATE_HOST（R2 桶的公开地址，例如 https://update.mou.best）
+#   桶里按「项目/设备/架构」分目录、只放最新一份：betterchat/macos/arm64/latest.dmg、appcast.xml（路径见下面的 UPDATE_PATH）
 #   没配这些时照常出 DMG，只是不签 Sparkle、不传 R2。
 name: macOS release
 
@@ -91,8 +92,9 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           RELEASE_DIR: ${{ runner.temp }}/release
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-          SPARKLE_FEED_URL: ${{ vars.SPARKLE_BASE_URL && format('{0}/appcast.xml', vars.SPARKLE_BASE_URL) || '' }}
-          SPARKLE_DOWNLOAD_BASE: ${{ vars.SPARKLE_BASE_URL }}
+          SPARKLE_FEED_URL: ${{ vars.UPDATE_HOST && format('{0}/betterchat/macos/arm64/appcast.xml', vars.UPDATE_HOST) || '' }}
+          SPARKLE_DOWNLOAD_BASE: ${{ vars.UPDATE_HOST && format('{0}/betterchat/macos/arm64', vars.UPDATE_HOST) || '' }}
+          R2_PATH: betterchat/macos/arm64
           SPARKLE_ED_KEY: ${{ secrets.SPARKLE_ED_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

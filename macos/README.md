@@ -170,7 +170,7 @@ swiftc -parse-as-library ios/QQBridge/App/NotificationReadPolicy.swift macos/tes
 
 - App 端：`SparkleBridge.bundle`（macOS 插件包，Catalyst 不能直接链接 AppKit 的 Sparkle）在启动时由 `MacUpdater` 加载，每天自动检查一次，菜单「BetterChat → 检查更新…」手动检查。沙盒下由 `Sparkle.framework` 自带的 XPC 服务下载安装（构建后脚本把框架挪到 `Contents/Frameworks`，权限里有对应的 mach-lookup 例外）。
 - 只有带了 `SPARKLE_FEED_URL` / `SPARKLE_PUBLIC_KEY` 打出的包才启用；平时的开发构建不检查更新。
-- 发布：`release.sh` 在 DMG 公证、钉票据之后用 EdDSA 私钥（`SPARKLE_ED_KEY`）签名，生成只含最新一版的 `appcast.xml`，再传到 Cloudflare R2：`<桶>/mac/BetterChat-Mac-<版本>-<构建号>.dmg`、`BetterChat-Mac-latest.dmg`（给人直接下载）、`appcast.xml`（最后传）。更新源 = `SPARKLE_BASE_URL/appcast.xml`。
+- 发布：`release.sh` 在 DMG 公证、钉票据之后用 EdDSA 私钥（`SPARKLE_ED_KEY`）签名，生成只含最新一版的 `appcast.xml`，再传到 Cloudflare R2。更新桶多个项目共用，按「项目/设备/架构」分目录、只放最新一份：`betterchat/macos/arm64/latest.dmg`（给人直接下载，也是 Sparkle 的下载地址）和 `appcast.xml`（最后传）。更新源 = `UPDATE_HOST/betterchat/macos/arm64/appcast.xml`；带版本号的 DMG 只在 GitHub Release 里。
 - EdDSA 密钥只生成一次：私钥丢了，已装的 App 就再也认不出新版本（只能手动装新包）。生成和导出：
 
 ```sh
