@@ -108,7 +108,7 @@ struct GroupEssenceView: View {
             Button {
               let urls = e.imageUrls.compactMap { URL(string: $0) }
               if let selected = URL(string: url), let index = urls.firstIndex(of: selected) {
-                remoteGallery = URLGallery(items: urls.map { .image($0) }, index: index)
+                remoteGallery = URLGallery(items: urls.map { .image($0.qqOriginalImage) }, index: index)
               }
             } label: {
               remoteImage(url)

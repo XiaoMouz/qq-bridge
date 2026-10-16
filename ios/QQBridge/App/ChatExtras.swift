@@ -707,7 +707,7 @@ struct NoticeDetailView: View {
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .modifier(MessageBlockAction(title: "查看公告图片 \(i + 1)", value: "共 \(notice.imageUrls.count) 张") {
-              gallery = URLGallery(items: notice.imageUrls.compactMap { URL(string: $0) }.map { .image($0) }, index: i)
+              gallery = URLGallery(items: notice.imageUrls.compactMap { URL(string: $0) }.map { .image($0.qqOriginalImage) }, index: i)
             })
         }
         Divider()
@@ -938,6 +938,18 @@ struct RemoteImage: View {
     } else {
       failed = true
     }
+  }
+}
+
+extension URL {
+  /// QQ 群公告 / 精华图片（gdynamic.qpic.cn/gdynamic/<id>/<尺寸>）的原图：尺寸换成 0。
+  /// 2026-10-16 实测（群 284633248 的公告图）：/628 是 491×570 的缩略图，/0 是原图 3750×4350，其他数字（1000、1080）返回 400。
+  /// 列表里继续用 /628（小、加载快），看大图时才取原图。
+  var qqOriginalImage: URL {
+    guard host() == "gdynamic.qpic.cn", pathComponents.count >= 4, lastPathComponent != "0",
+      Int(lastPathComponent) != nil
+    else { return self }
+    return deletingLastPathComponent().appendingPathComponent("0")
   }
 }
 
