@@ -1,0 +1,57 @@
+# iOS 发 TestFlight（脚本见 ios/release-testflight.sh）。
+# 触发：推 ios-v* 标签，或在 Actions 页面手动运行。版本号和构建号以 ios/QQBridge/project.yml 为准，推之前先改好；
+# 同一版本下构建号必须比上次上传的大。
+# Secrets 和 macOS 发布共用：ASC_KEY_ID、ASC_ISSUER_ID、ASC_KEY_P8（App Store Connect 团队密钥，Admin 角色）。
+name: iOS TestFlight
+
+on:
+  push:
+    tags: ["ios-v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    # 工程要 iOS 27 SDK：GitHub 的 Xcode 27 预览镜像（2026-10 时是 beta 版 Xcode，App Store Connect 可能拒收 beta 版打的包）。
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode 版本
+        run: xcodebuild -version
+
+      - name: 装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 写入 App Store Connect API 密钥
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          test -n "$ASC_KEY_P8" || { echo "缺少 Secret ASC_KEY_P8" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+
+      - name: 归档并上传
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" ./ios/release-testflight.sh
+
+      - name: 上传日志（失败时也传）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-logs
+          path: ${{ runner.temp }}/release/*/logs
+          if-no-files-found: ignore
+
+      - name: 清理密钥
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"
