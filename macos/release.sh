@@ -170,7 +170,7 @@ if [ -n "${SPARKLE_ED_KEY:-}" ]; then
     echo "      <sparkle:version>$build</sparkle:version>"
     echo "      <sparkle:shortVersionString>$version</sparkle:shortVersionString>"
     echo '      <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>'
-    echo "      <description><![CDATA[<pre>$notes</pre>]]></description>"
+    echo "      <description sparkle:format=\"plain-text\"><![CDATA[$notes]]></description>"
     echo "      <enclosure url=\"$url\" type=\"application/octet-stream\" $signature />"
     echo '    </item>'
     echo '  </channel>'

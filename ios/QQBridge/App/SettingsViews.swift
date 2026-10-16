@@ -595,6 +595,10 @@ struct AboutView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
       }
+      #if targetEnvironment(macCatalyst)
+      // Mac 版自动更新（Sparkle，见 macos/BetterChat/App/Application/MacUpdater.swift）。
+      MacUpdateSection()
+      #endif
       Section("服务器") {
         LabeledContent("地址") { Text(session.api.config.baseURL.absoluteString).textSelection(.enabled) }
         LabeledContent("连接", value: connectionText)

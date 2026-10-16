@@ -21,4 +21,14 @@ public final class BCSparkleBridge: NSObject {
   @objc public var canCheckForUpdates: Bool {
     controller.updater.canCheckForUpdates
   }
+
+  /// 自动检查（启动时和每天一次）；Sparkle 自己存在用户偏好里。
+  @objc public var automaticallyChecksForUpdates: Bool {
+    get { controller.updater.automaticallyChecksForUpdates }
+    set { controller.updater.automaticallyChecksForUpdates = newValue }
+  }
+
+  @objc public var lastUpdateCheckDate: Date? {
+    controller.updater.lastUpdateCheckDate
+  }
 }
