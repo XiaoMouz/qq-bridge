@@ -264,6 +264,27 @@ struct MessageBubbleRow: View {
   }
 
   @ViewBuilder private var menu: some View {
+    #if targetEnvironment(macCatalyst)
+    // Mac：和 iMessage 一样，菜单最上面一排表情回应（QQ 只有群聊能回应）。
+    if context.isGroup, !recalled {
+      ControlGroup {
+        ForEach(ReactionRecents.list, id: \.self) { id in
+          Button {
+            ReactionRecents.use(id)
+            context.actions.react(message, id)
+          } label: {
+            if let image = ReactionLabel.icon(id, size: 22) {
+              Label { Text(ReactionLabel.name(id)) } icon: { Image(uiImage: image) }
+            } else {
+              Text(ReactionLabel.name(id))
+            }
+          }
+        }
+        Button("更多表情…", systemImage: "face.smiling") { context.actions.pickReaction(message) }
+      }
+      .controlGroupStyle(.palette)
+    }
+    #endif
     if !recalled {
       Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
       Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
@@ -290,6 +311,7 @@ struct MessageBubbleRow: View {
     if context.isGroup, !outgoing {
       Button("@\(context.name(of: message.senderID))", systemImage: "at") { context.actions.mention(message.senderID) }
     }
+    #if !targetEnvironment(macCatalyst)
     if context.isGroup, !recalled {
       Menu("回应", systemImage: "face.smiling") {
         ForEach(ReactionRecents.list, id: \.self) { id in
@@ -308,6 +330,7 @@ struct MessageBubbleRow: View {
         Button("更多表情…", systemImage: "ellipsis") { context.actions.pickReaction(message) }
       }
     }
+    #endif
     switch context.recallKind(message) {
     case .normal:
       Button("撤回", systemImage: "arrow.uturn.backward", role: .destructive) { context.actions.recall(message) }
@@ -1603,6 +1626,18 @@ struct MentionText: View {
   }
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    MacMessageText(runs: runs, context: context, outgoing: outgoing, reserve: reserve)
+      .alignmentGuide(.lastTextBaseline) { $0.height - MacMessageText.lastBaselineFromBottom }
+      .onAppear {
+        for id in mentioned { context.avatars.wantImage(id, knownSha: context.lookup.avatar(id), session: context.session) }
+      }
+    #else
+    swiftUIText
+    #endif
+  }
+
+  @ViewBuilder private var swiftUIText: some View {
     let composed = Inline.compose(runs, outgoing: outgoing)
     let text = (reserve.map { composed + Text("\u{2002}\u{2002}\($0)").font(.caption2.monospacedDigit()).foregroundStyle(.clear) } ?? composed)
       .tint(outgoing ? .white : .accentColor)
