@@ -10,7 +10,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_HARDENED_RUNTIME: YES
     MARKETING_VERSION: "1.2"
-    CURRENT_PROJECT_VERSION: "3"
+    CURRENT_PROJECT_VERSION: "4"
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
