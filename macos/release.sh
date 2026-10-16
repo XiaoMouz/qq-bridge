@@ -53,7 +53,14 @@ fi
 
 step() { printf '\n==> %s\n' "$*"; }
 restore() { git -C "$root" checkout -- ios/QQBridgeKit/Package.resolved 2>/dev/null || true; }
-trap restore EXIT
+# 正文在子进程里跑，结束后在这里清理并带着它的退出码退出。不用 trap EXIT：macOS 自带的 bash 3.2 里，
+# set -u 报「变量未定义」时 EXIT trap 拿到的 $? 是 0，脚本出错也会返回 0（2026-10-16 CI 因此把失败的一步标成了成功）。
+if [ -z "${RELEASE_CHILD:-}" ]; then
+  status=0
+  RELEASE_CHILD=1 "$BASH" "$0" "$@" || status=$?
+  restore
+  exit "$status"
+fi
 
 step "BetterChat for Mac $version ($build) → $out"
 
@@ -77,7 +84,7 @@ if [ -n "${DEVELOPER_ID_PROFILE:-}" ]; then
   profiles_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
   mkdir -p "$profiles_dir"
   cp "$DEVELOPER_ID_PROFILE" "$profiles_dir/$profile_uuid.provisionprofile"
-  echo "描述文件：$profile_name（$profile_uuid）"
+  echo "描述文件：${profile_name}（${profile_uuid}）"
   signing="<key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>Developer ID Application</string>
   <key>provisioningProfiles</key>
@@ -135,7 +142,7 @@ if [ -n "${ASC_KEY_PATH:-}" ]; then
   xcrun notarytool submit "$dmg" --key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait
   xcrun stapler staple "$dmg"
 elif [ -n "${NOTARY_PROFILE:-}" ]; then
-  step "公证 DMG（notarytool，凭据 $NOTARY_PROFILE）"
+  step "公证 DMG（notarytool，凭据 ${NOTARY_PROFILE}）"
   xcrun notarytool submit "$dmg" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$dmg"
 fi

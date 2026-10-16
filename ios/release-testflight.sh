@@ -32,7 +32,14 @@ fi
 
 step() { printf '\n==> %s\n' "$*"; }
 restore() { git -C "$root" checkout -- ios/QQBridgeKit/Package.resolved 2>/dev/null || true; }
-trap restore EXIT
+# 正文在子进程里跑，结束后在这里清理并带着它的退出码退出。不用 trap EXIT：macOS 自带的 bash 3.2 里，
+# set -u 报「变量未定义」时 EXIT trap 拿到的 $? 是 0，脚本出错也会返回 0（2026-10-16 CI 因此把失败的一步标成了成功）。
+if [ -z "${RELEASE_CHILD:-}" ]; then
+  status=0
+  RELEASE_CHILD=1 "$BASH" "$0" "$@" || status=$?
+  restore
+  exit "$status"
+fi
 
 step "BetterChat iOS $version ($build) → TestFlight"
 
