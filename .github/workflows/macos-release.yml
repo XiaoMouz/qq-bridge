@@ -8,6 +8,8 @@
 #   DEVELOPER_ID_P12 / DEVELOPER_ID_P12_PASSWORD
 #                   Developer ID Application 证书（含私钥，base64 后的 .p12）和导出密码。
 #                   2026-10-16 实测：API 团队密钥不能用云端管理的分发证书（Cloud signing permission error），必须自带证书；
+#   APPLE_DEVELOPMENT_P12 / APPLE_DEVELOPMENT_P12_PASSWORD
+#                   团队 L7V7ULL3VT 的一张 Apple Development 证书（含私钥）：归档时用，免得 Xcode 每次在 CI 新建一张（见 .github/scripts/import-certs.sh）。
 #   MAC_DEVELOPER_ID_PROFILE
 #                   Developer ID 描述文件（base64 后的 .provisionprofile；开发者网站 → 描述文件 → Developer ID → Mac Catalyst，
 #                   App ID com.xiaomouz.betterchat.mac，勾选上面那张证书）。API 密钥自动生成不了这种描述文件。
@@ -55,23 +57,13 @@ jobs:
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           chmod 600 "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
 
-      - name: 导入 Developer ID 证书（临时钥匙串）
+      - name: 导入签名证书（临时钥匙串）
         env:
-          P12: ${{ secrets.DEVELOPER_ID_P12 }}
-          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-        run: |
-          test -n "$P12" || { echo "缺少 Secret DEVELOPER_ID_P12" >&2; exit 1; }
-          keychain="$RUNNER_TEMP/signing.keychain-db"
-          password=$(openssl rand -hex 16)
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 7200 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$P12_PASSWORD" -A -t cert -f pkcs12
-          rm -f "$RUNNER_TEMP/cert.p12"
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
-          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
-          security find-identity -v -p codesigning "$keychain"
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_DEVELOPMENT_P12: ${{ secrets.APPLE_DEVELOPMENT_P12 }}
+          APPLE_DEVELOPMENT_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPMENT_P12_PASSWORD }}
+        run: .github/scripts/import-certs.sh DEVELOPER_ID_P12 DEVELOPER_ID_P12_PASSWORD APPLE_DEVELOPMENT_P12 APPLE_DEVELOPMENT_P12_PASSWORD
 
       - name: 写入 Developer ID 描述文件
         env:
