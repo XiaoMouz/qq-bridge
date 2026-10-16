@@ -90,7 +90,10 @@ struct ReactionPicker: View {
       .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索表情")
       .navigationTitle("回应")
       .navigationBarTitleDisplayMode(.inline)
+      #if !targetEnvironment(macCatalyst)
+      // Mac 上是弹出框，点别处就收起，不要「取消」。
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+      #endif
     }
   }
 

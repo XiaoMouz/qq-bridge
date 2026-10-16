@@ -35,6 +35,13 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
       configuration.delegateClass = MacSettingsSceneDelegate.self
       return configuration
     }
+    let quickReply = options.userActivities.contains { $0.activityType == MacQuickReplyWindow.activityType }
+      || session.configuration.name == MacQuickReplyWindow.configurationName
+    if quickReply {
+      let configuration = UISceneConfiguration(name: MacQuickReplyWindow.configurationName, sessionRole: session.role)
+      configuration.delegateClass = MacQuickReplySceneDelegate.self
+      return configuration
+    }
     let configuration = UISceneConfiguration(name: media ? MacMediaWindows.configurationName : "Main", sessionRole: session.role)
     configuration.delegateClass = media ? MacMediaSceneDelegate.self : MacSceneDelegate.self
     return configuration
@@ -83,7 +90,7 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
     // 由 UINavigationBar 的 Mac 行为统一承载两栏工具，窗口标题不再另占一行。
     scene.titlebar?.titleVisibility = .visible
     scene.titlebar?.toolbarStyle = .unified
-    scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == nil OR NOT (SELF BEGINSWITH 'media:' OR SELF == 'settings')")
+    scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == nil OR NOT (SELF BEGINSWITH 'media:' OR SELF BEGINSWITH 'quickreply:' OR SELF == 'settings')")
     scene.sizeRestrictions?.minimumSize = MacMetrics.minimumWindow
     let window = MacWindow(windowScene: scene, router: router)
     window.tintColor = .systemBlue

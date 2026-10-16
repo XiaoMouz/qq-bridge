@@ -33,7 +33,6 @@ private struct MacGlobalOverlays: ViewModifier {
   let router: MacCommandRouter
   @Environment(AppModel.self) private var model
   @State private var qqLogin = false
-  @State private var expandedQuickReply: (chatId: Int64, composer: Composer)?
 
   func body(content: Content) -> some View {
     content
@@ -50,7 +49,7 @@ private struct MacGlobalOverlays: ViewModifier {
         Text(manualSync.error ?? "")
       }
       .sheet(isPresented: $qqLogin) { QqLoginSheet(session: session) }
-      .modifier(MacQuickReplySheet(session: session, router: router, expanded: $expandedQuickReply))
+      .modifier(MacQuickReplyOpener())
       .sheet(isPresented: Binding(get: {
         model.calls.call != nil && !model.calls.minimized && (model.calls.expanded || !model.calls.isRinging || !model.calls.quiet)
       }, set: { if !$0 { model.calls.minimized = true } })) {
@@ -121,29 +120,15 @@ private struct MacGlobalOverlays: ViewModifier {
   }
 }
 
-/// 快速回复浮层：草稿经命令路由与主会话交换；展开时等浮层实际消失再切换主会话，避免动画期间丢失导航。
-private struct MacQuickReplySheet: ViewModifier {
-  let session: Session
-  let router: MacCommandRouter
-  @Binding var expanded: (chatId: Int64, composer: Composer)?
+/// 快速回复：AppModel.quickReplyChat 被设上（横幅、会话列表右键）就开一个独立的小窗口（见 MacQuickReplyWindow），然后清掉请求。
+private struct MacQuickReplyOpener: ViewModifier {
   @Environment(AppModel.self) private var model
 
   func body(content: Content) -> some View {
-    content.sheet(item: Binding(get: { model.quickReplyChat.map(ChatRef.init) }, set: { model.quickReplyChat = $0?.id }), onDismiss: {
-      if let draft = expanded {
-        expanded = nil
-        router.workspace?.openChat(draft.chatId, composer: draft.composer)
-      }
-    }) { ref in
-      MacQuickReplyPage(session: session, chatId: ref.id,
-        initialComposer: router.workspace?.draftComposer(for: ref.id), onClose: { composer in
-          router.workspace?.updateDraft(composer, for: ref.id)
-        }) { composer in
-        expanded = (ref.id, composer)
-        model.quickReplyChat = nil
-      }
-      .environment(\.session, session)
-      .frame(minWidth: 360, idealWidth: 680, minHeight: 440, idealHeight: 640)
+    content.onChange(of: model.quickReplyChat) { _, id in
+      guard let id else { return }
+      model.quickReplyChat = nil
+      MacQuickReplyWindow.open(id)
     }
   }
 }

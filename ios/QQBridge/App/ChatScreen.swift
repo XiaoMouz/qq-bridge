@@ -55,6 +55,8 @@ struct ChatScreen: View {
   /// Mac 主窗口：资料在窗口右侧的检查器栏里（分栏控制器的 inspector 栏，由工作区协调器管理）。
   @Environment(\.macToggleChatInfo) private var toggleChatInfo
   @State private var showStickers = false
+  /// Mac 输入框上方的 @ 补全。
+  @State private var mentionCompletion = MentionCompletion()
   /// AI 语音面板（群聊）。
   @State private var showAiVoice = false
   /// 正在选回应的消息（完整的回应面板）。
@@ -116,6 +118,43 @@ struct ChatScreen: View {
 
   private func toggleInfo() {
     if usesInspector, let toggleChatInfo { toggleChatInfo() } else { showInfo = true }
+  }
+
+  /// 输入框（单独成属性：聊天页 body 很长，见 lessons L5）。
+  private var composerField: some View {
+    let completion = mentionCompletion
+    let composer = composer
+    return ComposerField(text: $composer.text, focused: $inputFocused, onSubmit: submitFromKeyboard, onPasteMedia: pasteMedia,
+                         completionActive: { completion.isActive },
+                         onCompletionKey: { (key: ComposerField.CompletionKey) in
+                           switch key {
+                           case .up: completion.move(-1)
+                           case .down: completion.move(1)
+                           case .confirm: completion.confirm(into: composer)
+                           case .cancel: completion.dismiss(text: composer.text)
+                           }
+                         })
+  }
+
+  @ViewBuilder private var mentionSuggestions: some View {
+    #if targetEnvironment(macCatalyst)
+    if mentionCompletion.isActive {
+      MentionSuggestionList(completion: mentionCompletion, avatars: avatars, session: session) { candidate in
+        mentionCompletion.confirm(candidate, into: composer)
+        inputFocused = true
+      }
+      .padding(.leading, 56)
+      .offset(y: -(MentionSuggestionList.height(rows: mentionCompletion.candidates.count) + 6))
+      .transition(.opacity)
+    }
+    #endif
+  }
+
+  private var stickerPanel: some View {
+    StickerPanel(session: session, onPick: { sticker in
+      showStickers = false
+      sendSticker(sticker)
+    }, onFace: { id, name in composer.insertFace(id: id, name: name) })
   }
 
   @ViewBuilder private var infoPage: some View {
@@ -323,12 +362,22 @@ struct ChatScreen: View {
         inputArea
       }
     }
+    #if targetEnvironment(macCatalyst)
+    // Mac：在右键的消息 / 点的按钮旁边弹出，点别处收起（以前是窗口中间的模态表单）。
+    .macPointerPopover(item: $pendingForward, size: CGSize(width: 360, height: 480)) { pending in
+      ChatPicker(session: session, showsCancel: false) { target in
+        pendingForward = nil
+        Task { await forward(pending, to: target) }
+      }
+    }
+    #else
     .sheet(item: $pendingForward) { pending in
       ChatPicker(session: session) { target in
         pendingForward = nil
         Task { await forward(pending, to: target) }
       }
     }
+    #endif
     #if !targetEnvironment(macCatalyst)
     .toolbar(.hidden, for: .tabBar)
     #endif
@@ -337,11 +386,14 @@ struct ChatScreen: View {
     .modifier(MacChatTitle(title: title, memberCount: isGroup ? peer?.memberCount : nil, typingUntil: model.typing[chatId]))
     #endif
     .toolbar {
+      #if !targetEnvironment(macCatalyst)
+      // Mac 的快速回复是独立窗口，用窗口自己的关闭按钮。
       if onExpand != nil {
         ToolbarItem(placement: .topBarLeading) {
           Button("关闭", systemImage: "xmark") { dismiss() }
         }
       }
+      #endif
       #if !targetEnvironment(macCatalyst)
       ToolbarItem(placement: .principal) {
         Button { showInfo = true } label: {
@@ -427,13 +479,11 @@ struct ChatScreen: View {
       }
       .presentationDetents([.medium, .large])
     }
+    #if !targetEnvironment(macCatalyst)
     .sheet(isPresented: $showStickers) {
-      StickerPanel(session: session, onPick: { sticker in
-        showStickers = false
-        sendSticker(sticker)
-      }, onFace: { id, name in composer.insertFace(id: id, name: name) })
-      .presentationDetents([.medium, .large])
+      stickerPanel.presentationDetents([.medium, .large])
     }
+    #endif
     .task { await open() }
     .onAppear {
       if searchingFor == nil { history.resume(using: SessionChatHistoryPagingService(session: session, chatId: chatId)) }
@@ -483,8 +533,13 @@ struct ChatScreen: View {
       // 完整草稿移交不是删字，不能据旧页面的文字删除新草稿中的 @。
       guard old.identity == new.identity else { return }
       composer.textChanged(from: old.text, to: new.text)
+      #if targetEnvironment(macCatalyst)
+      // Mac：输入框上方的补全列表跟着筛选（见 MentionCompletion）。
+      if isGroup { mentionCompletion.update(text: new.text, members: members, canMentionAll: true) }
+      #else
       // 群里输入 "@"：弹出选人。
       if isGroup, new.text.hasSuffix("@"), new.text.count == old.text.count + 1 { composer.pickingMention = true }
+      #endif
       // 删掉了的 "@名字" / "[表情]"：发送时找不到就当没有（见 Composer.segments）。
     }
     // 一次最多选 20 张 / 个，按选择的顺序逐条发出。
@@ -723,7 +778,7 @@ struct ChatScreen: View {
           // 中：输入框占满，右侧嵌着表情按钮。
           HStack(alignment: .bottom, spacing: 4) {
             // 实体键盘（iPhone 镜像等）回车发送；粘贴图片、文件变成附件。见 ComposerField。
-            ComposerField(text: $composer.text, focused: $inputFocused, onSubmit: submitFromKeyboard, onPasteMedia: pasteMedia)
+            composerField
             Button { showStickers = true } label: {
               #if targetEnvironment(macCatalyst)
               Image(systemName: "face.smiling").font(.system(size: 17, weight: .medium)).foregroundStyle(.secondary).frame(width: 36, height: 40)
@@ -733,6 +788,10 @@ struct ChatScreen: View {
             }
             #if targetEnvironment(macCatalyst)
             .buttonStyle(.plain).accessibilityLabel("表情与贴纸").help("表情与贴纸")
+            // Mac：贴着表情按钮弹出，点别处收起（以前是窗口中间的模态表单）。
+            .popover(isPresented: $showStickers, arrowEdge: .bottom) {
+              stickerPanel.frame(width: 420, height: 460)
+            }
             #endif
           }
           .padding(.leading, 14)
@@ -763,6 +822,8 @@ struct ChatScreen: View {
         }
       }
       .padding(.horizontal, 12)
+      .overlay(alignment: .topLeading) { mentionSuggestions }
+      .animation(.easeOut(duration: 0.12), value: mentionCompletion.isActive)
     }
     .padding(.vertical, 8)
   }
@@ -1556,13 +1617,24 @@ struct ReactionSheet: ViewModifier {
   let react: (Qqbridge_V1_Message, String) -> Void
 
   func body(content: Content) -> some View {
-    content.sheet(item: Binding(get: { message.map(ReactTarget.init) }, set: { message = $0?.message })) { target in
+    let target = Binding(get: { message.map(ReactTarget.init) }, set: { message = $0?.message })
+    #if targetEnvironment(macCatalyst)
+    // Mac：在右键的那条消息旁边弹出，点别处收起。
+    content.macPointerPopover(item: target, size: CGSize(width: 360, height: 420)) { target in
+      ReactionPicker { id in
+        message = nil
+        react(target.message, id)
+      }
+    }
+    #else
+    content.sheet(item: target) { target in
       ReactionPicker { id in
         message = nil
         react(target.message, id)
       }
       .presentationDetents([.medium, .large])
     }
+    #endif
   }
 }
 

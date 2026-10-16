@@ -8,7 +8,8 @@ extension View {
   @ViewBuilder
   func profileCard<Content: View>(item: Binding<ProfileTarget?>, @ViewBuilder content: @escaping (ProfileTarget) -> Content) -> some View {
     #if targetEnvironment(macCatalyst)
-    background(MacProfileCardPresenter(item: item, content: content))
+    // Mac：在点的头像 / 名字旁边弹出（和「信息」App 的联系人卡片一样），点别处收起。
+    macPointerPopover(item: item, size: CGSize(width: 360, height: 520), content: content)
     #else
     sheet(item: item, content: content)
     #endif
@@ -143,22 +144,10 @@ struct UserProfileView: View {
     }
     .navigationTitle("资料")
     .navigationBarTitleDisplayMode(.inline)
-    #if targetEnvironment(macCatalyst)
-    // Mac 资料卡没有 iPhone 的下拉关闭手势，保留可见的退出入口。
-    .toolbar {
-      if asCard {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("关闭") {
-            openRequest.cancel()
-            if let onClose { onClose() } else { dismiss() }
-          }
-          .keyboardShortcut(.cancelAction)
-        }
-      }
-    }
-    .onDisappear { openRequest.cancel() }
-    #else
+    // 资料卡：iPhone 是表单（下拉关闭），Mac 是弹出框（点别处、Esc 关闭），都不要标题栏和「关闭」。
     .toolbar(asCard ? .hidden : .automatic, for: .navigationBar)
+    #if targetEnvironment(macCatalyst)
+    .onDisappear { openRequest.cancel() }
     #endif
     .overlay { if loading && profile == nil && cached == nil { ProgressView() } }
     .onAppear { if cached == nil { cached = try? session.store.peer(kind: .user, peerId: userId) } }

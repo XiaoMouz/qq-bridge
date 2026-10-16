@@ -618,6 +618,8 @@ private struct CanvasView: UIViewRepresentable {
 struct ChatPicker: View {
   let session: Session
   var title = "转发给"
+  /// 弹出框里不要「取消」（点别处就收起）。
+  var showsCancel = true
   var onCancel: (() -> Void)? = nil
   let onPick: (Int64) -> Void
   @Environment(\.dismiss) private var dismiss
@@ -679,11 +681,13 @@ struct ChatPicker: View {
       .navigationTitle(title)
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("取消", action: cancel)
-            #if targetEnvironment(macCatalyst)
-            .keyboardShortcut(.cancelAction)
-            #endif
+        if showsCancel {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("取消", action: cancel)
+              #if targetEnvironment(macCatalyst)
+              .keyboardShortcut(.cancelAction)
+              #endif
+          }
         }
       }
       .alert("打不开这个会话", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in

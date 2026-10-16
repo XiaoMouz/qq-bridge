@@ -65,6 +65,8 @@ final class MacWindow: UIWindow {
   init(windowScene: UIWindowScene, router: MacCommandRouter) {
     self.router = router
     super.init(windowScene: windowScene)
+    // 回应面板、资料卡在鼠标位置弹出（见 MacPopover.swift）。
+    MacPointer.install(on: self)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 

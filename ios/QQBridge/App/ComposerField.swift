@@ -15,6 +15,11 @@ struct ComposerField: UIViewRepresentable {
   var onSubmit: () -> Void
   /// 剪贴板里有媒体时调用；返回 true 表示已经处理（不再粘贴文字）。
   var onPasteMedia: () -> Bool
+  /// Mac 的 @ 补全列表开着时，↑↓、回车、Tab、Esc 交给它（见 MentionCompletion）。
+  var completionActive: () -> Bool = { false }
+  var onCompletionKey: (CompletionKey) -> Void = { _ in }
+
+  enum CompletionKey { case up, down, confirm, cancel }
 
   func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -126,6 +131,17 @@ final class ComposerTextView: UITextView {
   // MARK: 实体键盘的回车
 
   override var keyCommands: [UIKeyCommand]? {
+    if let parent = coordinator?.parent, parent.completionActive(), markedTextRange == nil {
+      let commands = [
+        UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(completionUp)),
+        UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(completionDown)),
+        UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(completionConfirm)),
+        UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(completionConfirm)),
+        UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(completionCancel)),
+      ]
+      for command in commands { command.wantsPriorityOverSystemBehavior = true }
+      return commands
+    }
     let send = UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(returnPressed))
     send.wantsPriorityOverSystemBehavior = true
     let shiftNewline = UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(newlinePressed))
@@ -143,6 +159,11 @@ final class ComposerTextView: UITextView {
     }
     coordinator?.parent.onSubmit()
   }
+
+  @objc private func completionUp() { coordinator?.parent.onCompletionKey(.up) }
+  @objc private func completionDown() { coordinator?.parent.onCompletionKey(.down) }
+  @objc private func completionConfirm() { coordinator?.parent.onCompletionKey(.confirm) }
+  @objc private func completionCancel() { coordinator?.parent.onCompletionKey(.cancel) }
 
   @objc private func newlinePressed() {
     if markedTextRange != nil { unmarkText() }

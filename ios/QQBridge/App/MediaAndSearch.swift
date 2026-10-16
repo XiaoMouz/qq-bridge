@@ -417,6 +417,12 @@ struct ForwardSegmentView: View {
 // MARK: - 表情面板（我在 QQ 收藏的表情）
 
 struct StickerPanel: View {
+  /// Mac 的弹出框比手机屏幕宽、鼠标点得准：一行 6 个。
+  #if targetEnvironment(macCatalyst)
+  static let stickerColumns = 6
+  #else
+  static let stickerColumns = 4
+  #endif
   let session: Session
   let onPick: (Qqbridge_V1_Sticker) -> Void
   /// 点了 QQ 小黄脸（插进输入框）；nil 时不显示小黄脸页。
@@ -446,7 +452,7 @@ struct StickerPanel: View {
           }
           .padding()
         } else {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: Self.stickerColumns), spacing: 8) {
           ForEach(stickers, id: \.md5) { s in
             let ready = prepared[s.md5] ?? (s.sha256.isEmpty ? nil : s)
             Button {

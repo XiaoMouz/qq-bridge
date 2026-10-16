@@ -71,6 +71,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   func tearDown() {
     router.detach(self)
     MacSettingsWindow.close()
+    MacQuickReplyWindow.closeAll()
     manualSync.cancel()
     search.cancel()
   }
