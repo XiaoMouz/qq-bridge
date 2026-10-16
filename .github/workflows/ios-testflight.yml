@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   upload:
-    # 工程要 iOS 27 SDK：GitHub 的 Xcode 27 预览镜像（2026-10 时是 beta 版 Xcode，App Store Connect 可能拒收 beta 版打的包）。
+    # 工程要 iOS 27 SDK：GitHub 的 xcode-27 镜像（2026-10-16 实测 Xcode 27.0 正式版 27A266a，上传 TestFlight 成功；App Store 分发证书用 API 密钥的云端证书即可）。
     runs-on: xcode-27
     timeout-minutes: 60
     steps:

@@ -5,6 +5,10 @@
 #   ASC_KEY_ID      密钥 ID
 #   ASC_ISSUER_ID   Issuer ID
 #   ASC_KEY_P8      下载的 AuthKey_XXXX.p8 的全文
+#   DEVELOPER_ID_P12 / DEVELOPER_ID_P12_PASSWORD
+#                   Developer ID Application 证书（含私钥，base64 后的 .p12）和导出密码。
+#                   2026-10-16 实测：API 团队密钥不能用云端管理的分发证书（Cloud signing permission error），必须自带证书；
+#                   描述文件仍由 API 密钥自动生成。
 # 自动更新（Sparkle）和 R2 托管：
 #   Secrets：SPARKLE_ED_KEY（generate_keys -x 导出的私钥那一行）、R2_ACCOUNT_ID、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET
 #   Variables：SPARKLE_PUBLIC_KEY（公钥）、SPARKLE_BASE_URL（R2 公开地址，到 mac/ 这一层，例如 https://dl.example.com/mac）
@@ -25,7 +29,7 @@ concurrency:
 
 jobs:
   release:
-    # 工程要 macOS 27 / iOS 27 SDK：GitHub 的 Xcode 27 预览镜像（2026-10 时还是预览，见 actions/runner-images#14404）。
+    # 工程要 macOS 27 / iOS 27 SDK：GitHub 的 xcode-27 镜像（预览标签，2026-10-16 实测是 Xcode 27.0 正式版 27A266a）。
     runs-on: xcode-27
     timeout-minutes: 90
     steps:
@@ -48,6 +52,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           chmod 600 "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+
+      - name: 导入 Developer ID 证书（临时钥匙串）
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          test -n "$P12" || { echo "缺少 Secret DEVELOPER_ID_P12" >&2; exit 1; }
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$P12_PASSWORD" -A -t cert -f pkcs12
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain"
 
       - name: 更新说明（上一个 mac-v 标签之后的提交标题）
         run: |
@@ -97,4 +119,6 @@ jobs:
 
       - name: 清理密钥
         if: always()
-        run: rm -rf "$RUNNER_TEMP/asc"
+        run: |
+          rm -rf "$RUNNER_TEMP/asc"
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
