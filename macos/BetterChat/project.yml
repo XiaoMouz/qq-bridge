@@ -12,6 +12,9 @@ settings:
     MARKETING_VERSION: "1.1"
     CURRENT_PROJECT_VERSION: "2"
 packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.10.0"
   QQBridgeKit:
     path: ../../ios/QQBridgeKit
   Lottie:
@@ -77,8 +80,36 @@ targets:
       - package: LiveKit
         product: LiveKit
       - target: MacNotificationService
+      # 自动更新：AppKit 插件包加载 Sparkle（Catalyst 不能直接链接 AppKit 框架），见 MacUpdater.swift。
+      - target: SparkleBridge
+        platformFilter: macOS
+        embed: true
+        link: false
+        copy:
+          destination: plugins
+    postBuildScripts:
+      - name: Sparkle.framework 移到 Frameworks
+        # Sparkle 的安装 / 下载 XPC 服务在 Sparkle.framework 里，launchd 只在 App 自己的 Contents/Frameworks 下找；
+        # 插件包里的那份挪出来，插件包按 @executable_path/../Frameworks 找到它。挪动后重签插件包（签名覆盖其内容）。
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          contents="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH"
+          plugin="$contents/PlugIns/SparkleBridge.bundle"
+          [ -d "$plugin/Contents/Frameworks/Sparkle.framework" ] || exit 0
+          mkdir -p "$contents/Frameworks"
+          rm -rf "$contents/Frameworks/Sparkle.framework"
+          mv "$plugin/Contents/Frameworks/Sparkle.framework" "$contents/Frameworks/"
+          rmdir "$plugin/Contents/Frameworks" 2>/dev/null || true
+          if [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+            codesign --force --options runtime --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$contents/Frameworks/Sparkle.framework"
+            codesign --force --options runtime --timestamp=none --sign "$EXPANDED_CODE_SIGN_IDENTITY" --preserve-metadata=identifier,entitlements "$plugin"
+          fi
     settings:
       base:
+        # 自动更新源和 EdDSA 公钥：只有 macos/release.sh 在命令行传入（CI 用仓库 Variables），平时的构建为空，不会去拉正式版。
+        SPARKLE_FEED_URL: ""
+        SPARKLE_PUBLIC_KEY: ""
         PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.mac
         PRODUCT_NAME: BetterChat
         SUPPORTS_MACCATALYST: YES
@@ -118,6 +149,32 @@ targets:
         UILaunchScreen: {}
         NSUserActivityTypes: [INSendMessageIntent]
         UIBackgroundModes: [audio, voip]
+        SUFeedURL: $(SPARKLE_FEED_URL)
+        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
+        # 沙盒 App 由 Sparkle.framework 里的 XPC 服务完成安装。
+        SUEnableInstallerLauncherService: true
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+
+  SparkleBridge:
+    type: bundle
+    platform: macOS
+    sources:
+      - SparkleBridge
+    dependencies:
+      - package: Sparkle
+        product: Sparkle
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.xiaomouz.betterchat.mac.SparkleBridge
+        PRODUCT_NAME: SparkleBridge
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        DEVELOPMENT_TEAM: L7V7ULL3VT
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSPrincipalClass: BCSparkleBridge
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../Frameworks"
+        SKIP_INSTALL: YES
 
   MacNotificationService:
     type: app-extension

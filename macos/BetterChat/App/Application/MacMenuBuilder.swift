@@ -47,6 +47,12 @@ struct MacMenuBuilder {
     builder.insertSibling(UIMenu(title: "", identifier: .init("com.xiaomouz.betterchat.mac.settings"), options: .displayInline, children: [
       UIAction(title: "设置…", attributes: attributes) { _ in router.workspace?.showSettings() },
     ]), afterMenu: .about)
+    // 自动更新（Sparkle）：只在配了更新源的发布构建里出现。
+    if MacUpdater.isAvailable {
+      builder.insertSibling(UIMenu(title: "", identifier: .init("com.xiaomouz.betterchat.mac.updates"), options: .displayInline, children: [
+        UIAction(title: "检查更新…") { _ in MacUpdater.checkForUpdates() },
+      ]), afterMenu: .about)
+    }
   }
 }
 

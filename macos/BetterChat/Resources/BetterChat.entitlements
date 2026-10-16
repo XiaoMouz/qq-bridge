@@ -13,4 +13,10 @@
   <key>com.apple.security.personal-information.photos-library</key><true/>
   <key>com.apple.developer.aps-environment</key><string>development</string>
   <key>com.apple.developer.usernotifications.communication</key><true/>
+  <!-- Sparkle 自动更新：沙盒 App 经这两个 XPC 服务下载 / 安装更新。 -->
+  <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+  <array>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+  </array>
 </dict></plist>

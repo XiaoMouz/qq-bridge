@@ -21,6 +21,7 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
     if Self.runsStateTests { return true }
     notifications.attach(AppModel.shared)
     router.workspaceChanged = { UIMenuSystem.main.setNeedsRebuild() }
+    MacUpdater.start()
     return notifications.application(application, didFinishLaunchingWithOptions: options)
   }
   func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
