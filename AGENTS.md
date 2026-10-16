@@ -66,7 +66,10 @@ docker exec qqbridge-postgres psql -U qqbridge -d qqbridge
 
 ## 规矩
 
-- **提交**：`git -c commit.gpgsign=false commit`，中文说明（写清楚改了什么、为什么），**不加 Co-Authored-By**。一个功能一个提交。
+- **提交**：`git -c commit.gpgsign=false commit`，**不加 Co-Authored-By**，一个功能一个提交。说明用[约定式提交](https://www.conventionalcommits.org/zh-hans/)：
+  - 标题 `类型(范围): 简短描述`，一行、不超过 50 个字左右，描述用中文、不加句号。类型：`feat` 新功能、`fix` 修复、`refactor`、`perf`、`docs`、`test`、`build`、`ci`、`chore`（版本号等）。范围按模块：`ios`、`mac`、`server`、`plugin`、`protocol`、`deploy`、`ci` 等，跨多个就省略或写主要的。
+  - 正文（空一行后）写为什么、原来的问题、实测结论，几行就够；不要把细节全塞进标题。
+  - 例：`fix(ios): 群公告图片点开显示原图`；`chore(mac): 版本 1.4 (6)`；`ci(mac): 导入固定的开发证书`。
 - **版本**：没有用户明确说「发布 / 打包」就不改版本号、不打包、不开 Organizer。要发布时升小版本（1.12 → 1.13）、构建号 +1；同版本重打只加构建号。打包后还原 `Package.resolved`。
 - **秘密**：不打印 `deploy/.env`、APNs `.p8` 的内容；不替用户登录、不创建设备令牌。
 - **测试**：发测试消息只在测试群「Something」（chat 153，群号 521409608）；不给用户手机（设备 5）发测试推送，模拟器是设备 7（sandbox）。
