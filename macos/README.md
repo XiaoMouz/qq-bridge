@@ -153,6 +153,19 @@ swiftc -parse-as-library ios/QQBridge/App/NotificationReadPolicy.swift macos/tes
 /tmp/qqbridge-notification-read-check
 ```
 
+## 发布（DMG、自动公证）
+
+```sh
+./macos/release.sh
+```
+
+一条命令完成：Release 归档 → Developer ID 签名并提交 Apple 公证 → 等公证完成、取回钉好票据的 app → 检查签名与 Gatekeeper → 打 DMG（拖到「应用程序」的布局）。版本号取 `BetterChat/project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`，产物在 `macos/.release/BetterChat-<版本>-<构建号>/`，日志在其中的 `logs/`。
+
+- **本机**：签名、公证走 Xcode 里登录的开发者账号（云端 Developer ID 证书，和 Organizer「直接分发」相同），不需要装证书。设 `NOTARY_PROFILE`（notarytool 钥匙串凭据）时 DMG 本身也公证。
+- **GitHub Actions**（`.github/workflows/macos-release.yml`）：跑在 GitHub 的 `xcode-27` 预览机器上，推 `mac-v<版本>` 标签或手动触发；产出 DMG 作为构建产物，推标签时同时发 GitHub Release。签名和公证用 App Store Connect API 密钥（Admin 角色），在仓库 Secrets 里放 `ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_KEY_P8`（.p8 全文）；有密钥时 DMG 也会公证并钉票据。
+
+产物只支持 Apple 芯片、macOS 27+。
+
 ## 验证
 
 持续对齐工作的逐项范围和证据见 [能力对齐清单](PARITY.md)。群助手汇总行、快速回复浮层和手动同步已补齐实现；群助手与快速回复展开已于 2026-10-14 实机复验。

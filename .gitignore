@@ -32,3 +32,5 @@ ios/.build-app/
 macos/BetterChat/*.xcodeproj/
 macos/.build-app/
 macos/.build-signed/
+macos/.release/
+ios/.release/
