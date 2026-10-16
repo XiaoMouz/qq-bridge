@@ -33,6 +33,8 @@ struct QQBridgeApp: App {
     .onChange(of: scenePhase) { _, phase in
       guard !AppDelegate.isRunningStateTests else { return }
       model.setActive(phase == .active)
+      // 新版本提示：启动、回到前台时，距上次检查超过 6 小时才查（见 AppUpdate.swift）。
+      if phase == .active { AppUpdate.shared.checkIfDue() }
     }
   }
 }

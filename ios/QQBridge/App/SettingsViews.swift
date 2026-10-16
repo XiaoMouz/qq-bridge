@@ -24,7 +24,19 @@ struct SettingsView: View {
           #if targetEnvironment(macCatalyst)
           NavigationLink { MacDownloadSettingsView() } label: { Label("下载", systemImage: "arrow.down.circle") }
           #endif
-          NavigationLink { AboutView(session: session) } label: { Label("关于", systemImage: "info.circle") }
+          NavigationLink { AboutView(session: session) } label: {
+            #if targetEnvironment(macCatalyst)
+            Label("关于", systemImage: "info.circle")
+            #else
+            HStack {
+              Label("关于", systemImage: "info.circle")
+              Spacer()
+              if let update = AppUpdate.shared.available {
+                Text("新版本 \(update.version)").font(.caption.weight(.medium)).foregroundStyle(.tint)
+              }
+            }
+            #endif
+          }
         } }
         Section {
           Button(role: .destructive) { confirmLogout = true } label: {
@@ -573,6 +585,43 @@ enum Bytes {
 
 // MARK: - 关于
 
+/// 关于页里的「版本更新」（iOS）：有新版时说明是什么、去 TestFlight 更新；没有就写已是最新、上次检查时间。
+struct AppUpdateSection: View {
+  private var update: AppUpdate { .shared }
+
+  var body: some View {
+    Section {
+      if let new = update.available {
+        VStack(alignment: .leading, spacing: 6) {
+          Text("新版本 \(new.version) (\(new.build)) 已发布").font(.subheadline.weight(.semibold))
+          if let notes = new.notes?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
+            Text(notes).font(.footnote).foregroundStyle(.secondary)
+          }
+        }
+        .padding(.vertical, 2)
+        Button("前往 TestFlight 更新", systemImage: "arrow.down.app") { update.openTestFlight() }
+      } else {
+        LabeledContent("已是最新版本") {
+          if update.checking { ProgressView() }
+        }
+        Button("检查更新") { Task { await update.check() } }
+          .disabled(update.checking)
+      }
+    } header: {
+      Text("版本更新")
+    } footer: {
+      if update.available != nil {
+        Text("在 TestFlight 里点「更新」安装。刚发布的版本可能要过几分钟才出现。")
+      } else if let error = update.error {
+        Text(error)
+      } else if let last = update.lastCheck {
+        Text("上次检查：\(last.formatted(date: .abbreviated, time: .shortened))")
+      }
+    }
+    .onAppear { update.markSeen() }
+  }
+}
+
 struct AboutView: View {
   let session: Session
   /// 调用方可直接提供图标（Mac Catalyst 的 Info.plist 没有 CFBundleIcons）；不传时沿用下面的查找。
@@ -598,6 +647,8 @@ struct AboutView: View {
       #if targetEnvironment(macCatalyst)
       // Mac 版自动更新（Sparkle，见 macos/BetterChat/App/Application/MacUpdater.swift）。
       MacUpdateSection()
+      #else
+      AppUpdateSection()
       #endif
       Section("服务器") {
         LabeledContent("地址") { Text(session.api.config.baseURL.absoluteString).textSelection(.enabled) }

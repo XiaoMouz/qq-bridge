@@ -35,6 +35,8 @@ struct RootView: View {
       Tab("设置", systemImage: "gearshape", value: 2) {
         SettingsView(session: session)
       }
+      // 有新版本：一个「新」字，不是数字（免得和未读混淆）；进过一次「关于」就消失。
+      .badge(AppUpdate.shared.showsBadge ? Text("新") : nil)
       Tab(value: 3, role: .search) {
         SearchView(session: session)
       }
