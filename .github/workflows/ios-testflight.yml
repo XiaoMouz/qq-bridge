@@ -21,6 +21,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Xcode 版本
         run: xcodebuild -version
@@ -44,11 +46,30 @@ jobs:
           APPLE_DEVELOPMENT_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPMENT_P12_PASSWORD }}
         run: .github/scripts/import-certs.sh APPLE_DEVELOPMENT_P12 APPLE_DEVELOPMENT_P12_PASSWORD
 
+      - name: 更新说明（上一个 ios-v 标签之后的提交标题）
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'ios-v*' HEAD^ 2>/dev/null || true)
+          range=${prev:+$prev..}HEAD
+          if [ -n "$prev" ]; then limit=40; else limit=15; fi
+          # 和 macOS 一样：只算 App 代码，去掉约定式提交的前缀，chore / ci / docs 这类不列。
+          {
+            echo 'RELEASE_NOTES<<NOTES_END'
+            git log --no-merges --format='%s' "$range" -- ios/QQBridge/App ios/QQBridge/Shared ios/QQBridge/NotificationService ios/QQBridgeKit/Sources \
+              | perl -Mutf8 -CSD -ne 'chomp; next if /^(chore|ci|docs|test|build|style)(\(.*?\))?!?:/; s/^\w+(\(.*?\))?!?:\s*//; s/[：；（].*//; print "• ", substr($_, 0, 60), "\n"' | head -n "$limit"
+            echo 'NOTES_END'
+          } >>"$GITHUB_ENV"
+
       - name: 归档并上传
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           RELEASE_DIR: ${{ runner.temp }}/release
+          # 新版本提示：上传成功后写 latest.json 到 R2（App/AppUpdate.swift 读它）。
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PATH: betterchat/ios/arm64
         run: ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" ./ios/release-testflight.sh
 
       - name: 上传日志（失败时也传）

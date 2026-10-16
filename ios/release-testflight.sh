@@ -8,6 +8,9 @@
 # 签名和上传用 App Store Connect API 密钥（Admin 角色，和 macos/release.sh 同一把）；没给时走本机 Xcode 登录的账号
 # （从命令行调用常报 No Accounts，这时用 Organizer 上传）。
 # 产物在 ios/.release/BetterChat-<版本>-<构建号>/，日志在其中的 logs/。
+#
+# 新版本提示（App/AppUpdate.swift）：给了 R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_PATH
+# 就在上传成功后写 latest.json（版本、构建号、RELEASE_NOTES、时间）到 R2，例如 R2_PATH=betterchat/ios/arm64。
 set -euo pipefail
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -68,5 +71,19 @@ EOF
 xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$opts" -exportPath "$out/upload" \
   -allowProvisioningUpdates ${auth[@]+"${auth[@]}"} >"$log/upload.log" 2>&1 \
   || { tail -30 "$log/upload.log"; echo "上传失败，完整日志：$log/upload.log" >&2; exit 1; }
+
+if [ -n "${R2_BUCKET:-}" ]; then
+  r2_path="${R2_PATH:?设了 R2_BUCKET 也要设 R2_PATH（项目/设备/架构，例如 betterchat/ios/arm64）}"
+  step "写新版本信息到 Cloudflare R2（${r2_path}/latest.json）"
+  VERSION="$version" BUILD="$build" NOTES="${RELEASE_NOTES:-}" python3 - "$out/latest.json" <<'PY'
+import json, os, sys, datetime
+info = {"version": os.environ["VERSION"], "build": int(os.environ["BUILD"]),
+        "notes": os.environ["NOTES"].strip(), "publishedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
+json.dump(info, open(sys.argv[1], "w"), ensure_ascii=False)
+PY
+  export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" AWS_DEFAULT_REGION=auto
+  aws s3 cp "$out/latest.json" "s3://$R2_BUCKET/$r2_path/latest.json" --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+    --content-type "application/json; charset=utf-8" --cache-control no-cache
+fi
 
 step "完成：已上传 $version ($build)，Apple 处理完（通常十几分钟）会出现在 TestFlight"
