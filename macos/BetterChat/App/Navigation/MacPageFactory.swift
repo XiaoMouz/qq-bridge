@@ -42,8 +42,11 @@ struct MacPageFactory: MacChatPageBuilding {
   func chatInfo(_ id: Int64, mention: @escaping (Int64, String) -> Void) -> UIViewController {
     let controller = UIHostingController(rootView: NavigationStack {
       MacChatInfoView(session: session, chatId: id, mention: mention)
-    }.environment(model).environment(\.session, session))
-    controller.view.backgroundColor = .clear
+    }
+    .scrollContentBackground(.hidden)
+    .background(Color(uiColor: .systemBackground))
+    .environment(model).environment(\.session, session))
+    controller.view.backgroundColor = .systemBackground
     return controller
   }
 

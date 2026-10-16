@@ -27,6 +27,10 @@ struct MacChatInfoView: View {
         ProgressView()
       }
     }
+    // 2026-10-17 用户反馈：资料页用的是 iOS 分组列表的浅灰底，在深色的聊天旁边整块很突兀。
+    // 检查器底色和聊天一样，只留分组卡片的一点层次（子页面也继承这个设置）。
+    .scrollContentBackground(.hidden)
+    .background(Color(uiColor: .systemBackground))
     .task(id: chatId) {
       dialog = try? session.store.dialog(chatId: chatId)
       if let dialog, dialog.scene == .group { await members.load(session: session, groupId: dialog.peerID) }
