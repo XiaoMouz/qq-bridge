@@ -1305,20 +1305,32 @@ enum Inline {
   }
 
   @MainActor static func compose(_ runs: [Inline], outgoing: Bool = false) -> Text {
-    runs.reduce(Text(verbatim: "")) { acc, run in
-      switch run {
+    runs.enumerated().reduce(Text(verbatim: "")) { acc, item in
+      switch item.element {
       case .text(let a): Text("\(acc)\(Text(a))")
       case .face(let id, let name, let large): Text("\(acc)\(QQFace.inline(id, name: name, size: large ? 64 : 20))")
-      case .mention(let userId, let name, let avatar): Text("\(acc)\(mentionBadge(name, avatar: avatar, outgoing: outgoing, userId: userId))")
+      case .mention(let userId, let name, let avatar):
+        Text("\(acc)\(mentionBadge(name, avatar: avatar, outgoing: outgoing, userId: userId, badge: item.offset))")
       }
     }
   }
 
   /// @ 徽章：淡色底 + 小头像 + 名字（自己发的蓝色气泡里用白色）。
   /// @ 徽章：画成一张圆角胶囊图（小头像 + @名字）插进文字里，和正文基线对齐。
-  @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool, userId: Int64 = 0) -> Text {
-    let badge = MentionBadgeRenderer.render(name: name, avatar: avatar, outgoing: outgoing)
-    return Text(Image(uiImage: badge.image)).baselineOffset(badge.baselineOffset).customAttribute(MentionTag(userId: userId)) + Text(" ")
+  /// iOS：徽章是普通文字（小一号的粗体「@名字」，前后是透明的占位留出头像和内边距），
+  /// 胶囊底色和头像由 MentionLocator 画在文字下面——行高完全由文字决定。
+  /// 2026-10-16 实测：SwiftUI 的 Text 里放图片再加下移量，会把图片高度和下移量都算进行高，
+  /// 只有一个徽章的消息因此比一行字高 4–10pt，怎么调图片都消不掉。Mac 的 UIKit 文字视图没有这个问题，仍用图片（MacMessageText）。
+  @MainActor static func mentionBadge(_ name: String, avatar: UIImage?, outgoing: Bool, userId: Int64 = 0, badge: Int = 0) -> Text {
+    let m = MentionBadgeMetrics.current
+    let tag = MentionTag(userId: userId, badge: badge, avatar: avatar, initial: String(name.prefix(1)), outgoing: outgoing)
+    let tint: Color = outgoing ? .white : .accentColor
+    let lead = Text(Image(uiImage: MentionBadgeMetrics.spacer(m.lead))).customAttribute(tag)
+    // 名字太长（有的群名片几十个字）：截断，不让一个徽章占好几行。
+    let shown = name.count > 16 ? String(name.prefix(15)) + "…" : name
+    let label = Text(verbatim: "@\(shown)").font(.system(size: m.fontSize, weight: .semibold)).foregroundColor(tint).customAttribute(tag)
+    let trail = Text(Image(uiImage: MentionBadgeMetrics.spacer(m.trail))).customAttribute(tag)
+    return Text("\(lead)\(label)\(trail)")
   }
 }
 
@@ -1519,27 +1531,36 @@ enum MentionBadgeRenderer {
   private static var cache: [String: (image: UIImage, baselineOffset: CGFloat)] = [:]
 
   static func render(name: String, avatar: UIImage?, outgoing: Bool) -> (image: UIImage, baselineOffset: CGFloat) {
-    let font = UIFont.systemFont(ofSize: UIFont.preferredFont(forTextStyle: .body).pointSize - 1, weight: .semibold)
+    // 徽章收在正文的行高以内（2026-10-16：以前高出行高 4pt、字只小 1pt，只有一个徽章的消息比一行字高一截）。
+    let body = UIFont.preferredFont(forTextStyle: .body)
+    let font = UIFont.systemFont(ofSize: body.pointSize - 3, weight: .semibold)
     let key = "\(name)|\(avatar.map { ObjectIdentifier($0).hashValue } ?? 0)|\(outgoing)|\(font.pointSize)|\(UITraitCollection.current.userInterfaceStyle.rawValue)"
     if let hit = cache[key] { return hit }
 
     let text = "@\(name)" as NSString
     let tint = outgoing ? UIColor.white : UIColor.tintColor.resolvedColor(with: .current)
     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tint]
-    let height = ceil(font.lineHeight + 4)
-    let avatarSide = height - 6
+    let height = floor(body.lineHeight) - 2
+    let avatarSide = height - 4
     let padH: CGFloat = 7
+    // 两侧透明边：和前后文字隔开（以前在后面补一个空格，后面本来就有空格时显得太宽）。
+    let margin: CGFloat = 2
     // 名字太长（有的群名片很长）：最多 200pt，超出的用省略号，徽章不会被气泡边缘切掉。
     let full = text.size(withAttributes: attrs)
     let textSize = CGSize(width: min(full.width, 200), height: full.height)
-    let width = ceil(3 + avatarSide + 4 + textSize.width + padH)
+    let width = ceil(2 + avatarSide + 4 + textSize.width + padH)
     let size = CGSize(width: width, height: height)
 
-    let image = UIGraphicsImageRenderer(size: size).image { _ in
+    // 图片高度正好是正文一行（上沿到下沿），胶囊画在里面、中心对准大写字母高度的中间；
+    // 下移量正好等于字体下沿：这一行不会因为徽章变高（2026-10-16 实测：胶囊图本身加下移量会把行撑高约 4pt）。
+    let lineTop = ceil(body.ascender), lineBottom = ceil(-body.descender)
+    let canvas = CGSize(width: width + margin * 2, height: lineTop + lineBottom)
+    let pillY = (lineTop - body.capHeight / 2 - height / 2).rounded()
+    let image = UIGraphicsImageRenderer(size: canvas).image { _ in
       let bg = outgoing ? UIColor.white.withAlphaComponent(0.22) : UIColor.tintColor.withAlphaComponent(0.13)
       bg.setFill()
-      UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: height / 2).fill()
-      let avatarRect = CGRect(x: 3, y: 3, width: avatarSide, height: avatarSide)
+      UIBezierPath(roundedRect: CGRect(origin: CGPoint(x: margin, y: pillY), size: size), cornerRadius: height / 2).fill()
+      let avatarRect = CGRect(x: margin + 2, y: pillY + 2, width: avatarSide, height: avatarSide)
       if let avatar {
         let ctx = UIGraphicsGetCurrentContext()
         ctx?.saveGState()
@@ -1558,10 +1579,10 @@ enum MentionBadgeRenderer {
       style.lineBreakMode = .byTruncatingTail
       var clipped = attrs
       clipped[.paragraphStyle] = style
-      text.draw(in: CGRect(x: avatarRect.maxX + 4, y: (height - textSize.height) / 2, width: textSize.width, height: textSize.height), withAttributes: clipped)
+      text.draw(in: CGRect(x: avatarRect.maxX + 4, y: pillY + (height - textSize.height) / 2, width: textSize.width, height: textSize.height), withAttributes: clipped)
     }
     // 图片底边落在基线上：往下挪到文字下沿，胶囊和正文居中对齐。
-    let result = (image: image, baselineOffset: font.descender - (height - font.lineHeight) / 2)
+    let result = (image: image, baselineOffset: -lineBottom)
     if cache.count > 500 { cache.removeAll() }
     cache[key] = result
     return result
@@ -1605,6 +1626,42 @@ enum Linkify {
 /// 文字里 @ 徽章的标记（徽章是一张图，靠它找到图在哪、是谁）。
 struct MentionTag: TextAttribute {
   let userId: Int64
+  /// 同一条消息里第几个徽章（同一个人被 @ 两次时分开画）。
+  var badge: Int = 0
+  var avatar: UIImage? = nil
+  var initial: String = ""
+  var outgoing = false
+}
+
+/// iOS 文字徽章的尺寸：按正文字号算，Text 和画胶囊的 MentionLocator 共用。
+struct MentionBadgeMetrics {
+  let fontSize: CGFloat
+  /// 胶囊高度（不超过正文行高）。
+  let height: CGFloat
+  let avatarSide: CGFloat
+  /// 名字前留的宽度：外边距 + 胶囊左内边距 + 头像 + 间隔。
+  let lead: CGFloat
+  /// 名字后留的宽度：胶囊右内边距 + 外边距。
+  let trail: CGFloat
+  static let margin: CGFloat = 2
+
+  @MainActor static var current: MentionBadgeMetrics {
+    let body = UIFont.preferredFont(forTextStyle: .body)
+    let height = floor(body.lineHeight) - 2
+    let avatarSide = height - 4
+    return MentionBadgeMetrics(fontSize: body.pointSize - 3, height: height, avatarSide: avatarSide,
+                               lead: margin + 2 + avatarSide + 4, trail: 7 + margin)
+  }
+
+  /// 透明占位图：1pt 高，不影响行高。
+  @MainActor static func spacer(_ width: CGFloat) -> UIImage {
+    let key = Int(width * 10)
+    if let hit = spacers[key] { return hit }
+    let image = UIGraphicsImageRenderer(size: CGSize(width: width, height: 1)).image { _ in }
+    spacers[key] = image
+    return image
+  }
+  @MainActor private static var spacers: [Int: UIImage] = [:]
 }
 
 /// 消息正文：链接、号码可点；@ 徽章单击在输入框里 @ 这个人，长按打开 TA 的资料卡。
@@ -1650,7 +1707,7 @@ struct MentionText: View {
       })
     if runs.contains(where: { if case .mention = $0 { true } else { false } }) {
       text
-        .textRenderer(MentionLocator { hits in if hits != badges { DispatchQueue.main.async { badges = hits } } })
+        .textRenderer(MentionLocator(metrics: .current) { hits in if hits != badges { DispatchQueue.main.async { badges = hits } } })
         .overlay(alignment: .topLeading) {
           ForEach(badges) { hit in
             #if targetEnvironment(macCatalyst)
@@ -1737,19 +1794,55 @@ struct MentionHit: Identifiable, Equatable {
 
 /// 画文字时顺带记下每个 @ 徽章的位置（画法和默认一样）。
 struct MentionLocator: TextRenderer {
+  let metrics: MentionBadgeMetrics
   let report: @Sendable ([MentionHit]) -> Void
 
   func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
     var hits: [MentionHit] = []
     for line in layout {
+      // 同一个徽章的几段（前占位、名字、后占位）在这一行里的范围；名字那段的上下决定胶囊的位置。
+      var spans: [Int: (tag: MentionTag, rect: CGRect, label: CGRect?)] = [:]
+      var order: [Int] = []
       for run in line {
-        if let tag = run[MentionTag.self] {
-          hits.append(MentionHit(id: hits.count, userId: tag.userId, rect: run.typographicBounds.rect))
+        guard let tag = run[MentionTag.self] else { continue }
+        let rect = run.typographicBounds.rect
+        let isLabel = rect.height > 2
+        if var span = spans[tag.badge] {
+          span.rect = span.rect.union(rect)
+          if isLabel { span.label = span.label.map { $0.union(rect) } ?? rect }
+          spans[tag.badge] = span
+        } else {
+          spans[tag.badge] = (tag, rect, isLabel ? rect : nil)
+          order.append(tag.badge)
         }
+      }
+      for key in order {
+        guard let span = spans[key] else { continue }
+        let label = span.label ?? span.rect
+        let pill = CGRect(x: span.rect.minX + MentionBadgeMetrics.margin, y: label.midY - metrics.height / 2,
+                          width: span.rect.width - MentionBadgeMetrics.margin * 2, height: metrics.height)
+        drawBadge(span.tag, in: pill, ctx: &ctx)
+        hits.append(MentionHit(id: hits.count, userId: span.tag.userId, rect: pill))
       }
       ctx.draw(line)
     }
     report(hits)
+  }
+
+  private func drawBadge(_ tag: MentionTag, in pill: CGRect, ctx: inout GraphicsContext) {
+    let tint: Color = tag.outgoing ? .white : .accentColor
+    ctx.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(tint.opacity(tag.outgoing ? 0.22 : 0.13)))
+    let side = metrics.avatarSide
+    let avatar = CGRect(x: pill.minX + 2, y: pill.midY - side / 2, width: side, height: side)
+    if let image = tag.avatar {
+      var clipped = ctx
+      clipped.clip(to: Path(ellipseIn: avatar))
+      clipped.draw(Image(uiImage: image), in: avatar)
+    } else {
+      ctx.fill(Path(ellipseIn: avatar), with: .color(tint.opacity(tag.outgoing ? 0.35 : 0.25)))
+      let initial = ctx.resolve(Text(verbatim: tag.initial).font(.system(size: side * 0.55, weight: .bold)).foregroundColor(tint))
+      ctx.draw(initial, at: CGPoint(x: avatar.midX, y: avatar.midY))
+    }
   }
 }
 
