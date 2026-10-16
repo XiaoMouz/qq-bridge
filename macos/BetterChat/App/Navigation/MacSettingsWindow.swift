@@ -42,6 +42,7 @@ final class MacSettingsSceneDelegate: UIResponder, UIWindowSceneDelegate, NSTool
   private let container = MacSettingsContainer()
   private var current: MacSetting = .account
   private var toolbar: NSToolbar?
+  private var workspaceObserver: (any NSObjectProtocol)?
 
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
     guard let scene = scene as? UIWindowScene else { return }
@@ -65,11 +66,16 @@ final class MacSettingsSceneDelegate: UIResponder, UIWindowSceneDelegate, NSTool
     let requested = options.userActivities.first { $0.activityType == MacSettingsWindow.activityType }?
       .userInfo?["setting"] as? String
     show(requested.flatMap(MacSetting.init(rawValue:)) ?? .account)
+    // 2026-10-17 实机：重启后设置窗口比主窗口先恢复，那时还没有工作区，显示了「登录后可以修改设置」且不会自己换掉。
+    workspaceObserver = NotificationCenter.default.addObserver(forName: MacCommandRouter.workspaceDidChange, object: nil, queue: .main) { [weak self] _ in
+      MainActor.assumeIsolated { guard let self else { return }; self.show(self.current) }
+    }
     window.makeKeyAndVisible()
     scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: 200, y: 140, width: 680, height: 560)))
   }
 
   func sceneDidDisconnect(_ scene: UIScene) {
+    if let workspaceObserver { NotificationCenter.default.removeObserver(workspaceObserver) }
     container.show(nil)
     window = nil
   }

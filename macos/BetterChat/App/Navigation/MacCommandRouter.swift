@@ -32,16 +32,20 @@ final class MacCommandRouter {
   private(set) weak var workspace: (any MacWorkspaceCommands)?
   /// 工作区登记变化时重建菜单的可用状态。
   var workspaceChanged: (() -> Void)?
+  /// 同上，给其他窗口（设置窗口）用：启动时设置窗口可能比主窗口先恢复，工作区登记后要换上真正的页面。
+  static let workspaceDidChange = Notification.Name("MacCommandRouter.workspaceDidChange")
 
   func attach(_ workspace: any MacWorkspaceCommands) {
     guard self.workspace !== workspace else { return }
     self.workspace = workspace
     workspaceChanged?()
+    NotificationCenter.default.post(name: Self.workspaceDidChange, object: self)
   }
   func detach(_ workspace: any MacWorkspaceCommands) {
     guard self.workspace === workspace else { return }
     self.workspace = nil
     workspaceChanged?()
+    NotificationCenter.default.post(name: Self.workspaceDidChange, object: self)
   }
   var isAvailable: Bool { workspace?.isWorkspaceVisible == true }
 }
