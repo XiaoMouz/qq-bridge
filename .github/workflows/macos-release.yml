@@ -76,9 +76,11 @@ jobs:
         run: |
           prev=$(git describe --tags --abbrev=0 --match 'mac-v*' HEAD^ 2>/dev/null || true)
           range=${prev:+$prev..}HEAD
+          # 只算 App 代码的改动（发布脚本、文档不算），每条取第一句；没有上一个标签（第一次发布）时最多 15 条。
           {
             echo 'RELEASE_NOTES<<NOTES_END'
-            git log --no-merges --format='• %s' "$range" -- ios/QQBridge/App ios/QQBridgeKit macos | cut -c1-200 | head -40
+            git log --no-merges --format='%s' "$range" -- ios/QQBridge/App ios/QQBridge/Shared ios/QQBridgeKit/Sources macos/BetterChat/App macos/BetterChat/SparkleBridge \
+              | perl -Mutf8 -CSD -ne 'chomp; s/[：；（].*//; print "• ", substr($_, 0, 60), "\n"' | head -n "${prev:+40}${prev:-15}"
             echo 'NOTES_END'
           } >>"$GITHUB_ENV"
 
