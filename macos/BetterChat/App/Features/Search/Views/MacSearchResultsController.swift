@@ -45,7 +45,7 @@ final class MacSearchResultsController: UICollectionViewController {
         cell.contentConfiguration = UIHostingConfiguration {
           MacSidebarRow(title: result.title, subtitle: result.subtitle, trailing: result.trailing,
                         avatar: result.avatar, busy: result.busy,
-                        subtitleLines: result.subtitleLines, emphasized: state.isSelected)
+                        subtitleLines: result.subtitleLines, emphasized: state.isSelected, highlight: result.highlight)
             .environment(\.session, session)
             .onAppear { appeared?(id) }
         }.margins(.horizontal, MacMetrics.rowHorizontalMargin).margins(.vertical, MacMetrics.rowVerticalMargin)

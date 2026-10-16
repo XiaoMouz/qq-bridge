@@ -9,6 +9,8 @@ protocol MacSearchService {
   func openChat(with peer: Qqbridge_V1_Peer) async throws -> Int64
   /// 头像按需批量获取（AvatarBook 负责攒批与去重）。
   func requestAvatar(for peer: Qqbridge_V1_Peer, in avatars: AvatarBook)
+  /// 聊天记录结果里的发送人（和 iOS 搜索同一套规则）。
+  func senderName(_ message: Qqbridge_V1_Message) -> String
 }
 
 @MainActor
@@ -30,5 +32,8 @@ struct MacSessionSearchService: MacSearchService {
   func requestAvatar(for peer: Qqbridge_V1_Peer, in avatars: AvatarBook) {
     if peer.kind == .group { avatars.wantGroup(peer.peerID, session: session) }
     else { avatars.want(peer.peerID, session: session) }
+  }
+  func senderName(_ message: Qqbridge_V1_Message) -> String {
+    MessageSearchPager.senderName(message, session: session)
   }
 }

@@ -26,6 +26,8 @@ final class MacSidebarSearchViewModel {
     var avatar: MacAvatar? = nil
     var busy = false
     var subtitleLines = 1
+    /// 副标题里要高亮的搜索词（聊天记录结果）。
+    var highlight: String? = nil
   }
   struct Group: Equatable {
     let title: String
@@ -133,10 +135,16 @@ final class MacSidebarSearchViewModel {
                     avatar: MacAvatar(sha256: sha, title: name, seed: peer.peerID), busy: openingKey == key)
     }
     if !people.isEmpty { groups.append(Group(title: "联系人", results: people)) }
-    let titles = Dictionary((dialogSource?.items ?? []).map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+    let chats = Dictionary((dialogSource?.items ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    // 2026-10-17 实机：以前只有会话名和正文，看不出是谁说的；补上发送人、会话头像和关键词高亮（和 iOS 搜索一致）。
     let found = messages.map { message in
-      Result(id: .message(MacMessagePresentation.key(message)), title: titles[message.chatID] ?? "会话",
-             subtitle: Format.preview(message), trailing: Format.listTime(message.time), subtitleLines: 3)
+      let chat = chats[message.chatID]
+      let title = chat?.title ?? "会话"
+      return Result(id: .message(MacMessagePresentation.key(message)), title: title,
+                    subtitle: "\(service.senderName(message))：\(Format.preview(message))",
+                    trailing: Format.listTime(message.time),
+                    avatar: MacAvatar(sha256: chat?.peer?.avatarSha256, title: title, seed: chat?.dialog.peerID ?? message.chatID),
+                    subtitleLines: 3, highlight: term)
     }
     if !found.isEmpty { groups.append(Group(title: "聊天记录", results: found)) }
     return groups

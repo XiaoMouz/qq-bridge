@@ -13,6 +13,8 @@ struct MacSidebarRow: View {
   /// 行处于选中强调（系统强调色底）时，副标题与时间改用主前景层级。
   /// 用层级而不是固定颜色：非活动窗口、高对比度下由系统决定实际颜色。
   var emphasized = false
+  /// 副标题里加粗、着色的搜索词。
+  var highlight: String? = nil
 
   private var detailStyle: HierarchicalShapeStyle { emphasized ? .primary : .secondary }
 
@@ -30,7 +32,7 @@ struct MacSidebarRow: View {
           }
         }
         if let subtitle, !subtitle.isEmpty {
-          Text(subtitle).font(.caption).foregroundStyle(detailStyle).lineLimit(subtitleLines)
+          Text(highlighted(subtitle)).font(.caption).foregroundStyle(detailStyle).lineLimit(subtitleLines)
         }
       }
       Spacer(minLength: 0)
@@ -39,6 +41,19 @@ struct MacSidebarRow: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
+  }
+
+  private func highlighted(_ text: String) -> AttributedString {
+    var out = AttributedString(text)
+    guard let term = highlight?.trimmingCharacters(in: .whitespaces), !term.isEmpty else { return out }
+    var cursor = out.startIndex
+    while cursor < out.endIndex, let range = out[cursor...].range(of: term, options: .caseInsensitive) {
+      out[range].font = .caption.bold()
+      // 选中行是强调色底：不再着色，只加粗。
+      if !emphasized { out[range].foregroundColor = .accentColor }
+      cursor = range.upperBound
+    }
+    return out
   }
 }
 

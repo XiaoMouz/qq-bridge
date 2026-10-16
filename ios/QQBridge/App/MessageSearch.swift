@@ -89,7 +89,10 @@ final class MessageSearchPager {
   }
 
   /// 结果里显示的发送人：自己的显示「我」，群里优先群名片（消息里带的），再退到本地资料的名字和号码。
-  func senderName(_ m: Qqbridge_V1_Message) -> String {
+  func senderName(_ m: Qqbridge_V1_Message) -> String { Self.senderName(m, session: session) }
+
+  /// Mac 侧栏搜索也用这一份（同一套「我 / 群名片 / 本地名字 / 号码」顺序）。
+  static func senderName(_ m: Qqbridge_V1_Message, session: Session) -> String {
     // 灰色提示没有发送者（号码是 0）。
     if m.kind == .service { return "提示" }
     guard let d = try? session.store.dialog(chatId: m.chatID) else {
