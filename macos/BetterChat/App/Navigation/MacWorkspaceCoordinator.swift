@@ -3,7 +3,7 @@ import QQBridgeKit
 import UIKit
 
 /// 工作区协调器：唯一的窗口路由所有者。决定左栏分区、右栏页面、宽窄布局下列表/详情的显示，
-/// 保存联系人与设置详情控制器；聊天协调器按会话保留草稿。数据加载、过滤与业务请求在各 ViewModel / 服务中。
+/// 保存联系人详情与设置窗口的页面控制器；聊天协调器按会话保留草稿。数据加载、过滤与业务请求在各 ViewModel / 服务中。
 @MainActor
 final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   struct Dependencies {
@@ -32,8 +32,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   private var toolbar: MacSidebarToolbar!
   private var settingPages: [MacSetting: UIViewController] = [:]
   private var contactPage: UIViewController?
-  /// 用户是否在设置左栏实际选过选项（默认的“账号”只是右栏占位，不算进入详情）。
-  private var settingChosen = false
 
   init(_ dependencies: Dependencies) {
     model = dependencies.model
@@ -52,7 +50,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       session: dependencies.session, sidebar: sidebar, search: search, contacts: contacts, dialogs: dialogs,
       actions: MacSidebarActions(
         selectSection: { [weak self] in self?.reselectOrSelect($0) },
-        selectSetting: { [weak self] in self?.showSetting($0, reveal: true) },
         selectContact: { [weak self] in self?.showContact($0) }))))
     toolbar = MacSidebarToolbar(item: sidebarView.navigationItem, actions: .init(
       refreshContacts: { [weak self] in self?.contacts.refresh() }))
@@ -74,6 +71,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   /// 退出登录 / 工作区被移除：注销命令、取消跨分区的同步与搜索任务。
   func tearDown() {
     router.detach(self)
+    MacSettingsWindow.close()
     manualSync.cancel()
     search.cancel()
   }
@@ -135,7 +133,14 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     select(.messages)
   }
   func showContacts() { select(.contacts) }
-  func showSettings() { select(.settings) }
+  func showSettings() { MacSettingsWindow.open() }
+
+  func settingsPage(_ setting: MacSetting) -> UIViewController {
+    if let page = settingPages[setting] { return page }
+    let page = factory.setting(setting)
+    settingPages[setting] = page
+    return page
+  }
 
   func focusSidebarSearch() {
     rootViewController.revealSidebar()
@@ -219,7 +224,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     switch section {
     case .messages: detail.show(chat.controller)
     case .contacts: detail.show(contactPage ?? emptyContactPage)
-    case .settings: showSetting(sidebar.setting)
     }
     if revealList { rootViewController.showSidebar() }
     updateWindowTitle()
@@ -231,18 +235,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     switch sidebar.section {
     case .messages: chat.selectedChat != nil
     case .contacts: contactPage != nil
-    case .settings: settingChosen
     }
-  }
-
-  private func showSetting(_ setting: MacSetting, reveal: Bool = false) {
-    if reveal { settingChosen = true }
-    sidebar.select(setting)
-    let page = settingPages[setting] ?? factory.setting(setting)
-    settingPages[setting] = page
-    detail.show(page)
-    if reveal { rootViewController.showDetail() }
-    updateWindowTitle()
   }
 
   private func showContact(_ route: ContactRoute) {

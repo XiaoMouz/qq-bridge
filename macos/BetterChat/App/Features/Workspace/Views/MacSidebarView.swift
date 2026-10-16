@@ -5,7 +5,6 @@ import UIKit
 /// 侧栏用户意图；由协调器实现路由，视图本身不切换页面、不请求数据。
 struct MacSidebarActions {
   let selectSection: (MacSidebarSection) -> Void
-  let selectSetting: (MacSetting) -> Void
   let selectContact: (ContactRoute) -> Void
 }
 
@@ -70,10 +69,6 @@ struct MacSidebarView: View {
         layer(visible: sidebar.section == .contacts) {
           MacContactsSidebarView(viewModel: contacts, query: sidebar.query(for: .contacts),
                                  selected: sidebar.contact, select: actions.selectContact)
-        }
-        if sidebar.section == .settings {
-          MacSettingsSidebarView(settings: sidebar.visibleSettings, query: sidebar.query(for: .settings),
-                                 selected: sidebar.setting, select: actions.selectSetting)
         }
       }
       .animation(reduceMotion ? nil : .easeInOut(duration: MacMetrics.transitionDuration), value: sidebar.section)

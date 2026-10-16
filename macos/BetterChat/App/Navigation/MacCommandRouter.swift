@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 菜单、窗口快捷键、根视图浮层都经由这里调用工作区，不再从 UIApplication 反查控制器。
 @MainActor
@@ -10,6 +11,8 @@ protocol MacWorkspaceCommands: AnyObject {
   func showMessages()
   func showContacts()
   func showSettings()
+  /// 设置窗口的页面（按选项缓存，由工作区的页面工厂创建）。
+  func settingsPage(_ setting: MacSetting) -> UIViewController
   func focusSidebarSearch()
   func toggleSidebar()
   func nextUnread()

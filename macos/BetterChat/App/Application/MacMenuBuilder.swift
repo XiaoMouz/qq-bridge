@@ -22,7 +22,6 @@ struct MacMenuBuilder {
         switch section {
         case .messages: router.workspace?.showMessages()
         case .contacts: router.workspace?.showContacts()
-        case .settings: router.workspace?.showSettings()
         }
       }
     }), atStartOfMenu: .view)
@@ -45,7 +44,7 @@ struct MacMenuBuilder {
     }), atEndOfMenu: .window)
     #endif
     builder.insertSibling(UIMenu(title: "", identifier: .init("com.xiaomouz.betterchat.mac.settings"), options: .displayInline, children: [
-      UIAction(title: "设置…", attributes: attributes) { _ in router.workspace?.showSettings() },
+      UIAction(title: "设置…") { _ in MacSettingsWindow.open() },
     ]), afterMenu: .about)
     // 自动更新（Sparkle）：只在配了更新源的发布构建里出现。
     if MacUpdater.isAvailable {
@@ -73,7 +72,6 @@ final class MacWindow: UIWindow {
       UIKeyCommand(title: "下一个未读会话", action: #selector(openNextUnread(_:)), input: "u", modifierFlags: [.command, .shift], discoverabilityTitle: "下一个未读会话"),
       UIKeyCommand(title: "消息", action: #selector(showMessages(_:)), input: "1", modifierFlags: .command),
       UIKeyCommand(title: "联系人", action: #selector(showContacts(_:)), input: "2", modifierFlags: .command),
-      UIKeyCommand(title: "设置", action: #selector(openSettings(_:)), input: "3", modifierFlags: .command),
       UIKeyCommand(title: "显示/隐藏侧栏", action: #selector(toggleWorkspaceSidebar(_:)), input: "s", modifierFlags: [.control, .command]),
       UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(returnToMessages(_:))),
       UIKeyCommand(title: "设置…", action: #selector(openSettings(_:)), input: ",", modifierFlags: .command, discoverabilityTitle: "设置…"),
@@ -82,7 +80,7 @@ final class MacWindow: UIWindow {
   @objc func searchSidebar(_ sender: UICommand) { router.workspace?.focusSidebarSearch() }
   @objc func showContacts(_ sender: UICommand) { router.workspace?.showContacts() }
   @objc func toggleWorkspaceSidebar(_ sender: UICommand) { router.workspace?.toggleSidebar() }
-  @objc func openSettings(_ sender: UICommand) { router.workspace?.showSettings() }
+  @objc func openSettings(_ sender: UICommand) { MacSettingsWindow.open() }
   @objc func openNextUnread(_ sender: UICommand) { router.workspace?.nextUnread() }
   @objc func showMessages(_ sender: UICommand) { router.workspace?.showMessages() }
   @objc func returnToMessages(_ sender: UICommand) { router.workspace?.cancelSidebarNavigation() }
@@ -91,7 +89,8 @@ final class MacWindow: UIWindow {
     if action == #selector(returnToMessages) {
       return router.isAvailable && router.workspace?.canReturnToMessages == true
     }
-    if [#selector(searchSidebar), #selector(openSettings), #selector(openNextUnread), #selector(showMessages), #selector(showContacts), #selector(toggleWorkspaceSidebar)].contains(action) {
+    if action == #selector(openSettings) { return true }
+    if [#selector(searchSidebar), #selector(openNextUnread), #selector(showMessages), #selector(showContacts), #selector(toggleWorkspaceSidebar)].contains(action) {
       return router.isAvailable
     }
     return super.canPerformAction(action, withSender: sender)

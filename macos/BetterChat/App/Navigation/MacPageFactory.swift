@@ -37,14 +37,15 @@ struct MacPageFactory: MacChatPageBuilding {
     host(MacChatPage(session: session, chatId: id, draft: draft))
   }
 
+  /// 设置窗口的页面：窗口工具栏已经写明是哪一页，根页面不再显示自己的标题栏；子页面（存储明细等）照常有返回。
   func setting(_ setting: MacSetting) -> UIViewController {
     switch setting {
     case .account: host(SettingsView(session: session, accountOnly: true))
-    case .preferences: host(NavigationStack { PreferencesView() })
-    case .sync: host(NavigationStack { MacSyncSettingsView(sync: manualSync, synchronize: { [weak router] in router?.workspace?.refreshDialogs() }) })
-    case .downloads: host(NavigationStack { MacDownloadSettingsView() })
-    case .storage: host(NavigationStack { StorageView(session: session) })
-    case .about: host(NavigationStack { AboutView(session: session, icon: Self.appIcon) })
+    case .preferences: host(NavigationStack { PreferencesView().macSettingsRoot() })
+    case .sync: host(NavigationStack { MacSyncSettingsView(sync: manualSync, synchronize: { [weak router] in router?.workspace?.refreshDialogs() }).macSettingsRoot() })
+    case .downloads: host(NavigationStack { MacDownloadSettingsView().macSettingsRoot() })
+    case .storage: host(NavigationStack { StorageView(session: session).macSettingsRoot() })
+    case .about: host(NavigationStack { AboutView(session: session, icon: Self.appIcon).macSettingsRoot() })
     }
   }
 
@@ -65,4 +66,9 @@ struct MacPageFactory: MacChatPageBuilding {
     controller.view.backgroundColor = .clear
     return controller
   }
+}
+
+extension View {
+  /// 设置窗口里的根页面：隐藏 NavigationStack 自己的标题栏（标题已在窗口工具栏）。
+  func macSettingsRoot() -> some View { toolbarVisibility(.hidden, for: .navigationBar) }
 }

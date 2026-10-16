@@ -37,9 +37,6 @@ final class MacSidebarToolbar {
       refresh.isEnabled = !state.contactsRefreshing
       item.trailingItemGroups = [UIBarButtonItemGroup(barButtonItems: [refresh], representativeItem: nil)]
       item.leadingItemGroups = []
-    case .settings:
-      item.trailingItemGroups = []
-      item.leadingItemGroups = []
     }
   }
 }

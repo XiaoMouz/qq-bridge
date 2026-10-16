@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// 左栏的展示状态：当前分区、各分区独立的搜索词、设置与联系人的选中项、焦点请求。
+/// 左栏的展示状态：当前分区、各分区独立的搜索词、联系人的选中项、焦点请求。
 /// 分区切换只换左栏内容，各分区的搜索词作为草稿保留，切回来时仍在。
 @MainActor
 @Observable
@@ -9,7 +9,6 @@ final class MacSidebarViewModel {
   private(set) var section = MacSidebarSection.messages
   private var queries: [MacSidebarSection: String] = [:]
   private(set) var unread = 0
-  private(set) var setting = MacSetting.account
   private(set) var contact: ContactRoute?
   private(set) var isCompactLayout = false
   /// 递增即请求聚焦搜索框（⌘F、Shift-Tab 从结果返回）。
@@ -32,18 +31,7 @@ final class MacSidebarViewModel {
   func clearQuery(of section: MacSidebarSection) { queries[section] = nil }
   func setUnread(_ count: Int) { if unread != count { unread = count } }
   func setCompactLayout(_ compact: Bool) { isCompactLayout = compact }
-  func select(_ setting: MacSetting) { self.setting = setting }
   func select(_ contact: ContactRoute?) { self.contact = contact }
   func focusSearch() { searchFocusRequest = UUID() }
   func focusResults() { resultsFocusRequest = UUID() }
-
-  /// 设置选项按名称与关键词过滤；当前选中的选项即使被过滤也不清空右栏。
-  var visibleSettings: [MacSetting] {
-    let term = query(for: .settings).trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !term.isEmpty else { return MacSetting.allCases }
-    return MacSetting.allCases.filter { setting in
-      setting.rawValue.localizedCaseInsensitiveContains(term)
-        || setting.keywords.contains { $0.localizedCaseInsensitiveContains(term) }
-    }
-  }
 }

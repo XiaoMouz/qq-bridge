@@ -59,6 +59,8 @@ struct SettingsView: View {
       .navigationTitle(accountOnly ? "账号" : "设置")
       #if targetEnvironment(macCatalyst)
       .navigationBarTitleDisplayMode(.inline)
+      // Mac 设置窗口的「账号」页：标题已在窗口工具栏。
+      .toolbarVisibility(accountOnly ? .hidden : .automatic, for: .navigationBar)
       #endif
       .task { await loadStatus() }
       .platformRefreshable { await loadStatus() }
