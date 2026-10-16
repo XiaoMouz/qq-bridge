@@ -8,7 +8,7 @@ import type { CallRecord } from '../src/calls/service.ts';
 import { DialogPrefs } from '../src/dialogs/prefs.ts';
 import { one } from '../src/db/client.ts';
 import { ApnsClient, type ApnsMessage, type ApnsResult, type PushSender } from '../src/push/apns.ts';
-import { PushNotifier } from '../src/push/notifier.ts';
+import { PushNotifier, type ReadEvent } from '../src/push/notifier.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { createTestAccount, services, textMessage, type TestAccount } from './helpers/fixtures.ts';
 
@@ -333,5 +333,55 @@ describe('PushNotifier', () => {
     await svc.ingest.ingestMessage(acc.qqAccountId, textMessage('friend', 400, a, 400)); // 重复
     svc.ingest.onNewMessage = null;
     expect(events).toEqual([a]);
+  });
+});
+
+describe('已读同步推送', () => {
+  let t: TestDb;
+  let acc: TestAccount;
+  let svc: ReturnType<typeof services>;
+  let chatId: number;
+  const sent: ApnsMessage[] = [];
+  const sender: PushSender = {
+    send: async (message) => {
+      sent.push(message);
+      return { ok: true };
+    },
+    close: () => undefined,
+  };
+  beforeAll(async () => {
+    t = await startTestDb();
+    svc = services(t.db);
+    acc = await createTestAccount(t.db, svc.ingest);
+    chatId = (await svc.ingest.ingestMessage(acc.qqAccountId, textMessage('friend', 500, 1, 500))).chatId;
+    await svc.ingest.ingestMessage(acc.qqAccountId, textMessage('friend', 500, 2, 500));
+    await t.db.execute(sql`insert into devices (account_id, name, platform, token_hash, apns_token, apns_env)
+      values (${acc.accountId}, 'iPhone', 'ios', '\\x21', 'ios-alert', 'sandbox'),
+             (${acc.accountId}, 'Mac', 'macos', '\\x22', 'mac-alert', 'sandbox')`);
+  });
+  beforeEach(() => { sent.length = 0; });
+  afterAll(async () => { await t?.stop(); });
+
+  it('已读位置推进时给每台设备发一条后台推送，带会话、已读序号和角标', async () => {
+    const notifier = new PushNotifier(t.db, sender, { readDelayMs: 0 });
+    const events: ReadEvent[] = [];
+    svc.ingest.onRead = (event) => events.push(event);
+    expect(await svc.ingest.markRead(acc.accountId, chatId, 1)).toBe(true);
+    expect(await svc.ingest.markRead(acc.accountId, chatId, 1)).toBe(false);
+    expect(events).toEqual([{ accountId: acc.accountId, chatId, readSeq: 1 }]);
+    expect(await notifier.notifyRead(events[0]!)).toBe(2);
+    expect(sent.map((m) => m.token).sort()).toEqual(['ios-alert', 'mac-alert']);
+    expect(sent[0]).toMatchObject({ pushType: 'background', priority: 5, collapseId: `read-${chatId}`,
+      payload: { aps: { 'content-available': 1 }, readChat: chatId, readSeq: 1, badge: 1 } });
+    svc.ingest.onRead = null;
+  });
+
+  it('同一会话连续多次已读只推最后一次', async () => {
+    const notifier = new PushNotifier(t.db, sender, { readDelayMs: 20 });
+    notifier.onRead({ accountId: acc.accountId, chatId, readSeq: 1 });
+    notifier.onRead({ accountId: acc.accountId, chatId, readSeq: 2 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(sent).toHaveLength(2);
+    expect(sent.every((m) => (m.payload as { readSeq: number }).readSeq === 2)).toBe(true);
   });
 });

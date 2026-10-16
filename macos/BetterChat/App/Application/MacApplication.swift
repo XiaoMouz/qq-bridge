@@ -38,6 +38,21 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
   func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
     notifications.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
+  /// 已读同步的后台推送：交给共用的 AppDelegate 收掉已读的通知。
+  nonisolated func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                               fetchCompletionHandler completionHandler: @escaping @Sendable (UIBackgroundFetchResult) -> Void) {
+    guard let chatId = (userInfo["readChat"] as? NSNumber)?.int64Value,
+      let seq = (userInfo["readSeq"] as? NSNumber)?.int64Value
+    else {
+      completionHandler(.noData)
+      return
+    }
+    let badge = (userInfo["badge"] as? NSNumber)?.intValue
+    AppDelegate.clearReadNotifications([chatId: seq]) {
+      if let badge { UNUserNotificationCenter.current().setBadgeCount(badge) }
+      DispatchQueue.main.async { completionHandler(.newData) }
+    }
+  }
   override func buildMenu(with builder: any UIMenuBuilder) {
     super.buildMenu(with: builder)
     guard builder.system == .main else { return }

@@ -36,6 +36,7 @@ git checkout -- ../QQBridgeKit/Package.resolved   # 构建后还原
 调试启动参数（`xcrun simctl launch booted com.xiaomouz.betterchat <参数>`）：
 - `-debugJump <chatId>:<seq>`：打开会话后跳到那条消息
 - `-debugCommNotify YES`：3 秒后发一条带头像的本地通知
+- `-debugReadSync <chatId>:<seq>`：3 秒后按「已读同步」推送的处理收掉已读范围内的通知（模拟器收不到后台推送：`content-available` 只在真机上送达，2026-10-16 实测）
 - 环境变量 `QQB_SEARCH`：搜索页预填
 - 打开某个会话：`xcrun simctl push booted com.xiaomouz.betterchat <json>`（json 带 `chatId`、`sender`）
 
@@ -46,6 +47,7 @@ git checkout -- ../QQBridgeKit/Package.resolved   # 构建后还原
 - **等服务端结果**：用 `MediaReady`（Subscribe 推送）或 `session.store.observeMessage` 订阅本地库，不轮询。
 - **系统提示消息**：`kind == .service` 的消息（QQ 灰色提示）不画气泡，和服务事件一样用 `Notice` 居中一行，人名来自其中的 mention 段。
 - **本地优先**：资料、头像先显示本地缓存再静默刷新；头像没有就 `AvatarBook.want(...)` 按需要。
+- **已读同步**：服务端在会话已读位置推进后发后台推送（`readChat` / `readSeq` / `badge`），`AppDelegate` 收掉已读的通知、更新角标；App 在前台时 `updateBadge` 也按本地已读位置清。
 - **模拟器测试**：见 L3。截图像素 ÷ 3 = 点；会话列表一直在变，用 `-debugJump` / 置顶会话 / `simctl push` 打开。模拟器没有相机、麦克风常报 -4010、收不到 VoIP 推送，这些要真机测。
 - **发 TestFlight 自动化**：`ios/release-testflight.sh`（API 密钥签名上传），GitHub Actions `ios-testflight.yml` 推 `ios-v*` 标签触发；Mac 的 DMG 见 `macos/release.sh` / `macos-release.yml`。两者共用仓库 Secrets `ASC_KEY_ID`、`ASC_ISSUER_ID`、`ASC_KEY_P8`。
 - **发布**：只在用户要求时；升 `project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`，`xcodebuild … -configuration Release -destination 'generic/platform=iOS' -archivePath ~/Library/Developer/Xcode/Archives/<日期>/BetterChat-<版本>-<构建号>.xcarchive -allowProvisioningUpdates archive`，然后 `open` 归档让用户在 Organizer 上传。新用到的系统能力要加 `Info.plist` 权限说明（审核会查第三方库引用的 API，例如 LiveKit 要相机说明）。

@@ -92,6 +92,8 @@ export class IngestService {
   onNewMessage: ((event: { accountId: number; chatId: number; seq: number }) => void) | null = null;
   /** 通话状态变了（推来电通知用）。 */
   onCall: ((accountId: number, call: CallRecord) => void) | null = null;
+  /** 会话的已读位置推进了（提交之后调用）：推送据此让各设备收掉已读的通知。 */
+  onRead: ((event: { accountId: number; chatId: number; readSeq: number }) => void) | null = null;
 
   constructor(
     private readonly db: Db,
@@ -130,7 +132,7 @@ export class IngestService {
     const result = await this.writers.forAccount(qq.accountId).run(async (w) => {
       const chat = await lockOrCreateChat(w.tx, qqAccountId, msg.scene, msg.peerId, initialReadMarker(msg, qq.uin));
       const existing = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${chat.id} and seq = ${msg.seq}`);
-      if (existing) return { chatId: chat.id, inserted: false, service: false };
+      if (existing) return { chatId: chat.id, inserted: false, service: false, readAdvanced: false };
 
       // 下载前去重：QQ 给了 md5 且已有同样内容，直接复用，不再下载。
       let segments: Segment[] = msg.segments;
@@ -211,12 +213,14 @@ export class IngestService {
             where id = ${chat.id}`,
       );
       // 本人在其他设备上发言：视为已读到这里（与 Telegram 行为一致）。
-      if (!fromOther && msg.source !== 'backfill' && msg.seq > chat.read_inbox_max_seq) {
+      const readAdvanced = !fromOther && msg.source !== 'backfill' && msg.seq > chat.read_inbox_max_seq;
+      if (readAdvanced) {
         await setReadMarker(w.tx, chat.id, msg.seq, qq.uin);
       }
       w.touchDialog(chat.id);
-      return { chatId: chat.id, inserted: true, service };
+      return { chatId: chat.id, inserted: true, service, readAdvanced };
     });
+    if (result.inserted && result.readAdvanced) this.onRead?.({ accountId: qq.accountId, chatId: result.chatId, readSeq: msg.seq });
     if (result.inserted && !result.service && msg.senderId !== qq.uin) this.onNewMessage?.({ accountId: qq.accountId, chatId: result.chatId, seq: msg.seq });
     return result;
   }
@@ -331,7 +335,7 @@ export class IngestService {
 
   /** 客户端标记已读到 maxSeq。 */
   async markRead(accountId: number, chatId: number, maxSeq: number): Promise<boolean> {
-    return this.writers.forAccount(accountId).run(async (w) => {
+    const advanced = await this.writers.forAccount(accountId).run(async (w) => {
       const chat = await maybeOne<LockedChat & { uin: number }>(
         w.tx,
         sql`select c.id, c.top_seq, c.read_inbox_max_seq, q.uin from chats c join qq_accounts q on q.id = c.qq_account_id
@@ -343,6 +347,8 @@ export class IngestService {
       w.touchDialog(chat.id);
       return true;
     });
+    if (advanced) this.onRead?.({ accountId, chatId, readSeq: maxSeq });
+    return advanced;
   }
 
   /** 更新联系人或群资料；内容没变就不产生更新。 */

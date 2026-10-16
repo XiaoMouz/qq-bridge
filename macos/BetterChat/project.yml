@@ -148,7 +148,7 @@ targets:
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).MacMediaSceneDelegate
         UILaunchScreen: {}
         NSUserActivityTypes: [INSendMessageIntent]
-        UIBackgroundModes: [audio, voip]
+        UIBackgroundModes: [audio, voip, remote-notification]
         SUFeedURL: $(SPARKLE_FEED_URL)
         SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
         # 沙盒 App 由 Sparkle.framework 里的 XPC 服务完成安装。

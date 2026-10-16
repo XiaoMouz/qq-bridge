@@ -175,6 +175,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     });
     deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
     deps.ingest.onCall = (accountId, call) => notifier.onCall(accountId, call);
+    deps.ingest.onRead = (event) => notifier.onRead(event);
   }
   const app = await buildServer(deps);
   // QQ 表情资源放在媒体目录旁边（deploy/data/qface，见 tools/qface-sync.py）。

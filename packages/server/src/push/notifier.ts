@@ -24,6 +24,12 @@ function endpointKey(platform: string, env: ApnsEnv, token: string): string {
   return `${platform === 'macos' ? 'macos' : 'ios'}:${env}:${token.toLowerCase()}`;
 }
 
+export interface ReadEvent {
+  accountId: number;
+  chatId: number;
+  readSeq: number;
+}
+
 export interface NewMessageEvent {
   accountId: number;
   chatId: number;
@@ -74,6 +80,8 @@ export class PushNotifier {
       media?: Pick<MediaService, 'getBlob' | 'openBlob'>;
       /** 这台设备现在连着 Subscribe（App 在前台）：来电由 App 自己显示，不推。 */
       isOnline?: (deviceId: number) => boolean;
+      /** 已读同步推送的合并等待（毫秒，默认 2000；测试里设 0）。 */
+      readDelayMs?: number;
     } = {},
   ) {}
 
@@ -234,6 +242,60 @@ export class PushNotifier {
   }
 
   /** 入库后调用；出错只记日志，不影响入库。 */
+  /** 同一会话短时间里多次已读（翻着看、连着回）只推最后一次。 */
+  private readonly pendingReads = new Map<number, { timer: ReturnType<typeof setTimeout>; event: ReadEvent }>();
+
+  /**
+   * 已读同步：会话的已读位置推进后，给各设备发一条后台推送（不弹窗、不响），
+   * App 被唤醒后收掉这个会话里已读范围内的通知、更新角标。
+   * 以前只有 App 在运行时才会收（见 iOS Push.swift updateBadge）：在 Mac 或另一台设备上读了，手机上的通知一直留着。
+   * 后台推送系统会限流（低优先级、可能合并或延后），所以这是尽力而为；App 打开时照样按已读位置再清一遍。
+   */
+  onRead(event: ReadEvent): void {
+    const pending = this.pendingReads.get(event.chatId);
+    if (pending) clearTimeout(pending.timer);
+    const timer = setTimeout(() => {
+      this.pendingReads.delete(event.chatId);
+      void this.notifyRead(event).catch((error: unknown) => this.opts.logger?.warn({ err: error, ...event }, 'read push failed'));
+    }, this.opts.readDelayMs ?? 2000);
+    timer.unref?.();
+    this.pendingReads.set(event.chatId, { timer, event });
+  }
+
+  async notifyRead(event: ReadEvent): Promise<number> {
+    const devices = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null }>(
+      this.db,
+      sql`select id, platform, apns_token, apns_env from devices
+           where account_id = ${event.accountId} and revoked_at is null and apns_token is not null`,
+    );
+    if (devices.length === 0) return 0;
+    const badge = await this.badge(event.accountId);
+    let sent = 0;
+    const attempted = new Set<string>();
+    for (const d of devices) {
+      const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
+      const key = endpointKey(d.platform, env, d.apns_token);
+      if (attempted.has(key)) continue;
+      attempted.add(key);
+      const result = await this.sender.send({
+        token: d.apns_token,
+        platform: d.platform,
+        env,
+        pushType: 'background',
+        // 后台推送只能用 5；同一会话的新一次覆盖旧的。
+        priority: 5,
+        ttlSec: 3600,
+        collapseId: `read-${event.chatId}`,
+        payload: { aps: { 'content-available': 1 }, readChat: event.chatId, readSeq: event.readSeq, badge },
+      });
+      if (result.ok) sent++;
+      else if (result.invalidToken) {
+        await this.db.execute(sql`update devices set apns_token = null where id = ${d.id} and apns_token = ${d.apns_token}`);
+      }
+    }
+    return sent;
+  }
+
   onNewMessage(event: NewMessageEvent): void {
     void this.notify(event).catch((error: unknown) => this.opts.logger?.warn({ err: error, ...event }, 'push failed'));
   }

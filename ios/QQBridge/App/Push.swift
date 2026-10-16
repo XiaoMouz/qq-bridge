@@ -4,6 +4,7 @@ import QQBridgeKit
 import QQBridgeProto
 import UIKit
 import UserNotifications
+import os
 
 @MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -26,6 +27,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     #if DEBUG
       // 调试：启动参数 -debugCommNotify YES，3 秒后发一条本地的通讯通知（看头像、App 图标的效果；模拟器的推送不走通知扩展）。
       if UserDefaults.standard.bool(forKey: "debugCommNotify") { Self.debugCommunicationNotification() }
+      // 调试：-debugReadSync <chatId>:<seq>，3 秒后按已读同步推送的处理收通知（模拟器收不到后台推送：
+      // 「Content-available push notifications are only supported on-device」，2026-10-16 实测）。
+      if let spec = UserDefaults.standard.string(forKey: "debugReadSync"), case let parts = spec.split(separator: ":"),
+        parts.count == 2, let chat = Int64(parts[0]), let seq = Int64(parts[1]) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Self.clearReadNotifications([chat: seq]) }
+      }
     #endif
     return true
   }
@@ -38,6 +45,49 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // 模拟器、没有推送权限的签名都会走到这里；不影响其他功能。
     print("APNs registration failed: \(error.localizedDescription)")
   }
+
+  /// 已读同步：服务端在会话的已读位置推进后发的后台推送（server push/notifier.ts 的 onRead），
+  /// 在 Mac、另一台设备上读了，这里收掉这个会话里已读范围内的通知、更新角标——App 没在运行也能收。
+  /// 用带完成回调的版本（同 willPresent 的原因）。
+  nonisolated func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping @Sendable (UIBackgroundFetchResult) -> Void
+  ) {
+    guard let chatId = (userInfo["readChat"] as? NSNumber)?.int64Value,
+      let seq = (userInfo["readSeq"] as? NSNumber)?.int64Value
+    else {
+      completionHandler(.noData)
+      return
+    }
+    Self.pushLog.info("read sync: chat \(chatId) through \(seq)")
+    let badge = (userInfo["badge"] as? NSNumber)?.intValue
+    Self.clearReadNotifications([chatId: seq]) {
+      if let badge { UNUserNotificationCenter.current().setBadgeCount(badge) }
+      DispatchQueue.main.async { completionHandler(.newData) }
+    }
+  }
+
+  /// 收掉已读范围内的系统通知（判断见 NotificationReadPolicy）。
+  nonisolated static func clearReadNotifications(_ readThrough: [Int64: Int64], then done: (@Sendable () -> Void)? = nil) {
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { list in
+      let ids = list.compactMap { n -> String? in
+        let info = n.request.content.userInfo
+        guard NotificationReadPolicy.isRead(
+          chatId: (info["chatId"] as? NSNumber)?.int64Value,
+          seq: (info["seq"] as? NSNumber)?.int64Value,
+          readThrough: readThrough
+        ) else { return nil }
+        return n.request.identifier
+      }
+      if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+      pushLog.info("cleared \(ids.count) of \(list.count) delivered notifications")
+      done?()
+    }
+  }
+
+  nonisolated static let pushLog = Logger(subsystem: "com.xiaomouz.betterchat", category: "push")
 
   // 用带完成回调的版本，并在主线程上调用回调：async 版本会在后台线程结束，系统随后在后台线程碰 UIKit，直接崩溃。
   nonisolated func userNotificationCenter(
@@ -169,19 +219,7 @@ extension AppModel {
   }
 
   nonisolated private func clearNotifications(readThrough: [Int64: Int64]) {
-    let center = UNUserNotificationCenter.current()
-    center.getDeliveredNotifications { list in
-      let ids = list.compactMap { n -> String? in
-        let info = n.request.content.userInfo
-        guard NotificationReadPolicy.isRead(
-          chatId: (info["chatId"] as? NSNumber)?.int64Value,
-          seq: (info["seq"] as? NSNumber)?.int64Value,
-          readThrough: readThrough
-        ) else { return nil }
-        return n.request.identifier
-      }
-      if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
-    }
+    AppDelegate.clearReadNotifications(readThrough)
   }
 }
 
