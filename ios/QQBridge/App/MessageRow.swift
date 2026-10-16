@@ -1531,16 +1531,17 @@ enum MentionBadgeRenderer {
   private static var cache: [String: (image: UIImage, baselineOffset: CGFloat)] = [:]
 
   static func render(name: String, avatar: UIImage?, outgoing: Bool) -> (image: UIImage, baselineOffset: CGFloat) {
-    // 徽章收在正文的行高以内（2026-10-16：以前高出行高 4pt、字只小 1pt，只有一个徽章的消息比一行字高一截）。
+    // 胶囊高度正好是正文一行、字比正文小 1pt：不超出这一行，不碰气泡内边距，也不撑高气泡
+    // （2026-10-16：最早高出行高 4pt 把气泡撑高；后来缩到字小 3pt、比一行矮 2pt 又太小）。
     let body = UIFont.preferredFont(forTextStyle: .body)
-    let font = UIFont.systemFont(ofSize: body.pointSize - 3, weight: .semibold)
+    let font = UIFont.systemFont(ofSize: body.pointSize - 1, weight: .semibold)
     let key = "\(name)|\(avatar.map { ObjectIdentifier($0).hashValue } ?? 0)|\(outgoing)|\(font.pointSize)|\(UITraitCollection.current.userInterfaceStyle.rawValue)"
     if let hit = cache[key] { return hit }
 
     let text = "@\(name)" as NSString
     let tint = outgoing ? UIColor.white : UIColor.tintColor.resolvedColor(with: .current)
     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: tint]
-    let height = floor(body.lineHeight) - 2
+    let height = floor(body.lineHeight)
     let avatarSide = height - 4
     let padH: CGFloat = 7
     // 两侧透明边：和前后文字隔开（以前在后面补一个空格，后面本来就有空格时显得太宽）。
@@ -1647,9 +1648,9 @@ struct MentionBadgeMetrics {
 
   @MainActor static var current: MentionBadgeMetrics {
     let body = UIFont.preferredFont(forTextStyle: .body)
-    let height = floor(body.lineHeight) - 2
+    let height = floor(body.lineHeight)
     let avatarSide = height - 4
-    return MentionBadgeMetrics(fontSize: body.pointSize - 3, height: height, avatarSide: avatarSide,
+    return MentionBadgeMetrics(fontSize: body.pointSize - 1, height: height, avatarSide: avatarSide,
                                lead: margin + 2 + avatarSide + 4, trail: 7 + margin)
   }
 
