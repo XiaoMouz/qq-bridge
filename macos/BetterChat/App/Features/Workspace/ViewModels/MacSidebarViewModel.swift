@@ -10,7 +10,6 @@ final class MacSidebarViewModel {
   private var queries: [MacSidebarSection: String] = [:]
   private(set) var unread = 0
   private(set) var contact: ContactRoute?
-  private(set) var isCompactLayout = false
   /// 递增即请求聚焦搜索框（⌘F、Shift-Tab 从结果返回）。
   private(set) var searchFocusRequest = UUID()
   /// 递增即请求把焦点交给消息搜索结果（搜索框里按 Tab）。
@@ -30,7 +29,6 @@ final class MacSidebarViewModel {
   func clearQuery() { queries[section] = nil }
   func clearQuery(of section: MacSidebarSection) { queries[section] = nil }
   func setUnread(_ count: Int) { if unread != count { unread = count } }
-  func setCompactLayout(_ compact: Bool) { isCompactLayout = compact }
   func select(_ contact: ContactRoute?) { self.contact = contact }
   func focusSearch() { searchFocusRequest = UUID() }
   func focusResults() { resultsFocusRequest = UUID() }

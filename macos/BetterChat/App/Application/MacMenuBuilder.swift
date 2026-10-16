@@ -29,7 +29,7 @@ struct MacMenuBuilder {
     }), atStartOfMenu: .view)
     #if DEBUG
     // 固定尺寸入口用于实机重复检查分栏断点，不进入发布构建。
-    let layouts = [(440, 480), (440, 640), (600, 640), (1024, 640)]
+    let layouts = [(640, 480), (720, 640), (1024, 640), (1280, 800)]
     builder.insertChild(UIMenu(title: "布局检查", children: layouts.map { width, height in
       UIAction(title: "窗口 \(width) × \(height)", attributes: attributes) { _ in
         router.workspace?.requestWindowSize(width: CGFloat(width), height: CGFloat(height))

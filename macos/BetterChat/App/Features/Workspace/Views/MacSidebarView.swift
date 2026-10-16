@@ -22,9 +22,7 @@ struct MacSidebarView: View {
     VStack(spacing: 0) {
       if sidebar.section == .messages, dialogs.showsArchived {
         ZStack {
-          if !sidebar.isCompactLayout {
-            Text("群助手").font(.headline).accessibilityAddTraits(.isHeader)
-          }
+          Text("群助手").font(.headline).accessibilityAddTraits(.isHeader)
           HStack {
             Button { dialogs.setArchived(false) } label: {
               Label("消息", systemImage: "chevron.left")
@@ -71,7 +69,6 @@ struct MacSidebarView: View {
     .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: dialogs.showsArchived)
     // 页面横向转场只在侧栏内绘制，不能越过分栏覆盖聊天内容。
     .clipped()
-    .environment(\.macCompactSidebar, sidebar.isCompactLayout)
     .onChange(of: sidebar.query(for: .messages), initial: true) { _, query in search.update(query: query) }
   }
 

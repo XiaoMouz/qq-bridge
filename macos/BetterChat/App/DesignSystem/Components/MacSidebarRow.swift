@@ -64,33 +64,7 @@ struct MacAvatar: Equatable {
   let seed: Int64
 }
 
-private struct MacCompactSidebarKey: EnvironmentKey {
-  static let defaultValue = false
-}
-
-extension EnvironmentValues {
-  var macCompactSidebar: Bool {
-    get { self[MacCompactSidebarKey.self] }
-    set { self[MacCompactSidebarKey.self] = newValue }
-  }
-}
-
-/// 2026-10-14 实机：窄导航里的 sidebar 样式产生分组卡片和多余空白，覆盖系统尺寸环境无效。
-/// 按窗口协调器的实际布局选择原生样式，宽窗口保留圆角侧栏选中态，窄窗口使用普通列表。
-struct MacSidebarListStyle: ViewModifier {
-  @Environment(\.macCompactSidebar) private var compact
-
-  @ViewBuilder
-  func body(content: Content) -> some View {
-    if compact {
-      content.listStyle(.plain).scrollContentBackground(.hidden)
-        .contentMargins(.top, 0, for: .scrollContent)
-    } else {
-      content.listStyle(.sidebar).scrollContentBackground(.hidden)
-    }
-  }
-}
-
 extension View {
-  func macSidebarList() -> some View { modifier(MacSidebarListStyle()) }
+  /// 侧栏里的 SwiftUI 列表：系统侧栏样式（圆角选中态）。2026-10-17 去掉窄窗口单栏模式后只剩这一种。
+  func macSidebarList() -> some View { listStyle(.sidebar).scrollContentBackground(.hidden) }
 }

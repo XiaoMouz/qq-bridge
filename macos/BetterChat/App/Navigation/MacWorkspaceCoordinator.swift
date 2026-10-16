@@ -57,14 +57,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     wireIntents()
     detail.show(chat.controller)
     rootViewController.appeared = { [weak self] in self?.workspaceAppeared() }
-    rootViewController.hasDetail = { [weak self] in self?.currentSectionHasDetail ?? false }
-    rootViewController.layoutChanged = { [weak self] in
-      // UIKit 搬移完成后再更新 SwiftUI 展示状态，避免在布局回调里同步触发新的布局。
-      Task { @MainActor [weak self] in
-        guard let self else { return }
-        sidebar.setCompactLayout(rootViewController.isCompact)
-      }
-    }
     observeSidebar()
     observeAppModel()
   }
@@ -130,7 +122,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   var isWorkspaceVisible: Bool { rootViewController.viewIfLoaded?.window != nil }
 
   var canReturnToMessages: Bool {
-    (rootViewController.isShowingCompactDetail || sidebar.section != .messages || sidebar.hasQueryText || dialogs.showsArchived)
+    (sidebar.section != .messages || sidebar.hasQueryText || dialogs.showsArchived)
       && rootViewController.presentedViewController == nil
   }
 
@@ -190,8 +182,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
 
   func cancelSidebarNavigation() {
     // 搜索属于当前侧栏；退出筛选不切换顶层分区，也不清空右侧详情。
-    if rootViewController.isShowingCompactDetail { rootViewController.showSidebar() }
-    else if sidebar.hasQueryText { sidebar.clearQuery() }
+    if sidebar.hasQueryText { sidebar.clearQuery() }
     else if sidebar.section == .messages, dialogs.showsArchived { dialogs.setArchived(false) }
     else { showMessages() }
   }
@@ -262,13 +253,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   }
 
   private lazy var emptyContactPage = factory.empty(.contact)
-
-  private var currentSectionHasDetail: Bool {
-    switch sidebar.section {
-    case .messages: chat.selectedChat != nil
-    case .contacts: contactPage != nil
-    }
-  }
 
   private func showContact(_ route: ContactRoute) {
     // 侧栏重复选择不能重建右侧导航栈，否则正在浏览的群文件等子页面会丢失。

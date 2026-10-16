@@ -9,7 +9,6 @@ struct MacContactsSidebarView: View {
   let query: String
   let selected: ContactRoute?
   let select: (ContactRoute) -> Void
-  @Environment(\.macCompactSidebar) private var compactSidebar
 
   var body: some View {
     let content = viewModel.content(matching: query)
@@ -42,11 +41,6 @@ struct MacContactsSidebarView: View {
       .pickerStyle(.segmented)
       .labelsHidden()
       .padding(.horizontal, MacMetrics.sidebarInset).padding(.bottom, MacMetrics.searchSpacingBottom)
-      // 窄布局是 plain 列表，滚动内容会进入顶部安全区，用系统栏材质隔开（M1）。
-      // 宽布局是 sidebar 列表，侧栏材质本身连续，不再叠一层栏材质，避免搜索框与选择器两段底色（M3）。
-      .background {
-        if compactSidebar { Rectangle().fill(.bar) }
-      }
     }
     .overlay {
       if viewModel.showsLoadError, let error = viewModel.error {
