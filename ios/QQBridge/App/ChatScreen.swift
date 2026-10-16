@@ -52,6 +52,8 @@ struct ChatScreen: View {
   @State private var fileURL: URL?
   @State private var forwardMessage: Qqbridge_V1_Message?
   @State private var showInfo = false
+  /// Mac 主窗口：资料在窗口右侧的检查器栏里（分栏控制器的 inspector 栏，由工作区协调器管理）。
+  @Environment(\.macToggleChatInfo) private var toggleChatInfo
   @State private var showStickers = false
   /// AI 语音面板（群聊）。
   @State private var showAiVoice = false
@@ -107,6 +109,28 @@ struct ChatScreen: View {
       if !p.name.isEmpty { return p.name }
     }
     return dialog.map { String($0.peerID) } ?? ""
+  }
+
+  /// Mac 主窗口里资料用检查器；快速回复浮层（有 onExpand）和 iOS 仍推入页面。
+  private var usesInspector: Bool { toggleChatInfo != nil && onExpand == nil }
+
+  private func toggleInfo() {
+    if usesInspector, let toggleChatInfo { toggleChatInfo() } else { showInfo = true }
+  }
+
+  @ViewBuilder private var infoPage: some View {
+    if isGroup, let dialog {
+      GroupInfoView(session: session, dialog: dialog, members: members, avatars: avatars, onMention: { id in
+        if !usesInspector { showInfo = false }
+        actions.mention(id)
+      })
+    } else if let dialog {
+      #if targetEnvironment(macCatalyst)
+      UserProfileView(session: session, userId: dialog.peerID, groupMember: nil, conversationID: chatId)
+      #else
+      UserProfileView(session: session, userId: dialog.peerID, groupMember: nil)
+      #endif
+    }
   }
 
   var body: some View {
@@ -334,7 +358,7 @@ struct ChatScreen: View {
           Button("取消") { selection.end() }
         } else {
           #if targetEnvironment(macCatalyst)
-          Button(isGroup ? "群资料" : "资料", systemImage: "info.circle") { showInfo = true }
+          Button(isGroup ? "群资料" : "资料", systemImage: "info.circle") { toggleInfo() }
             .disabled(dialog == nil)
           #else
           if let d = dialog {
@@ -358,20 +382,7 @@ struct ChatScreen: View {
         }
       }
     }
-    .navigationDestination(isPresented: $showInfo) {
-      if isGroup, let dialog {
-        GroupInfoView(session: session, dialog: dialog, members: members, avatars: avatars, onMention: { id in
-          showInfo = false
-          actions.mention(id)
-        })
-      } else if let dialog {
-        #if targetEnvironment(macCatalyst)
-        UserProfileView(session: session, userId: dialog.peerID, groupMember: nil, conversationID: chatId)
-        #else
-        UserProfileView(session: session, userId: dialog.peerID, groupMember: nil)
-        #endif
-      }
-    }
+    .navigationDestination(isPresented: $showInfo) { infoPage }
     .profileCard(item: $profileUser) { target in
       NavigationStack {
         UserProfileView(session: session, userId: target.userId, groupMember: members.byId[target.userId], onMention: isGroup ? {
@@ -516,7 +527,8 @@ struct ChatScreen: View {
     .modifier(NumberActions(number: $tappedNumber, onProfile: { profileUser = ProfileTarget(userId: $0) }, onCopied: { show("已复制") }))
     .modifier(MessageJumpHandler(chatId: chatId) { seq in
       // 从详情页的查找、共享媒体跳回来：先收起详情页，再定位。
-      showInfo = false
+      // Mac 的资料在检查器里，聊天一直可见：不收起，方便接着看下一条结果。
+      if !usesInspector { showInfo = false }
       profileUser = nil
       Task {
         _ = await jump(to: seq, delay: .milliseconds(items.isEmpty ? 1200 : 500))
@@ -1592,4 +1604,9 @@ struct GroupVoiceBar: ViewModifier {
     }
     .animation(.snappy, value: show)
   }
+}
+
+extension EnvironmentValues {
+  /// Mac 主窗口的聊天页：资料按钮打开 / 收起右侧检查器（由工作区协调器实现）。为 nil 时（快速回复浮层、iOS）推入页面。
+  @Entry var macToggleChatInfo: (() -> Void)? = nil
 }

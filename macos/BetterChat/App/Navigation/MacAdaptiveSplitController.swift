@@ -14,6 +14,10 @@ final class MacAdaptiveSplitController: UIViewController {
   private let sidebarNavigation = UINavigationController()
   private let detailNavigation = UINavigationController()
   private let compactNavigation = UINavigationController()
+  /// 右侧检查器栏（会话资料）。2026-10-17：SwiftUI 的 .inspector 在 Catalyst 里浮在聊天上面、盖住右侧气泡和输入框，
+  /// 改用分栏控制器自己的 inspector 栏，聊天会让出宽度。
+  private let inspectorNavigation = UINavigationController()
+  private(set) var inspectorContent: UIViewController?
   private(set) var isCompact = false
   private var adapting = false
   /// 出现在窗口中（首次与重新出现）时通知协调器登记命令、恢复上次会话。
@@ -42,8 +46,31 @@ final class MacAdaptiveSplitController: UIViewController {
     detailNavigation.setViewControllers([detailRoot], animated: false)
     split.setViewController(sidebarNavigation, for: .primary)
     split.setViewController(detailNavigation, for: .secondary)
+    inspectorNavigation.navigationBar.preferredBehavioralStyle = .mac
+    inspectorNavigation.setNavigationBarHidden(true, animated: false)
+    split.minimumInspectorColumnWidth = 280
+    split.preferredInspectorColumnWidth = 320
+    split.maximumInspectorColumnWidth = 440
+    split.setViewController(inspectorNavigation, for: .inspector)
+    split.hide(.inspector)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  var isInspectorShown: Bool { !isCompact && split.isShowing(.inspector) }
+
+  /// 换检查器里的内容（换会话时）；nil 收起。
+  func showInspector(_ content: UIViewController?) {
+    inspectorContent = content
+    if let content {
+      if inspectorNavigation.viewControllers.first !== content {
+        inspectorNavigation.setViewControllers([content], animated: false)
+      }
+      split.show(.inspector)
+    } else {
+      split.hide(.inspector)
+      inspectorNavigation.setViewControllers([], animated: false)
+    }
+  }
 
   override var canBecomeFirstResponder: Bool { true }
 

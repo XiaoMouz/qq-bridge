@@ -11,6 +11,8 @@ protocol MacWorkspaceCommands: AnyObject {
   func showMessages()
   func showContacts()
   func showSettings()
+  /// 显示 / 收起当前会话资料的检查器栏（⌥⌘I、聊天页的资料按钮）。
+  func toggleChatInfo()
   /// 设置窗口的页面（按选项缓存，由工作区的页面工厂创建）。
   func settingsPage(_ setting: MacSetting) -> UIViewController
   func focusSidebarSearch()

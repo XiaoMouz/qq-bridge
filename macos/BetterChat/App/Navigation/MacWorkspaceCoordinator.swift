@@ -31,6 +31,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   private let detail = MacDetailContainer()
   private var toolbar: MacSidebarToolbar!
   private var settingPages: [MacSetting: UIViewController] = [:]
+  private var chatInfoChat: Int64?
   private var contactPage: UIViewController?
 
   init(_ dependencies: Dependencies) {
@@ -66,6 +67,12 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     }
     observeSidebar()
     observeAppModel()
+  }
+
+  /// 会话资料检查器是否开着：跨会话、跨启动记住（和「信息」App 的详情栏一样）。
+  private var chatInfoOpen: Bool {
+    get { UserDefaults.standard.bool(forKey: "mac.chatInspector") }
+    set { UserDefaults.standard.set(newValue, forKey: "mac.chatInspector") }
   }
 
   /// 退出登录 / 工作区被移除：注销命令、取消跨分区的同步与搜索任务。
@@ -136,6 +143,28 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   func showContacts() { select(.contacts) }
   func showSettings() { MacSettingsWindow.open() }
 
+  func toggleChatInfo() {
+    chatInfoOpen = !rootViewController.isInspectorShown
+    updateChatInfo()
+  }
+
+  /// 检查器跟着当前会话走；不在消息分区或没有会话时收起（开关状态保留，回来再打开）。
+  private func updateChatInfo() {
+    guard chatInfoOpen, sidebar.section == .messages, let id = chat.selectedChat else {
+      rootViewController.showInspector(nil)
+      return
+    }
+    if chatInfoChat != id || rootViewController.inspectorContent == nil {
+      chatInfoChat = id
+      rootViewController.showInspector(factory.chatInfo(id) { [weak self] userId, name in
+        guard let self else { return }
+        chat.draftComposer(for: id)?.insertMention(userId: userId, name: name)
+      })
+    } else {
+      rootViewController.showInspector(rootViewController.inspectorContent)
+    }
+  }
+
   func settingsPage(_ setting: MacSetting) -> UIViewController {
     if let page = settingPages[setting] { return page }
     let page = factory.setting(setting)
@@ -187,6 +216,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     // 从群助手的搜索结果再次打开当前会话，也要恢复它所在的列表与选中行。
     dialogs.selectChat(id)
     if chat.open(id, title: title, composer: composer) { detail.show(chat.controller) }
+    updateChatInfo()
     updateWindowTitle()
     if revealDetail { rootViewController.showDetail() }
   }
@@ -226,6 +256,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     case .messages: detail.show(chat.controller)
     case .contacts: detail.show(contactPage ?? emptyContactPage)
     }
+    updateChatInfo()
     if revealList { rootViewController.showSidebar() }
     updateWindowTitle()
   }

@@ -34,7 +34,17 @@ struct MacPageFactory: MacChatPageBuilding {
   }
 
   func chat(_ id: Int64, draft: MacChatDraft) -> UIViewController {
-    host(MacChatPage(session: session, chatId: id, draft: draft))
+    host(MacChatPage(session: session, chatId: id, draft: draft)
+      .environment(\.macToggleChatInfo, { [weak router] in router?.workspace?.toggleChatInfo() }))
+  }
+
+  /// 检查器栏里的会话资料；有自己的导航栈（查找聊天记录、群公告等在检查器里推入）。
+  func chatInfo(_ id: Int64, mention: @escaping (Int64, String) -> Void) -> UIViewController {
+    let controller = UIHostingController(rootView: NavigationStack {
+      MacChatInfoView(session: session, chatId: id, mention: mention)
+    }.environment(model).environment(\.session, session))
+    controller.view.backgroundColor = .clear
+    return controller
   }
 
   /// 设置窗口的页面：窗口工具栏已经写明是哪一页，根页面不再显示自己的标题栏；子页面（存储明细等）照常有返回。

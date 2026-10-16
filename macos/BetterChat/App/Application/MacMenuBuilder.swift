@@ -14,6 +14,8 @@ struct MacMenuBuilder {
     builder.insertSibling(UIMenu(title: "对话", identifier: .init("com.xiaomouz.betterchat.mac.conversations"), children: [
       UIAction(title: "搜索…", image: UIImage(systemName: MacSymbol.search), attributes: attributes) { _ in router.workspace?.focusSidebarSearch() },
       UIAction(title: "下一个未读会话", attributes: attributes) { _ in router.workspace?.nextUnread() },
+      UIKeyCommand(title: "显示/隐藏会话资料", image: UIImage(systemName: "info.circle"), action: #selector(MacWindow.toggleChatInfo(_:)),
+                   input: "i", modifierFlags: [.command, .alternate]),
     ]), afterMenu: .file)
     builder.insertChild(UIMenu(title: "页面", options: .displayInline, children: [
       UIAction(title: "显示/隐藏侧栏", image: UIImage(systemName: MacSymbol.sidebar), attributes: attributes) { _ in router.workspace?.toggleSidebar() },
@@ -84,13 +86,14 @@ final class MacWindow: UIWindow {
   @objc func openNextUnread(_ sender: UICommand) { router.workspace?.nextUnread() }
   @objc func showMessages(_ sender: UICommand) { router.workspace?.showMessages() }
   @objc func returnToMessages(_ sender: UICommand) { router.workspace?.cancelSidebarNavigation() }
+  @objc func toggleChatInfo(_ sender: UICommand) { router.workspace?.toggleChatInfo() }
 
   override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
     if action == #selector(returnToMessages) {
       return router.isAvailable && router.workspace?.canReturnToMessages == true
     }
     if action == #selector(openSettings) { return true }
-    if [#selector(searchSidebar), #selector(openNextUnread), #selector(showMessages), #selector(showContacts), #selector(toggleWorkspaceSidebar)].contains(action) {
+    if [#selector(searchSidebar), #selector(openNextUnread), #selector(toggleChatInfo), #selector(showMessages), #selector(showContacts), #selector(toggleWorkspaceSidebar)].contains(action) {
       return router.isAvailable
     }
     return super.canPerformAction(action, withSender: sender)
