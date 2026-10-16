@@ -129,7 +129,8 @@ struct GroupFilesView: View {
     #else
     .overlay { state.overlay(empty: folders.isEmpty && files.isEmpty, emptyText: "没有群文件", icon: "doc") }
     #endif
-    .safeAreaInset(edge: .bottom) {
+    // 进度浮在底部，不改变文件列表的高度。
+    .overlay(alignment: .bottom) {
       if let progress {
         HStack(spacing: 8) {
           ProgressView()

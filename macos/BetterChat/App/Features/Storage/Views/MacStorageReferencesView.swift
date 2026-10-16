@@ -37,7 +37,8 @@ struct MacStorageReferencesView: View {
         .help("打开\(title)")
       }
       .overlay { emptyState }
-      .safeAreaInset(edge: .top, spacing: 0) { refreshState }
+      // 有内容时的刷新 / 失败提示浮在顶部，不把列表推下去。
+      .overlay(alignment: .top) { refreshState }
       .navigationTitle(model.hasLoaded ? "引用会话（\(model.chats.count)）" : "引用会话")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -66,13 +67,9 @@ struct MacStorageReferencesView: View {
   @ViewBuilder private var refreshState: some View {
     if !model.chats.isEmpty {
       if model.isLoading {
-        ProgressView("正在刷新…").frame(maxWidth: .infinity).padding(8).background(.bar)
+        MacFloatingRefreshing()
       } else if let error = model.error {
-        HStack(spacing: 12) {
-          Text(error).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-          Spacer(minLength: 0)
-          Button("重试") { model.reload() }.fixedSize()
-        }.padding(12).background(.bar)
+        MacFloatingError(message: error) { model.reload() }
       }
     }
   }

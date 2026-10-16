@@ -43,6 +43,8 @@ enum MacMetrics {
   }
 
   static let statusMaxWidth: CGFloat = 580
+  /// 新消息横幅：固定宽度，浮在窗口右上角（和系统通知的宽度相近）。
+  static let messageBannerWidth: CGFloat = 340
   static let transitionDuration: TimeInterval = 0.18
 }
 

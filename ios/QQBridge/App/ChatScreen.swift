@@ -198,7 +198,8 @@ struct ChatScreen: View {
           .allowsHitTesting(false)
       }
     }
-    .safeAreaInset(edge: .top, spacing: 0) { historyFailure }
+    // 失败提示浮在消息上方，不把整个聊天列表推下去。
+    .overlay(alignment: .top) { historyFailure }
     .animation(.easeOut(duration: 0.2), value: scrollDay)
     .overlay(alignment: .top) {
       if let notice {
@@ -1555,7 +1556,8 @@ struct GroupVoiceBar: ViewModifier {
   }
 
   func body(content: Content) -> some View {
-    content.safeAreaInset(edge: .top) {
+    // 浮在消息上方：群语音开始 / 结束时不把聊天列表推上推下。
+    content.overlay(alignment: .top) {
       if show {
         Button {
           calls.expanded = true

@@ -13,19 +13,13 @@ struct MacGroupListStatus: ViewModifier {
   func body(content: Content) -> some View {
     content
       .overlay { emptyState }
-      .safeAreaInset(edge: .top, spacing: 0) {
+      // 有内容时的刷新 / 失败提示浮在顶部，不把列表推下去。
+      .overlay(alignment: .top) {
         if !empty {
           if isLoading {
-            ProgressView("正在刷新…").controlSize(.small).frame(maxWidth: .infinity).padding(8).background(.bar)
+            MacFloatingRefreshing()
           } else if let error = error {
-            HStack(spacing: 12) {
-              Label(error, systemImage: "exclamationmark.triangle")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-              Spacer(minLength: 0)
-              Button("重试") { reload() }.fixedSize()
-            }
-            .padding(12)
-            .background(.bar)
+            MacFloatingError(message: error, reload: reload)
           }
         }
       }

@@ -14,16 +14,13 @@ struct MacStorageSummaryStatus<Value: Sendable>: ViewModifier {
           } else { ProgressView("正在加载…") }
         }
       }
-      .safeAreaInset(edge: .top, spacing: 0) {
+      // 有数据时的刷新 / 失败提示浮在顶部，不把内容推下去。
+      .overlay(alignment: .top) {
         if model.value != nil {
           if model.isLoading {
-            ProgressView("正在刷新…").frame(maxWidth: .infinity).padding(8).background(.bar)
+            MacFloatingRefreshing()
           } else if let error = model.error {
-            HStack(spacing: 12) {
-              Text(error).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-              Spacer(minLength: 0)
-              Button("重试") { model.reload() }.fixedSize()
-            }.padding(12).background(.bar)
+            MacFloatingError(message: error) { model.reload() }
           }
         }
       }

@@ -37,10 +37,12 @@ private struct MacGlobalOverlays: ViewModifier {
 
   func body(content: Content) -> some View {
     content
-      // 2026-10-14 离线实测：顶部 overlay 在 440 点窗口盖住搜索框；状态条必须参与安全区布局。
-      .safeAreaInset(edge: .top, spacing: 0) {
-        if hasStatus { statusStack.padding(.bottom, 8) }
-      }
+      // 状态条（同步、连接、掉线、通话）和新消息横幅都浮在右上角，不参与布局：
+      // 以前放在顶部安全区里，每出现 / 消失一次整个窗口内容都被推上推下（2026-10-16 用户反馈）。
+      // 放右上角而不是正中：窄窗口时不盖住左上的搜索框（2026-10-14 的问题）。
+      .overlay(alignment: .topTrailing) { floatingStatus }
+      .animation(.spring(duration: 0.35), value: model.banner)
+      .animation(.spring(duration: 0.35), value: hasStatus)
       .overlay(alignment: .bottom) { toast }
       .alert("同步未完成", isPresented: Binding(get: { manualSync.error != nil }, set: { if !$0 { manualSync.error = nil } })) {
         Button("好", role: .cancel) { manualSync.error = nil }
@@ -64,11 +66,21 @@ private struct MacGlobalOverlays: ViewModifier {
 
   private var hasStatus: Bool {
     manualSync.isRunning || model.connection != .online || model.qqOnline == false
-      || showsCallBanner || model.banner != nil
+      || showsCallBanner
+  }
+
+  private var floatingStatus: some View {
+    VStack(alignment: .trailing, spacing: 8) {
+      if hasStatus { statusStack }
+      messageBanner
+    }
+    .frame(width: MacMetrics.messageBannerWidth, alignment: .trailing)
+    .padding(.top, 8)
+    .padding(.trailing, 6)
   }
 
   private var statusStack: some View {
-    VStack(spacing: 8) {
+    VStack(alignment: .trailing, spacing: 8) {
       if manualSync.isRunning {
         MacStatusPill { ProgressView().controlSize(.small); Text("正在同步会话…") }
       }
@@ -82,14 +94,20 @@ private struct MacGlobalOverlays: ViewModifier {
       }
       if showsCallBanner {
         CallBanner(manager: model.calls, session: session)
-      } else if let banner = model.banner {
-        InAppBannerView(banner: banner) {
-          model.banner = nil
-          model.quickReplyChat = banner.chatId
-        } onDismiss: { model.banner = nil }
       }
     }
-    .padding(.top, 8).frame(maxWidth: MacMetrics.statusMaxWidth)
+    .transition(.move(edge: .trailing).combined(with: .opacity))
+  }
+
+  /// 通话横幅在的时候不再叠一个消息横幅（和以前一样）。
+  @ViewBuilder private var messageBanner: some View {
+    if !showsCallBanner, let banner = model.banner {
+      InAppBannerView(banner: banner) {
+        model.banner = nil
+        model.quickReplyChat = banner.chatId
+      } onDismiss: { model.banner = nil }
+        .transition(.move(edge: .trailing).combined(with: .opacity))
+    }
   }
 
   @ViewBuilder private var toast: some View {
