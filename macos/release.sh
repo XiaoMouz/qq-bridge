@@ -8,6 +8,10 @@
 #                                      App Store Connect API 密钥（.p8 路径、密钥 ID、Issuer ID；Admin 角色）。
 #                                      CI 用：xcodebuild 拿它走云端 Developer ID 证书签名、提交公证，DMG 也用它公证。
 #   NOTARY_PROFILE=xxx                 本机可选：notarytool 的钥匙串凭据名，设了就把 DMG 也公证并钉票据
+#   DEVELOPER_ID_PROFILE=path          Developer ID 描述文件（.provisionprofile）。给了就手动签名导出：
+#                                      钥匙串里要有对应的 Developer ID Application 证书（含私钥）。
+#                                      2026-10-16 实测：API 密钥（即使 Admin）不能用云端管理的 Developer ID 证书，
+#                                      也就没法自动生成 Developer ID 描述文件；CI 必须带证书 + 这个描述文件。
 #
 # 自动更新（Sparkle，见 MacUpdater.swift）：
 #   SPARKLE_FEED_URL / SPARKLE_PUBLIC_KEY   写进 App 的 Info.plist（更新源、EdDSA 公钥）；不给就打出不会自动更新的包
@@ -63,6 +67,22 @@ xcodebuild -project "$project" -scheme BetterChatMac -configuration Release \
 
 step "用 Developer ID 签名并提交公证"
 opts="$out/ExportOptions.plist"
+signing="<key>signingStyle</key><string>automatic</string>"
+if [ -n "${DEVELOPER_ID_PROFILE:-}" ]; then
+  # 装进 Xcode 找描述文件的目录，按名字指给导出用。
+  profile_plist="$out/profile.plist"
+  security cms -D -i "$DEVELOPER_ID_PROFILE" >"$profile_plist"
+  profile_uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$profile_plist")
+  profile_name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$profile_plist")
+  profiles_dir="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+  mkdir -p "$profiles_dir"
+  cp "$DEVELOPER_ID_PROFILE" "$profiles_dir/$profile_uuid.provisionprofile"
+  echo "描述文件：$profile_name（$profile_uuid）"
+  signing="<key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Developer ID Application</string>
+  <key>provisioningProfiles</key>
+  <dict><key>com.xiaomouz.betterchat.mac</key><string>$profile_name</string></dict>"
+fi
 cat >"$opts" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -70,7 +90,7 @@ cat >"$opts" <<EOF
 <dict>
   <key>method</key><string>developer-id</string>
   <key>destination</key><string>upload</string>
-  <key>signingStyle</key><string>automatic</string>
+  $signing
   <key>teamID</key><string>$team</string>
 </dict>
 </plist>

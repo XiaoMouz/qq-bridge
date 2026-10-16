@@ -8,7 +8,9 @@
 #   DEVELOPER_ID_P12 / DEVELOPER_ID_P12_PASSWORD
 #                   Developer ID Application 证书（含私钥，base64 后的 .p12）和导出密码。
 #                   2026-10-16 实测：API 团队密钥不能用云端管理的分发证书（Cloud signing permission error），必须自带证书；
-#                   描述文件仍由 API 密钥自动生成。
+#   MAC_DEVELOPER_ID_PROFILE
+#                   Developer ID 描述文件（base64 后的 .provisionprofile；开发者网站 → 描述文件 → Developer ID → Mac Catalyst，
+#                   App ID com.xiaomouz.betterchat.mac，勾选上面那张证书）。API 密钥自动生成不了这种描述文件。
 # 自动更新（Sparkle）和 R2 托管：
 #   Secrets：SPARKLE_ED_KEY（generate_keys -x 导出的私钥那一行）、R2_ACCOUNT_ID、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET
 #   Variables：SPARKLE_PUBLIC_KEY（公钥）、SPARKLE_BASE_URL（R2 公开地址，到 mac/ 这一层，例如 https://dl.example.com/mac）
@@ -71,6 +73,13 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
 
+      - name: 写入 Developer ID 描述文件
+        env:
+          PROFILE: ${{ secrets.MAC_DEVELOPER_ID_PROFILE }}
+        run: |
+          test -n "$PROFILE" || { echo "缺少 Secret MAC_DEVELOPER_ID_PROFILE" >&2; exit 1; }
+          printf '%s' "$PROFILE" | base64 --decode > "$RUNNER_TEMP/developer-id.provisionprofile"
+
       - name: 更新说明（上一个 mac-v 标签之后的提交标题）
         run: |
           prev=$(git describe --tags --abbrev=0 --match 'mac-v*' HEAD^ 2>/dev/null || true)
@@ -95,7 +104,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
-        run: ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" ./macos/release.sh
+        run: ASC_KEY_PATH="$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" DEVELOPER_ID_PROFILE="$RUNNER_TEMP/developer-id.provisionprofile" ./macos/release.sh
 
       - name: 上传日志（失败时也传）
         if: always()
