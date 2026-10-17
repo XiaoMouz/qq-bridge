@@ -8,7 +8,6 @@ public sealed partial class MainWindow
     {
         var session = runtime; if (session is null) return;
         var ct = NewPage(); Detail("本机预览缓存", "当前账号的缩略图、头像和表情预览");
-        Details.Children.Add(ActionButton("返回存储概览", () => ShowSetting("存储")));
         var usage = await session.GetPreviewCacheUsageAsync(ct); ct.ThrowIfCancellationRequested();
         Details.Children.Add(Text($"已缓存 {usage.Files:N0} 项 · {Bytes((ulong)usage.Bytes)}\n容量上限 {Bytes((ulong)usage.Capacity)} · 临时文件 {Bytes((ulong)usage.TemporaryBytes)}"));
         Details.Children.Add(Text("清理后预览会按需重新下载。消息、草稿和服务端媒体不受影响。正在使用的文件可能暂时无法清理。", 12));

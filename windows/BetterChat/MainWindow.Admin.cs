@@ -48,7 +48,7 @@ public sealed partial class MainWindow
             if (calls.PausedReason.Length > 0) Details.Children.Add(Text("暂停原因：" + calls.PausedReason));
             if (calls.LastError.Length > 0) Details.Children.Add(Text("最近错误：" + calls.LastError));
         }
-        Details.Children.Add(ActionButton("查看存档完整性", () => ShowSetting("存档完整性")));
+        Details.Children.Add(ActionButton("查看存档完整性", () => Go(SettingKey("存档完整性"), () => ShowSetting("存档完整性"))));
     }
     private async Task ShowArchiveStatus(CancellationToken ct)
     {

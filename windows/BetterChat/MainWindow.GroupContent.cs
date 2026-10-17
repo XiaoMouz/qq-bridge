@@ -52,7 +52,7 @@ public sealed partial class MainWindow
         {
             // 资料页没有正在编辑的会话，不能复用聊天气泡中修改 selectedChat 草稿的回复菜单。
             panel.Children.Add(MessageView(message.Clone(), includeActions: false));
-            panel.Children.Add(ActionButton("定位原消息", async () => { ct.ThrowIfCancellationRequested(); await OpenChat(message.ChatId, message.Seq); }));
+            panel.Children.Add(ActionButton("定位原消息", async () => { ct.ThrowIfCancellationRequested(); await Go(ChatKey(message.ChatId), () => OpenChat(message.ChatId, message.Seq)); }));
         }
         else
         {

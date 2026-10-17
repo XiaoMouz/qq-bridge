@@ -16,7 +16,7 @@ public sealed partial class MainWindow
             Details.Children.Add(Text(AccountAvatar.DisplayName, 24));
             Details.Children.Add(Text("服务器：" + api.Transport.BaseUri.Host));
             Details.Children.Add(Text(connectionStatus, 12));
-            Details.Children.Add(ActionButton("查看服务端 QQ 登录状态", ShowQqLogin));
+            Details.Children.Add(ActionButton("查看服务端 QQ 登录状态", () => Go("qq-login", ShowQqLogin)));
             Details.Children.Add(Text(notifications?.Error is { } notificationError
                 ? "Windows 通知不可用：" + notificationError : "Windows 通知：运行期间接收新消息", 12));
             Details.Children.Add(ActionButton("退出登录", async () =>
@@ -38,7 +38,7 @@ public sealed partial class MainWindow
         if (api is null)
         {
             Workspace.Visibility = Visibility.Collapsed; Onboarding.Visibility = Visibility.Visible;
-            AccountAvatar.Visibility = Visibility.Collapsed;
+            AccountButton.Visibility = Visibility.Collapsed;
             OnboardingSubtitle.Text = "登录你的 QQ Bridge";
             OnboardingContent.Children.Clear();
         }
@@ -141,10 +141,10 @@ public sealed partial class MainWindow
         {
             if (runtime is not { } storageSession) return;
             var load = new RpcOperationViewModel<GetStorageOverviewRequest, GetStorageOverviewResponse>(storageSession.GetStorageOverviewAsync, new UiDispatcher(DispatcherQueue), false); featurePage = load;
-            Details.Children.Add(ActionButton("本机预览缓存", ShowPreviewCache));
-            Details.Children.Add(ActionButton("全局存储策略", () => ShowStoragePolicy(PolicyScope.Global)));
+            Details.Children.Add(ActionButton("本机预览缓存", () => Go("preview-cache", ShowPreviewCache)));
+            Details.Children.Add(ActionButton("全局存储策略", () => Go($"policy:{PolicyScope.Global}::", () => ShowStoragePolicy(PolicyScope.Global))));
             foreach (var scene in new[] { Scene.Friend, Scene.Group, Scene.Temp })
-                Details.Children.Add(ActionButton($"{scene} 类型存储策略", () => ShowStoragePolicy(PolicyScope.Scene, scene)));
+                Details.Children.Add(ActionButton($"{scene} 类型存储策略", () => Go($"policy:{PolicyScope.Scene}:{scene}:", () => ShowStoragePolicy(PolicyScope.Scene, scene))));
             if (!await load.ExecuteAsync(new() { Limit = 30 }, ct))
             {
                 ct.ThrowIfCancellationRequested();
@@ -159,7 +159,7 @@ public sealed partial class MainWindow
             foreach (var c in r.Categories.OrderByDescending(c => c.Bytes))
             {
                 string label = $"{Category(c.Category)}    {Bytes(c.Bytes)}    {c.Count:N0} 项";
-                Details.Children.Add(StorageCategories.HasChats(c.Category) ? ActionButton(label, () => ShowStorageChats(c.Category)) : Text(label));
+                Details.Children.Add(StorageCategories.HasChats(c.Category) ? ActionButton(label, () => Go("storage-chats:" + c.Category, () => ShowStorageChats(c.Category))) : Text(label));
             }
         }
         else if (name == "通话记录")
@@ -191,7 +191,7 @@ public sealed partial class MainWindow
             if (featurePage != vm || runtime != profileSession) return;
             if (!opened) { profileToken.ThrowIfCancellationRequested(); throw new IOException(vm.Open.Error ?? "无法打开会话。"); }
             profileToken.ThrowIfCancellationRequested();
-            if (runtime == profileSession) await OpenChat(vm.Open.Result!.ChatId);
+            if (runtime == profileSession) { long target = vm.Open.Result!.ChatId; await Go(ChatKey(target), () => OpenChat(target)); }
         }));
         Details.Children.Add(ActionButton("刷新资料", async () =>
         {
@@ -233,7 +233,7 @@ public sealed partial class MainWindow
         if (peer.Kind == PeerKind.Group)
         {
             foreach (var title in new[] { "群成员", "群公告", "群精华", "群文件", "群相册" })
-                Details.Children.Add(ActionButton(title, () => ShowGroup(peer, title)));
+                Details.Children.Add(ActionButton(title, () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
         }
     }
     private async Task ShowGroup(Peer peer, string title, string folder = "")
@@ -250,7 +250,6 @@ public sealed partial class MainWindow
             if (!success) throw new IOException(operation.Error ?? "群资料加载失败。");
             return operation.Result;
         }
-        Details.Children.Add(ActionButton("返回群资料", () => { NewPage(); ShowProfile(peer); return Task.CompletedTask; }));
         if (title == "群成员")
         {
             await GroupMembers(peer, ct);
@@ -300,12 +299,12 @@ public sealed partial class MainWindow
                 return;
             }
             ct.ThrowIfCancellationRequested();
-            if (folder.Length > 0) Details.Children.Add(ActionButton("根目录", () => ShowGroup(peer, title)));
+            if (folder.Length > 0) Details.Children.Add(ActionButton("根目录", () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
             else Details.Children.Add(ActionButton("新建文件夹", () => CreateGroupFolder(peer, vm, ct)));
             Details.Children.Add(Text("点击文件下载，右键打开重命名、移动和删除菜单。管理权限由 QQ 校验。", 12));
             foreach (var f in vm.Folders)
             {
-                var button = ActionButton("文件夹 · " + f.Name, () => ShowGroup(peer, title, f.Id));
+                var button = ActionButton("文件夹 · " + f.Name, () => Go(GroupKey(peer, title, f.Id), () => ShowGroup(peer, title, f.Id)));
                 var menu = new MenuFlyout(); var remove = new MenuFlyoutItem { Text = "删除文件夹" };
                 remove.Click += async (_, _) => await Guard(async () =>
                 {
@@ -322,7 +321,7 @@ public sealed partial class MainWindow
         {
             var r = await Load(new ListGroupAlbumsRequest { GroupId = peer.PeerId }, session.ListGroupAlbumsAsync);
             if (r is null) return;
-            foreach (var a in r.Albums) Details.Children.Add(ActionButton($"{a.Name} · {a.Count} 项", () => OpenGroupAlbum(peer, a)));
+            foreach (var a in r.Albums) Details.Children.Add(ActionButton($"{a.Name} · {a.Count} 项", () => Go($"album:{peer.PeerId}:{a.Id}", () => OpenGroupAlbum(peer, a))));
         }
         if (Details.Children.Count == 1) Details.Children.Add(Text("暂无内容"));
     }
@@ -376,14 +375,14 @@ public sealed partial class MainWindow
             var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "查找聊天记录", Content = query, PrimaryButtonText = "搜索", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
             if (await dialog.ShowAsync() == ContentDialogResult.Primary) await StartSearch(query.Text, d.ChatId);
         });
-        Item("会话与通知设置", () => ShowDialogPreferences(d.ChatId));
+        Item("会话与通知设置", () => Go("prefs:" + d.ChatId, () => ShowDialogPreferences(d.ChatId)));
         Item("收藏表情", ChooseSticker);
         if (runtime is { } forwardSession) Item("多选转发", () => SelectMessagesToForward(forwardSession, d.ChatId));
         Item("录制语音", () => ShowVoiceRecording(d.ChatId));
-        Item("共享媒体与文件", () => ShowSharedMedia(d.ChatId));
-        Item("提及和回复我的消息", () => ShowMentions(d.ChatId));
+        Item("共享媒体与文件", () => Go("shared:" + d.ChatId, () => ShowSharedMedia(d.ChatId)));
+        Item("提及和回复我的消息", () => Go("mentions:" + d.ChatId, () => ShowMentions(d.ChatId)));
         if (d.Scene == Scene.Group) Item("AI 语音", () => ShowAiVoice(d.ChatId));
-        Item("查看资料", () => { var p = peerIndex.GetValueOrDefault((d.PeerId, d.Scene == Scene.Group)); if (p is not null) ShowProfile(p); return Task.CompletedTask; });
+        Item("查看资料", () => peerIndex.GetValueOrDefault((d.PeerId, d.Scene == Scene.Group)) is { } p ? Go(ProfileKey(p), () => ShowProfile(p)) : Task.CompletedTask);
         menu.ShowAt(ChatMore); await Task.CompletedTask;
     });
 }

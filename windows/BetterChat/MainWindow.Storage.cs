@@ -14,7 +14,6 @@ public sealed partial class MainWindow
         var ct = NewPage(); selectedChat = 0;
         var load = new RpcOperationViewModel<ListStorageChatsRequest, ListStorageChatsResponse>(session.ListStorageChatsAsync, new UiDispatcher(DispatcherQueue), false); featurePage = load;
         Detail(Category(category), "按会话查看服务端占用");
-        Details.Children.Add(ActionButton("返回存储概览", () => ShowSetting("存储")));
         var request = new ListStorageChatsRequest { Limit = 200 }; request.Categories.Add(category);
         if (!await load.ExecuteAsync(request, ct))
         {
@@ -27,7 +26,9 @@ public sealed partial class MainWindow
         var response = load.Result!;
         foreach (var chat in response.Chats)
             Details.Children.Add(ActionButton($"{PeerName(chat.PeerId, chat.Scene)} · {Bytes(chat.Bytes)} · {chat.Count:N0} 项",
-                () => StorageCategories.HasMediaItems(category) ? ShowStorageItems(chat.ChatId, category) : ShowChatStorage(chat.ChatId)));
+                () => StorageCategories.HasMediaItems(category)
+                    ? Go($"storage-items:{chat.ChatId}:{category}", () => ShowStorageItems(chat.ChatId, category))
+                    : Go("chat-storage:" + chat.ChatId, () => ShowChatStorage(chat.ChatId))));
         if (response.Chats.Count == 0) Details.Children.Add(Text("此分类暂无内容。"));
     }
 
@@ -37,9 +38,8 @@ public sealed partial class MainWindow
         var ct = NewPage();
         var vm = new StorageItemsViewModel(chat, category, session.ListStorageItemsAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
         Detail(Category(category), "会话媒体 · 按大小排序");
-        Details.Children.Add(ActionButton("返回会话列表", () => ShowStorageChats(category)));
         Details.Children.Add(ActionButton("清理此会话的媒体原件…", () => PlanStorageCleanup(chat)));
-        Details.Children.Add(ActionButton("会话存储详情与生效策略", () => ShowChatStorage(chat)));
+        Details.Children.Add(ActionButton("会话存储详情与生效策略", () => Go("chat-storage:" + chat, () => ShowChatStorage(chat))));
         var rows = new StackPanel { Spacing = 12 }; Details.Children.Add(rows);
         bool loading = false;
         var seen = new HashSet<string>();
@@ -73,7 +73,7 @@ public sealed partial class MainWindow
                         var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "引用位置", Content = choices, PrimaryButtonText = "打开消息", CloseButtonText = "关闭", IsPrimaryButtonEnabled = false };
                         choices.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = choices.SelectedItem is ListEntry { Value: MediaUsage { MessageSeq: > 0 } };
                         if (await dialog.ShowAsync() == ContentDialogResult.Primary && !ct.IsCancellationRequested && featurePage == vm && runtime == session && choices.SelectedItem is ListEntry { Value: MediaUsage chosen })
-                            await OpenChat(chosen.ChatId, chosen.MessageSeq);
+                            await Go(ChatKey(chosen.ChatId), () => OpenChat(chosen.ChatId, chosen.MessageSeq));
                     }));
                     rows.Children.Add(panel);
                 }
@@ -126,7 +126,6 @@ public sealed partial class MainWindow
         var session = runtime; if (session is null) return;
         var ct = NewPage(); Detail("会话存储详情", "服务端占用；共享内容不等于本会话可释放空间。");
         var vm = new ChatStorageViewModel(chat, session.GetChatStorageAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        Details.Children.Add(ActionButton("返回存储概览", () => ShowSetting("存储")));
         if (!await vm.LoadAsync(ct: ct))
         { ct.ThrowIfCancellationRequested(); Details.Children.Add(Text(vm.Load.Error ?? "加载失败")); Details.Children.Add(ActionButton("重试", () => ShowChatStorage(chat))); return; }
         ct.ThrowIfCancellationRequested();
@@ -139,9 +138,9 @@ public sealed partial class MainWindow
         foreach (var item in detail.Largest)
         {
             var label = $"{item.Kind} · {Bytes(item.Size)} · {item.Tier} · {(item.Shared ? "共享" : "独占")}";
-            Details.Children.Add(item.FirstSeq > 0 ? ActionButton(label, () => OpenChat(chat, item.FirstSeq)) : Text(label));
+            Details.Children.Add(item.FirstSeq > 0 ? ActionButton(label, () => Go(ChatKey(chat), () => OpenChat(chat, item.FirstSeq))) : Text(label));
         }
         Details.Children.Add(ActionButton("预估清理原件…", () => PlanStorageCleanup(chat)));
-        Details.Children.Add(ActionButton("编辑此会话存储策略", () => ShowStoragePolicy(PolicyScope.Chat, chat: chat)));
+        Details.Children.Add(ActionButton("编辑此会话存储策略", () => Go($"policy:{PolicyScope.Chat}::{chat}", () => ShowStoragePolicy(PolicyScope.Chat, chat: chat))));
     }
 }

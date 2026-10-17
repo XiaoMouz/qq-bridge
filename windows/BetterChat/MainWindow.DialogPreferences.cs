@@ -43,7 +43,6 @@ public sealed partial class MainWindow
         if (dialog.Scene == Scene.Group)
             Details.Children.Add(ActionButton("切换 @全体成员提醒", () => Set(vm.SetMentionAll, new BooleanPreference(!vm.MentionAllNotify))));
         Details.Children.Add(status);
-        Details.Children.Add(ActionButton("返回聊天", () => OpenChat(chatId)));
         vm.PropertyChanged += (_, _) => Render();
         Render();
         bool refreshing = false, requested = false;

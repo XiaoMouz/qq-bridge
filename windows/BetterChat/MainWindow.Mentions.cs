@@ -35,7 +35,7 @@ public sealed partial class MainWindow
                 row.Children.Add(ActionButton("定位消息", async () =>
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (runtime == session) await OpenChat(chat, mention.Seq);
+                    if (runtime == session) await Go(ChatKey(chat), () => OpenChat(chat, mention.Seq));
                 }));
                 row.Children.Add(ActionButton("标记此提及已读", async () =>
                 {

@@ -18,6 +18,7 @@
     <Content Include="../../ios/QQBridge/Resources/QQFaces/s*.png" Link="Assets/QQFaces/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="Assets/FaceCatalog.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../ios/QQBridge/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" Link="Assets/AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
     <PackageReference Include="QRCoder" Version="1.8.0" />

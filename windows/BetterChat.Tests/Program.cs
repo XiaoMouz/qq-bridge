@@ -3098,6 +3098,39 @@ await Test("清理后的旧哈希必须重新请求，媒体等待忽略其他�
     try { await opening; throw new Exception("应取消等待"); } catch (OperationCanceledException) { }
     Check(calls == 1);
 });
+await Test("右栏页面栈：下钻入栈、同页替换、回到栈中页面时截断、根导航清栈", async () =>
+{
+    var shown = new List<string>();
+    DetailDestination To(string key, string label) => new(key, () => { shown.Add(label); return Task.CompletedTask; });
+    var nav = new DetailNavigator();
+    Check(!nav.CanGoBack && !await nav.GoBackAsync());
+    await nav.ResetAsync(To("chat:1", "聊天"));
+    await nav.NavigateAsync(To("profile:1", "资料"));
+    await nav.NavigateAsync(To("group:1:群成员", "成员"));
+    Check(nav.Depth == 2 && nav.CanGoBack);
+    await nav.NavigateAsync(To("group:1:群成员", "成员刷新"));
+    Check(nav.Depth == 2 && nav.Current!.Key == "group:1:群成员");
+    await nav.NavigateAsync(To("chat:1", "发消息回到聊天"));
+    Check(nav.Depth == 0 && !nav.CanGoBack && nav.Current!.Key == "chat:1");
+    await nav.NavigateAsync(To("profile:1", "资料"));
+    Check(await nav.GoBackAsync() && shown[^1] == "发消息回到聊天" && nav.Depth == 0);
+    await nav.NavigateAsync(To("prefs:1", "设置"));
+    await nav.ResetAsync(To("chat:2", "另一个聊天"));
+    Check(nav.Depth == 0 && nav.Current!.Key == "chat:2");
+    for (int i = 0; i < DetailNavigator.MaxDepth + 5; i++) await nav.NavigateAsync(To("page:" + i, "页" + i));
+    Check(nav.Depth == DetailNavigator.MaxDepth);
+    var changed = new List<string?>(); nav.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+    nav.Clear();
+    Check(nav.Current is null && !nav.CanGoBack && changed.Contains(nameof(DetailNavigator.CanGoBack)));
+});
+await Test("导航未读角标与 iOS 规则一致", () =>
+{
+    Dialog D(string policy) => new() { ChatId = 1, NotifyPolicy = policy, UnreadCount = 9, UnreadMentions = 2, UnreadReplies = 1, UnreadMentionAll = 4 };
+    Check(DialogBadge.Count(D("")) == 9 && DialogBadge.Count(D("all")) == 9);
+    Check(DialogBadge.Count(D("muted")) == 3 && DialogBadge.Count(D("archived")) == 3 && DialogBadge.Count(D("mentions")) == 3);
+    Check(new DialogRowViewModel(D("muted")).BadgeCount == 3);
+    return Task.CompletedTask;
+});
 Console.WriteLine($"全部 {passed} 项测试通过。");
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
 {

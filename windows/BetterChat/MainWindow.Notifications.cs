@@ -19,7 +19,7 @@ public sealed partial class MainWindow
             // 旧账号或上一次运行留下的通知不能打开当前账号的同号会话。
             if (session != notificationSession || runtime is null) return;
             Activate();
-            await Guard(() => OpenChat(chat, sequence));
+            await Guard(() => GoRoot(ChatKey(chat), () => OpenChat(chat, sequence)));
         });
         Closed += (_, _) => notifications.Dispose();
     }

@@ -8,10 +8,19 @@ public sealed record DialogListQuery;
 public sealed record DialogListSnapshot(IReadOnlyList<Dialog> Dialogs, IReadOnlyDictionary<long, Peer?> Peers,
     IReadOnlyDictionary<(long PeerId, bool Group), Peer> DisplayPeers);
 
+// 和 iOS DialogItem.badgeCount、服务端推送角标同一规则：会提醒的会话算全部未读；
+// 免打扰、群助手、只提醒 @我 的会话只算 @我 和回复我；@全体成员 不单独算。
+public static class DialogBadge
+{
+    public static int Count(Dialog dialog) => dialog.NotifyPolicy is "muted" or "archived" or "mentions"
+        ? (int)(dialog.UnreadMentions + dialog.UnreadReplies) : (int)dialog.UnreadCount;
+}
+
 public sealed class DialogRowViewModel(Dialog initial, Peer? peer = null) : INotifyPropertyChanged
 {
     private Dialog value = initial.Clone();
     public long ChatId => value.ChatId;
+    public int BadgeCount => DialogBadge.Count(value);
     public Dialog Snapshot => value.Clone();
     public string Title { get; private set; } = Name(initial, peer);
     public string AvatarSha256 { get; private set; } = peer?.AvatarSha256 ?? "";

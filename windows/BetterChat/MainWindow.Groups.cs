@@ -43,7 +43,7 @@ public sealed partial class MainWindow
                         ct.ThrowIfCancellationRequested();
                         if (featurePage != vm || runtime != session) return;
                         if (profile.Profile?.Peer is not { } peer || peer.PeerId != member.UserId || peer.Kind != PeerKind.User) throw new IOException("成员资料返回的身份不匹配。");
-                        NewPage(); ShowProfile(peer, groupId);
+                        await Go(ProfileKey(peer, groupId), () => { NewPage(); ShowProfile(peer, groupId); });
                     }));
                 }
                 count.Text = $"已加载 {seen.Count:N0} / {vm.Total:N0} 位成员" + (vm.Stale ? " · 缓存资料" : "");
@@ -61,7 +61,6 @@ public sealed partial class MainWindow
         var session = runtime; if (session is null) return;
         var ct = NewPage(); Detail(album.Name, DisplayName(group));
         var vm = new AlbumMediaViewModel(group.PeerId, album.Id, session.ListGroupAlbumMediaAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        Details.Children.Add(ActionButton("返回相册列表", () => ShowGroup(group, "群相册")));
         if (album.Desc.Length > 0) Details.Children.Add(Text(album.Desc));
         var pictures = new GridView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false };
         Details.Children.Add(pictures);

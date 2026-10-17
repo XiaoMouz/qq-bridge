@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<long> dirtyDrafts = [];
     private readonly DispatcherTimer refreshTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private string connectionStatus = "尚未连接";
+    private readonly BetterChat.Application.DetailNavigator navigator = new();
 
     public MainWindow()
     {
@@ -92,7 +93,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         InitializeChatState();
-        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); RefreshList(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
+        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); UpdateUnreadBadge(); RefreshList(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
         Root.RequestedTheme = AppearanceSettings.Load().Theme;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
@@ -146,6 +147,7 @@ public sealed partial class MainWindow : Window
         Root.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         ToolTipService.SetToolTip(Search, "搜索消息、联系人和群聊 (Ctrl+K)");
         Root.KeyboardAccelerators.Add(find);
+        InitializeShell();
     }
 
     private async Task Guard(Func<Task> action)
@@ -176,9 +178,10 @@ public sealed partial class MainWindow : Window
     }
     private void ShowWelcome()
     {
+        navigator.Clear(); UpdateUnreadBadge();
         Workspace.Visibility = Visibility.Collapsed; Search.Visibility = Visibility.Collapsed;
         Onboarding.Visibility = Visibility.Visible;
-        AccountAvatar.Visibility = Visibility.Collapsed;
+        AccountButton.Visibility = Visibility.Collapsed;
         OnboardingSubtitle.Text = "在 Windows 上，继续你的 QQ 聊天。";
         OnboardingContent.Children.Clear();
         OnboardingContent.Children.Add(Text("登录你的 QQ Bridge，聊天记录、联系人和草稿将在设备间同步。"));
@@ -241,14 +244,15 @@ public sealed partial class MainWindow : Window
         runtime.Start();
         Onboarding.Visibility = Visibility.Collapsed; Workspace.Visibility = Visibility.Visible; Search.Visibility = Visibility.Visible;
         Notice.IsOpen = false;
-        activeTimer.Start(); Rail.SelectedIndex = 0; RefreshList();
+        activeTimer.Start(); Nav.SelectedItem = MessagesNavItem; RefreshList();
+        navigator.Clear();
         Detail("选择一个会话", "消息和联系人正在同步，断线时仍可浏览已缓存的消息。");
         var account = accountState.QqAccounts.FirstOrDefault();
         if (account is not null)
         {
             AccountAvatar.DisplayName = account.Nickname.Length > 0 ? account.Nickname : account.Uin.ToString();
-            AccountAvatar.Visibility = Visibility.Visible;
-            ToolTipService.SetToolTip(AccountAvatar, AccountAvatar.DisplayName);
+            AccountButton.Visibility = Visibility.Visible;
+            ToolTipService.SetToolTip(AccountButton, AccountAvatar.DisplayName);
             _ = LoadAccountAvatar(candidate, account.Uin, sessionToken);
         }
     }
@@ -301,7 +305,7 @@ public sealed partial class MainWindow : Window
         {
             // 运行时释放资源后仍可能抛出在途错误；窗口必须清除已关闭账号的全部投影。
             store = null; api = null; selectedChat = 0; drafts.Clear(); replies.Clear(); replySeq = 0;
-            AccountAvatar.ProfilePicture = null; AccountAvatar.DisplayName = ""; AccountAvatar.Visibility = Visibility.Collapsed;
+            AccountAvatar.ProfilePicture = null; AccountAvatar.DisplayName = ""; AccountButton.Visibility = Visibility.Collapsed;
             ClearAvatars(); requestedPreviews.Clear(); signedMedia.Clear(); peerIndex = new Dictionary<(long, bool), Peer>(); dialogIndex.Clear(); listSignature = ""; dirtyDrafts.Clear(); refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0);
             searchPager = null; searchQuery = ""; historyWindow = null; historyError = "";
             timelineRenderRevision++; messageSignature = ""; messageViews.Clear(); Messages.Items.Clear(); entries.Clear();
@@ -388,9 +392,9 @@ public sealed partial class MainWindow : Window
         if (section == "messages") Items.SelectedItem = entries.FirstOrDefault(e => e.Value is Dialog d && d.ChatId == selectedChat);
         rendering = false;
     }
-    private void RailChanged(object sender, SelectionChangedEventArgs e)
+    private void NavChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
-        if (!ready || Rail.SelectedItem is not ListViewItem item) return;
+        if (!ready || args.SelectedItemContainer is not NavigationViewItem item) return;
         _ = Guard(SaveDraft); NewPage(); selectedChat = 0;
         section = (string)item.Tag; SectionTitle.Text = section == "messages" ? "消息" : section == "contacts" ? "联系人" : "设置";
         MoreSearchResults.Visibility = Visibility.Collapsed;
@@ -398,14 +402,16 @@ public sealed partial class MainWindow : Window
         foreach (string s in section == "messages" ? new[] { "全部消息", "未读", "群助手" } : section == "contacts" ? new[] { "好友", "群聊" } : Array.Empty<string>()) Filter.Items.Add(new ComboBoxItem { Content = s });
         Filter.Visibility = section == "settings" ? Visibility.Collapsed : Visibility.Visible;
         Filter.SelectedIndex = 0; rendering = false; RefreshList();
-        if (section == "settings") ShowConnection();
+        // 切换分区是根导航：上一个分区里点进去的页面栈不再保留。
+        if (section == "settings") _ = Guard(() => GoRoot(SettingKey("连接与账号"), () => { ShowConnection(); return Task.CompletedTask; }));
         else if (api is null) ShowWelcome();
         else if (section == "contacts")
         {
-            contactCategoryId = null; ShowContactsOverview();
+            contactCategoryId = null;
+            _ = Guard(() => GoRoot("contacts", () => { ShowContactsOverview(); return Task.CompletedTask; }));
             _ = Guard(() => runtime!.Contacts.LoadAsync(ct: lifetime.Token));
         }
-        else Detail("选择一个会话", "从左侧列表继续");
+        else { navigator.Clear(); Detail("选择一个会话", "从左侧列表继续"); }
     }
     private void FilterChanged(object sender, SelectionChangedEventArgs e) { if (!rendering) RefreshList(); }
     private async void ItemSelected(object sender, SelectionChangedEventArgs e)
@@ -413,10 +419,10 @@ public sealed partial class MainWindow : Window
         if (rendering || Items.SelectedItem is not ListEntry entry) return;
         await Guard(async () =>
         {
-            if (entry.Value is Dialog d) await OpenChat(d.ChatId);
-            else if (entry.Value is ProtoMessage m) await OpenChat(m.ChatId, m.Seq);
-            else if (entry.Value is Peer p) { _ = Guard(SaveDraft); NewPage(); selectedChat = 0; ShowProfile(p); }
-            else if (entry.Value is string s) { NewPage(); await ShowSetting(s); }
+            if (entry.Value is Dialog d) await GoRoot(ChatKey(d.ChatId), () => OpenChat(d.ChatId));
+            else if (entry.Value is ProtoMessage m) await GoRoot(ChatKey(m.ChatId), () => OpenChat(m.ChatId, m.Seq));
+            else if (entry.Value is Peer p) await GoRoot(ProfileKey(p), () => { _ = Guard(SaveDraft); NewPage(); selectedChat = 0; ShowProfile(p); return Task.CompletedTask; });
+            else if (entry.Value is string s) await GoRoot(SettingKey(s), () => { NewPage(); return ShowSetting(s); });
         });
     }
     private async Task OpenChat(long chat, long? anchor = null)
@@ -629,7 +635,7 @@ public sealed partial class MainWindow : Window
         bool own = runtime?.OwnUsers.Contains(m.SenderId) == true;
         var body = new StackPanel { Spacing = 8, MaxWidth = 620 };
         body.Children.Add(Text((own ? "你" : string.IsNullOrEmpty(m.SenderName) ? m.SenderId.ToString() : m.SenderName) + "  ·  " + DateTimeOffset.FromUnixTimeSeconds(m.Time).ToLocalTime().ToString("MM-dd HH:mm"), 11));
-        if (m.ReplyToSeq > 0) body.Children.Add(ActionButton($"回复 #{m.ReplyToSeq}", () => OnOriginalPage(() => OpenChat(m.ChatId, m.ReplyToSeq))));
+        if (m.ReplyToSeq > 0) body.Children.Add(ActionButton($"回复 #{m.ReplyToSeq}", () => OnOriginalPage(() => Go(ChatKey(m.ChatId), () => OpenChat(m.ChatId, m.ReplyToSeq)))));
         Microsoft.UI.Xaml.Documents.Paragraph? paragraph = null;
         void Inline(Microsoft.UI.Xaml.Documents.Inline content)
         {

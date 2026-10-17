@@ -49,7 +49,7 @@ public sealed partial class MainWindow
                 row.Children.Add(ActionButton("定位原消息", async () =>
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (runtime == session) await OpenChat(chat, item.Seq);
+                    if (runtime == session) await Go(ChatKey(chat), () => OpenChat(chat, item.Seq));
                 }));
                 content.Children.Add(row);
             }

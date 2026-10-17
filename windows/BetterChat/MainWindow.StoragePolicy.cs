@@ -13,7 +13,6 @@ public sealed partial class MainWindow
         var ct = NewPage();
         Detail("存储策略", scope == PolicyScope.Global ? "全局" : scope == PolicyScope.Scene ? scene.ToString() : $"会话 {chat}");
         var vm = new StoragePolicyViewModel(scope, scene, chat, session.ListStoragePoliciesAsync, session.SetStoragePolicyAsync, session.DeleteStoragePolicyAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        Details.Children.Add(ActionButton("返回存储概览", () => ShowSetting("存储")));
         if (!await vm.Load.ExecuteAsync(new(), ct))
         { ct.ThrowIfCancellationRequested(); Details.Children.Add(Text(vm.Load.Error ?? "加载失败")); Details.Children.Add(ActionButton("重试", () => ShowStoragePolicy(scope, scene, chat))); return; }
         ct.ThrowIfCancellationRequested();

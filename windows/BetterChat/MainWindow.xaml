@@ -12,23 +12,39 @@
   </Grid.Resources>
   <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid x:Name="Workspace" Grid.Row="1" Visibility="Collapsed">
-   <Grid.RowDefinitions><RowDefinition Height="0"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-   <Grid.ColumnDefinitions><ColumnDefinition Width="80"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-   <Grid Grid.RowSpan="2" Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
-    <Grid.RowDefinitions><RowDefinition Height="0"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-
-    <ListView x:Name="Rail" Grid.Row="1" SelectionChanged="RailChanged" SelectionMode="Single" Margin="6,8" AutomationProperties.Name="主导航">
-     <ListViewItem Tag="messages" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="消息"><StackPanel Spacing="6"><PathIcon Width="24" Height="24" Data="M2,2 L17,2 Q19,2 19,4 L19,12 Q19,14 17,14 L8,14 L4,18 L4,14 L2,14 Q0,14 0,12 L0,4 Q0,2 2,2 Z M2,4 L2,12 L6,12 L6,14 L8,12 L17,12 L17,4 Z M21,8 L23,8 L23,19 Q23,21 21,21 L19,21 L19,24 L15,21 L10,21 L10,19 L16,19 L17,20 L17,19 L21,19 Z"/><TextBlock Text="消息" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
-     <ListViewItem Tag="contacts" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="联系人"><StackPanel Spacing="6"><PathIcon Width="24" Height="24" Data="M8,1 A5,5 0 1 1 8,11 A5,5 0 1 1 8,1 Z M8,3 A3,3 0 1 0 8,9 A3,3 0 1 0 8,3 Z M0,22 L0,20 Q0,13 8,13 Q16,13 16,20 L16,22 Z M2,20 L14,20 Q14,15 8,15 Q2,15 2,20 Z M17,2 A4,4 0 0 1 17,10 L17,8 A2,2 0 0 0 17,4 Z M18,13 Q24,14 24,20 L24,22 L18,22 L18,20 L22,20 Q22,16 18,15 Z"/><TextBlock Text="联系人" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
-     <ListViewItem Tag="settings" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="设置"><StackPanel Spacing="6"><FontIcon Glyph="&#xE713;"/><TextBlock Text="设置" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
-    </ListView>
-    <PersonPicture x:Name="AccountAvatar" Grid.Row="2" Visibility="Collapsed" Width="36" Height="36" Margin="0,12,0,20" AutomationProperties.Name="当前账号头像"/>
-   </Grid>
-  <Grid Grid.Row="1" Grid.Column="1">
-   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-   <Grid Padding="12,18,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+  <!-- 外壳：Fluent 的左侧紧凑导航。返回键和展开导航的按钮都放在 TitleBar 上，NavigationView 自己的隐藏。 -->
+  <NavigationView x:Name="Nav" PaneDisplayMode="LeftCompact" IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False"
+   IsSettingsVisible="False" IsTitleBarAutoPaddingEnabled="False" OpenPaneLength="240" SelectionChanged="NavChanged"
+   PaneOpening="NavPaneOpening" PaneClosing="NavPaneClosing" AutomationProperties.Name="主导航">
+   <NavigationView.MenuItems>
+    <NavigationViewItem x:Name="MessagesNavItem" Tag="messages" Content="消息" ToolTipService.ToolTip="消息">
+     <NavigationViewItem.Icon><FontIcon Glyph="&#xE8BD;"/></NavigationViewItem.Icon>
+     <NavigationViewItem.InfoBadge><InfoBadge x:Name="UnreadBadge" Visibility="Collapsed"/></NavigationViewItem.InfoBadge>
+    </NavigationViewItem>
+    <NavigationViewItem x:Name="ContactsNavItem" Tag="contacts" Content="联系人" ToolTipService.ToolTip="联系人">
+     <NavigationViewItem.Icon><FontIcon Glyph="&#xE716;"/></NavigationViewItem.Icon>
+    </NavigationViewItem>
+   </NavigationView.MenuItems>
+   <NavigationView.PaneFooter>
+    <!-- 账号头像不是导航目的地，点了直接进「设置 → 连接与账号」。紧凑时宽 40 加左边距 4，和 48 宽的紧凑栏图标对齐；展开导航时显示昵称。 -->
+    <Button x:Name="AccountButton" Visibility="Collapsed" Click="AccountClicked" MinWidth="40" Height="40" Margin="4,0,4,4" Padding="6,0"
+     HorizontalAlignment="Left" HorizontalContentAlignment="Left" Background="Transparent" BorderBrush="Transparent" AutomationProperties.Name="当前账号">
+     <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceM}">
+      <PersonPicture x:Name="AccountAvatar" Width="28" Height="28"/>
+      <TextBlock x:Name="AccountName" Text="{x:Bind AccountAvatar.DisplayName, Mode=OneWay}" Visibility="Collapsed" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
+     </StackPanel>
+    </Button>
+   </NavigationView.PaneFooter>
+   <NavigationView.FooterMenuItems>
+    <NavigationViewItem x:Name="SettingsNavItem" Tag="settings" Content="设置" ToolTipService.ToolTip="设置">
+     <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon>
+    </NavigationViewItem>
+   </NavigationView.FooterMenuItems>
+  <Grid>
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Grid Padding="{StaticResource ListPanePadding}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock x:Name="SectionTitle" Text="消息" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="8,0,0,12"/>
+    <TextBlock x:Name="SectionTitle" Text="消息" Style="{StaticResource PageTitleTextBlockStyle}" Margin="8,0,0,12"/>
     <ComboBox x:Name="Filter" Grid.Row="1" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="FilterChanged" Margin="4,0,4,12" AutomationProperties.Name="列表筛选">
      <ComboBoxItem Content="全部消息"/><ComboBoxItem Content="未读"/><ComboBoxItem Content="群助手"/>
     </ComboBox>
@@ -44,15 +60,15 @@
     </ListView>
     <Button x:Name="MoreSearchResults" Grid.Row="3" Content="加载更多搜索结果" Visibility="Collapsed" HorizontalAlignment="Stretch" Margin="4,8" Click="LoadSearchMore"/>
    </Grid>
-   <Grid Grid.Column="1" Margin="8,0,12,12" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+   <Grid Grid.Column="1" Margin="{StaticResource DetailCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Grid Padding="24,18" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+    <Grid Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Spacing="4"><TextBlock x:Name="ContentTitle" Text="欢迎使用 BetterChat" Style="{ThemeResource SubtitleTextBlockStyle}"/><TextBlock x:Name="ContentSubtitle" Text="你的 QQ 消息，在 Windows 上保持同步" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/></StackPanel>
-     <Button x:Name="ChatMore" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe Fluent Icons" Visibility="Collapsed" AutomationProperties.Name="会话选项" Click="ChatOptions"/>
+     <StackPanel Spacing="2" VerticalAlignment="Center"><TextBlock x:Name="ContentTitle" Text="欢迎使用 BetterChat" Style="{StaticResource PageTitleTextBlockStyle}"/><TextBlock x:Name="ContentSubtitle" Text="你的 QQ 消息，在 Windows 上保持同步" Style="{StaticResource SecondaryCaptionTextBlockStyle}"/></StackPanel>
+     <Button x:Name="ChatMore" Grid.Column="1" Content="&#xE712;" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center" Visibility="Collapsed" ToolTipService.ToolTip="会话选项" AutomationProperties.Name="会话选项" Click="ChatOptions"/>
     </Grid>
     <Grid Grid.Row="1">
-     <ScrollViewer x:Name="DetailScroll" Padding="28,24"><StackPanel x:Name="Details" Spacing="16" MaxWidth="800" HorizontalAlignment="Stretch"/></ScrollViewer>
+     <ScrollViewer x:Name="DetailScroll" Padding="{StaticResource PagePadding}"><StackPanel x:Name="Details" Spacing="{StaticResource SpaceL}" MaxWidth="{StaticResource DetailContentMaxWidth}" HorizontalAlignment="Left"/></ScrollViewer>
      <Grid x:Name="ChatPanel" Visibility="Collapsed">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,8">
@@ -86,10 +102,11 @@
       <TextBox x:Name="Composer" Grid.Column="1" PlaceholderText="输入消息…" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" MinHeight="42" BeforeTextChanging="ComposerBeforeTextChanging" TextChanged="DraftChanged" KeyDown="ComposerKeyDown" AutomationProperties.Name="消息输入框"/>
       <Button x:Name="SendButton" Grid.Column="2" Content="发送" Style="{ThemeResource AccentButtonStyle}" VerticalAlignment="Bottom" Click="SendClicked"/>
      </Grid>
-     <TextBlock Text="Enter 发送 · Shift + Enter 换行" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+     <TextBlock Text="Enter 发送 · Shift + Enter 换行" Style="{StaticResource TertiaryCaptionTextBlockStyle}"/>
     </StackPanel>
    </Grid>
   </Grid>
+  </NavigationView>
   </Grid>
   <ScrollViewer x:Name="Onboarding" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
    <Grid MinHeight="600" Padding="32,48">
@@ -101,7 +118,7 @@
     </StackPanel>
    </Grid>
   </ScrollViewer>
-  <TitleBar x:Name="AppTitleBar" Title="BetterChat" Height="58">
+  <TitleBar x:Name="AppTitleBar" Title="BetterChat" Height="58" BackRequested="TitleBarBackRequested" PaneToggleRequested="TitleBarPaneToggleRequested">
    <TitleBar.Resources>
     <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
     <x:Double x:Key="TitleBarIconMaxWidth">32</x:Double><x:Double x:Key="TitleBarIconMaxHeight">32</x:Double>
