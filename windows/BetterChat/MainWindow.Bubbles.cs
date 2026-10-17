@@ -148,6 +148,7 @@ public sealed partial class MainWindow
                     else Inline(new Run { Text = "[" + (f.Name.Length > 0 ? f.Name : "表情 " + f.FaceId) + "]" });
                 }
                 else if (s.Markdown is { } markdown) body.Children.Add(new TextBlock { Text = markdown.Content, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, Foreground = foreground });
+                else if (s.Record is { } record && Media(s) is { } voice) body.Children.Add(VoiceView(m, record, voice, own, foreground, pageToken));
                 else if (Media(s) is { } media)
                 {
                     string label = s.File?.Name ?? (s.Image is not null ? "图片" : s.Record is not null ? $"语音 · {s.Record.DurationSec} 秒" : s.Video is not null ? "视频" : "表情");

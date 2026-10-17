@@ -71,7 +71,7 @@ public sealed partial class MainWindow
         {
             if (opening || owner is null || runtime != owner || ownerToken.IsCancellationRequested) return;
             opening = true; button.IsEnabled = false; status.Text = "正在准备媒体…"; status.Visibility = Visibility.Visible;
-            try { await ShowMedia(message, media, label); }
+            try { if (visual) await OpenViewer(message, media); else await ShowMedia(message, media, label); }
             finally
             {
                 opening = false;

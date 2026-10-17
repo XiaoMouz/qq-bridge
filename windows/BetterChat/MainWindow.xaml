@@ -208,6 +208,40 @@
     <AutoSuggestBox x:Name="Search" Visibility="Collapsed" MinWidth="180" MaxWidth="580" HorizontalAlignment="Stretch" PlaceholderText="搜索消息、联系人和群聊" QueryIcon="Find" QuerySubmitted="SearchSubmitted" VerticalAlignment="Center" AutomationProperties.Name="全局搜索"/>
    </TitleBar.Content>
   </TitleBar>
+  <!-- 看图 / 看视频：盖住标题栏以下的整个窗口，固定深色（Smoke 画刷在浅色主题下太透，背后的聊天会透出来，2026-10-17 实测）。滚轮 / 双击缩放，左右键切换同一会话的图片和视频，Esc 关闭。 -->
+  <Grid x:Name="Viewer" Grid.Row="1" Grid.RowSpan="2" Visibility="Collapsed" Background="#E6101010" RequestedTheme="Dark"
+   IsTabStop="True" KeyDown="ViewerKeyDown" AutomationProperties.Name="媒体查看器">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <Grid Padding="16,8" ColumnSpacing="8" Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel VerticalAlignment="Center" Spacing="1">
+     <TextBlock x:Name="ViewerTitle" Style="{StaticResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis"/>
+     <TextBlock x:Name="ViewerSubtitle" Style="{StaticResource SecondaryCaptionTextBlockStyle}"/>
+    </StackPanel>
+    <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent" IsDynamicOverflowEnabled="True" VerticalAlignment="Center">
+     <AppBarButton x:Name="ViewerZoomIn" Icon="ZoomIn" Label="放大" LabelPosition="Collapsed" Click="ViewerZoomClicked" Tag="in" ToolTipService.ToolTip="放大（Ctrl+滚轮）"/>
+     <AppBarButton x:Name="ViewerZoomOut" Icon="ZoomOut" Label="缩小" LabelPosition="Collapsed" Click="ViewerZoomClicked" Tag="out" ToolTipService.ToolTip="缩小"/>
+     <AppBarButton x:Name="ViewerCopy" Icon="Copy" Label="复制" Click="ViewerCopyClicked"/>
+     <AppBarButton Icon="Save" Label="另存为" Click="ViewerSaveClicked"/>
+     <AppBarButton Icon="Forward" Label="转发" Click="ViewerForwardClicked"/>
+     <CommandBar.SecondaryCommands>
+      <AppBarButton Icon="OpenWith" Label="用系统程序打开" Click="ViewerOpenClicked"/>
+     </CommandBar.SecondaryCommands>
+    </CommandBar>
+   </Grid>
+   <Grid Grid.Row="1">
+    <ScrollViewer x:Name="ViewerScroll" ZoomMode="Enabled" MinZoomFactor="0.25" MaxZoomFactor="8" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+     HorizontalScrollMode="Enabled" VerticalScrollMode="Enabled" DoubleTapped="ViewerDoubleTapped">
+     <Image x:Name="ViewerImage" Stretch="Uniform"/>
+    </ScrollViewer>
+    <MediaPlayerElement x:Name="ViewerPlayer" Visibility="Collapsed" AreTransportControlsEnabled="True" AutoPlay="True" Margin="48,24"/>
+    <ProgressRing x:Name="ViewerLoading" IsActive="False" Width="40" Height="40"/>
+    <TextBlock x:Name="ViewerError" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="400" TextAlignment="Center"/>
+    <Button x:Name="ViewerPrevious" Style="{StaticResource FloatingButtonStyle}" HorizontalAlignment="Left" Margin="24,0" Click="ViewerStepClicked" Tag="-1" ToolTipService.ToolTip="上一张（←）" AutomationProperties.Name="上一张"><FontIcon Glyph="&#xE76B;" FontSize="16"/></Button>
+    <Button x:Name="ViewerNext" Style="{StaticResource FloatingButtonStyle}" HorizontalAlignment="Right" Margin="24,0" Click="ViewerStepClicked" Tag="1" ToolTipService.ToolTip="下一张（→）" AutomationProperties.Name="下一张"><FontIcon Glyph="&#xE76C;" FontSize="16"/></Button>
+    <Button Style="{StaticResource FloatingButtonStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,16,24,0" Click="ViewerCloseClicked" ToolTipService.ToolTip="关闭（Esc）" AutomationProperties.Name="关闭查看器"><FontIcon Glyph="&#xE711;" FontSize="14"/></Button>
+   </Grid>
+  </Grid>
   <InfoBar x:Name="Notice" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Error" Margin="12,0,12,8"/>
  </Grid>
 </Window>

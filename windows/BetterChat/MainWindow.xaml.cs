@@ -145,6 +145,7 @@ public sealed partial class MainWindow : Window
     }
     private CancellationToken NewPage()
     {
+        StopVoice(); if (Viewer.Visibility == Visibility.Visible) CloseViewer();
         featurePage?.Dispose(); featurePage = null;
         pageTask?.Cancel(); pageTask?.Dispose();
         pageTask = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -271,6 +272,7 @@ public sealed partial class MainWindow : Window
     private async Task DisconnectCore()
     {
         if (recordingSession is { } recorder) await recorder.DisposeAsync();
+        StopVoice(); voicePlayer?.Dispose(); voicePlayer = null; CloseViewer();
         readTimer.Stop(); readReceipts = null;
         activeTimer.Stop(); draftTimer.Stop();
         var closing = runtime;
