@@ -4,6 +4,9 @@
  xmlns:local="using:BetterChat" Title="BetterChat">
  <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
   <Grid.Resources>
+   <!-- 只为让 XAML 编译器生成 ClickableSettingsCard 的类型信息；没有它，代码里创建的卡片会被当成 ButtonBase，
+        套 SettingsCard 样式时崩溃（2026-10-17 实测）。模板本身不会被使用。 -->
+   <DataTemplate x:Key="ClickableSettingsCardTypeInfo"><local:ClickableSettingsCard/></DataTemplate>
    <DataTemplate x:Key="FaceTemplate" x:DataType="local:FaceEntry">
     <Grid Width="44" Height="44" ToolTipService.ToolTip="{x:Bind Name}" AutomationProperties.Name="{x:Bind Name}">
      <Image Source="{x:Bind ImagePath}" Width="30" Height="30" Stretch="Uniform"/>
@@ -95,7 +98,12 @@
      </StackPanel>
     </Grid>
     <Grid Grid.Row="1">
-     <ScrollViewer x:Name="DetailScroll" Padding="{StaticResource PagePadding}"><StackPanel x:Name="Details" Spacing="{StaticResource SpaceL}" MaxWidth="{StaticResource DetailContentMaxWidth}" HorizontalAlignment="Left"/></ScrollViewer>
+     <!-- 内容靠左、最宽 800：星号列加 MaxWidth（StackPanel 直接设 MaxWidth 会被居中，设 Left 又只按内容宽度排，卡片会挤窄，2026-10-17 实测）。 -->
+     <ScrollViewer x:Name="DetailScroll" Padding="{StaticResource PagePadding}">
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" MaxWidth="{StaticResource DetailContentMaxWidth}"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <StackPanel x:Name="Details" Spacing="{StaticResource SpaceS}"/>
+      </Grid>
+     </ScrollViewer>
      <Grid x:Name="ChatPanel" Visibility="Collapsed">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <!-- 会话内查找：标题栏放大镜或 Ctrl+F 打开，回车在中栏列出结果，Esc 关闭。 -->
@@ -192,7 +200,9 @@
      <Image Source="ms-appx:///Assets/AppIcon.png" Width="80" Height="80" HorizontalAlignment="Left"/>
      <TextBlock Text="BetterChat" FontSize="36" FontWeight="SemiBold"/>
      <TextBlock x:Name="OnboardingSubtitle" Text="在 Windows 上，继续你的 QQ 聊天。" TextWrapping="Wrap" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-     <StackPanel x:Name="OnboardingContent" Spacing="16"/>
+     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="24">
+      <StackPanel x:Name="OnboardingContent" Spacing="{StaticResource SpaceL}"/>
+     </Border>
     </StackPanel>
    </Grid>
   </ScrollViewer>

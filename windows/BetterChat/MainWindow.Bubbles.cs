@@ -463,12 +463,12 @@ public sealed partial class MainWindow
         return menu;
     }
     // 气泡和 @ 徽章里的用户头像，与列表头像共用缓存和并发限制。
-    private async void LoadSenderAvatar(PersonPicture picture, long userId)
+    private async void LoadSenderAvatar(PersonPicture picture, long userId, bool group = false)
     {
         if (api is null || userId == 0) return;
         var sessionApi = api;
-        string hash = peerIndex.GetValueOrDefault((userId, false))?.AvatarSha256 ?? "";
-        string key = $"False:{userId}:{hash}";
+        string hash = peerIndex.GetValueOrDefault((userId, group))?.AvatarSha256 ?? "";
+        string key = $"{group}:{userId}:{hash}";
         try
         {
             await avatarRequests.WaitAsync(lifetime.Token);
@@ -478,7 +478,7 @@ public sealed partial class MainWindow
                 if (!avatarImages.TryGetValue(key, out var task))
                 {
                     if (avatarImages.Count >= 512) avatarImages.Clear();
-                    task = FetchAvatar(sessionApi, userId, false, hash, lifetime.Token);
+                    task = FetchAvatar(sessionApi, userId, group, hash, lifetime.Token);
                     avatarImages[key] = task;
                 }
                 bitmap = await task;

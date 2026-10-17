@@ -14,26 +14,16 @@ public sealed partial class MainWindow
         if (api is not null)
         {
             Detail("连接与账号", "当前登录的 QQ Bridge");
-            Details.Children.Add(Text(AccountAvatar.DisplayName, 24));
-            Details.Children.Add(Text("服务器：" + api.Transport.BaseUri.Host));
-            Details.Children.Add(Text(connectionStatus, 12));
-            Details.Children.Add(ActionButton("查看服务端 QQ 登录状态", () => Go("qq-login", ShowQqLogin)));
-            Details.Children.Add(Text(notifications?.Error is { } notificationError
-                ? "Windows 通知不可用：" + notificationError : "Windows 通知：运行期间接收新消息", 12));
-            Details.Children.Add(ActionButton("退出登录", async () =>
-            {
-                var session = runtime; if (session is null) return;
-                var result = await BetterChat.Application.LogoutCoordinator.RunAsync(
-                    () => PersistUnsavedDrafts(session), SessionSettings.Clear,
-                    ct => session.Api.LogoutAsync(new(), ct), Disconnect);
-                lifetime = new();
-                connectionStatus = "尚未连接"; RefreshList(); ShowWelcome();
-                if (!result.RemoteRevoked)
-                {
-                    Notice.Severity = InfoBarSeverity.Warning;
-                    Notice.Message = "已退出本机账号。服务端注销未确认，可在其他设备的设备管理中撤销此设备。"; Notice.IsOpen = true;
-                }
-            }));
+            var avatar = new PersonPicture { Width = 72, Height = 72, DisplayName = AccountAvatar.DisplayName, ProfilePicture = AccountAvatar.ProfilePicture };
+            Details.Children.Add(Hero(avatar, AccountAvatar.DisplayName, api.Transport.BaseUri.Host));
+            Details.Children.Add(SectionHeader("状态"));
+            Details.Children.Add(Card("连接", connectionStatus, "\uE968"));
+            Details.Children.Add(Card("Windows 通知", notifications?.Error is { } notificationError ? "不可用：" + notificationError : "运行期间收到新消息时提醒", "\uEA8F"));
+            Details.Children.Add(Card("服务端 QQ 登录状态", "查看 NapCat 上的 QQ 是否在线，掉线时在这里扫码", "\uE8D4", click: () => Go("qq-login", ShowQqLogin)));
+            Details.Children.Add(SectionHeader("账号"));
+            var logout = new Button { Content = "退出登录" };
+            logout.Click += async (_, _) => { logout.IsEnabled = false; try { await Guard(SignOut); } finally { logout.IsEnabled = true; } };
+            Details.Children.Add(Card("退出登录", "之后需要重新输入 QQ Bridge 密码；可以选择是否保留本机缓存", "\uE7E8", logout));
             return;
         }
         if (api is null)
@@ -86,8 +76,7 @@ public sealed partial class MainWindow
         if (name == "连接与账号") { ShowConnection(); return; }
         if (name == "外观")
         {
-            Details.Children.Add(Text("主题", 20));
-            var theme = new ComboBox { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, SelectedIndex = (int)Root.RequestedTheme, MinWidth = 220 };
+            var theme = new ComboBox { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, SelectedIndex = (int)Root.RequestedTheme, MinWidth = 160 };
             theme.SelectionChanged += async (_, _) => await Guard(() =>
             {
                 if (theme.SelectedIndex < 0) return Task.CompletedTask;
@@ -95,18 +84,23 @@ public sealed partial class MainWindow
                 (AppearanceSettings.Load() with { Theme = value }).Save(); Root.RequestedTheme = value;
                 return Task.CompletedTask;
             });
-            Details.Children.Add(theme);
-            Details.Children.Add(Text("使用 Windows 原生控件、系统强调色与 Mica 材质。支持键盘操作与高对比度主题。"));
+            Details.Children.Add(Card("主题", "跟随 Windows，或固定浅色 / 深色", "\uE790", theme));
+            var reset = new Button { Content = "恢复默认" };
+            reset.Click += (_, _) => { listPaneWidth = AppearanceSettings.DefaultListPaneWidth; ApplyAdaptiveLayout(); SaveListPaneWidth(); };
+            Details.Children.Add(Card("会话列表宽度", "拖动列表右边的分隔线调整，双击分隔线也能恢复", "\uE89F", reset));
             return;
         }
         if (name == "关于")
         {
-            Details.Children.Add(Text("BetterChat", 32));
-            Details.Children.Add(Text("QQ Bridge 的 Windows 原生客户端\nWinUI 3 · Fluent Design · ConnectRPC"));
-            Details.Children.Add(Text("快捷键：Ctrl + K 搜索；Enter 发送；Shift + Enter 换行。右键消息可回复、复制、转发及撤回。"));
+            var icon = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppIcon.png")), Width = 72, Height = 72 };
+            string version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
+            Details.Children.Add(Hero(icon, "BetterChat", "QQ Bridge 的 Windows 原生客户端", "WinUI 3 · Fluent Design · ConnectRPC" + (version.Length > 0 ? " · " + version : "")));
+            Details.Children.Add(SectionHeader("快捷键"));
+            foreach (var (keys, what, glyph) in new[] { ("Ctrl + K", "搜索消息、联系人和群聊", "\uE721"), ("Ctrl + F", "在当前会话中查找", "\uE773"),
+                ("Enter / Shift + Enter", "发送 / 换行", "\uE724"), ("Alt + ← / 鼠标返回键", "返回上一页", "\uE72B"), ("← → / Esc", "查看器里切换图片 / 关闭", "\uEB9F") })
+                Details.Children.Add(Card(what, null, glyph, CardValue(keys)));
             return;
-        }
-        if (api is null) { Details.Children.Add(Text("请先连接服务器。")); return; }
+        }        if (api is null) { Details.Children.Add(Text("请先连接服务器。")); return; }
         var ct = NewPage();
         if (name == "服务端状态") await ShowServerStatus(ct);
         else if (name == "存档完整性") await ShowArchiveStatus(ct);
@@ -118,12 +112,12 @@ public sealed partial class MainWindow
             ct.ThrowIfCancellationRequested();
             foreach (var d in vm.Items)
             {
-                var panel = new StackPanel { Spacing = 8 };
-                panel.Children.Add(Text(d.Name + (d.Current ? " · 当前设备" : ""), 18));
-                panel.Children.Add(Text(d.Platform + " · 最近活动 " + DateTimeOffset.FromUnixTimeSeconds(d.LastSeenAt).ToLocalTime().ToString("g"), 12));
-                if (!d.Current) panel.Children.Add(ActionButton("移除此设备", async () =>
+                bool phone = d.Platform.Contains("ios", StringComparison.OrdinalIgnoreCase) || d.Platform.Contains("android", StringComparison.OrdinalIgnoreCase);
+                FrameworkElement action = d.Current ? CardValue("当前设备") : new Button { Content = "移除" };
+                var card = Card(d.Name, d.Platform + " · 最近活动 " + DateTimeOffset.FromUnixTimeSeconds(d.LastSeenAt).ToLocalTime().ToString("g"), phone ? "\uE8EA" : "\uE7F4", action);
+                if (action is Button remove) remove.Click += async (_, _) => await Guard(async () =>
                 {
-                    var confirm = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "移除设备？", Content = d.Name + " 将无法继续访问服务器。", PrimaryButtonText = "移除", CloseButtonText = "取消" };
+                    var confirm = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "移除设备？", Content = d.Name + " 将无法继续访问服务器。", PrimaryButtonText = "移除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
                     if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
                     ct.ThrowIfCancellationRequested();
                     if (runtime != deviceSession) return;
@@ -133,19 +127,14 @@ public sealed partial class MainWindow
                         throw new IOException((vm.Revoke.Error ?? "设备移除失败。") + (vm.Revoke.OutcomeUncertain ? " 请刷新设备列表确认结果。" : ""));
                     }
                     ct.ThrowIfCancellationRequested();
-                    Details.Children.Remove(panel);
-                }));
-                Details.Children.Add(panel);
-            }
-        }
+                    Details.Children.Remove(card);
+                });
+                Details.Children.Add(card);
+            }        }
         else if (name == "存储")
         {
             if (runtime is not { } storageSession) return;
             var load = new RpcOperationViewModel<GetStorageOverviewRequest, GetStorageOverviewResponse>(storageSession.GetStorageOverviewAsync, new UiDispatcher(DispatcherQueue), false); featurePage = load;
-            Details.Children.Add(ActionButton("本机预览缓存", () => Go("preview-cache", ShowPreviewCache)));
-            Details.Children.Add(ActionButton("全局存储策略", () => Go($"policy:{PolicyScope.Global}::", () => ShowStoragePolicy(PolicyScope.Global))));
-            foreach (var scene in new[] { Scene.Friend, Scene.Group, Scene.Temp })
-                Details.Children.Add(ActionButton($"{scene} 类型存储策略", () => Go($"policy:{PolicyScope.Scene}:{scene}:", () => ShowStoragePolicy(PolicyScope.Scene, scene))));
             if (!await load.ExecuteAsync(new() { Limit = 30 }, ct))
             {
                 ct.ThrowIfCancellationRequested();
@@ -155,19 +144,60 @@ public sealed partial class MainWindow
             ct.ThrowIfCancellationRequested();
             if (featurePage != load || runtime != storageSession) return;
             var r = load.Result!;
-            Details.Children.Add(Text("已使用 " + Bytes(r.PhysicalBytes), 28));
-            Details.Children.Add(Text($"去重节省 {Bytes(r.DedupSavedBytes)} · {r.BlobCount:N0} 份媒体\n热存储 {Bytes(r.HotBytes)} · 冷存储 {Bytes(r.ColdBytes)}"));
+            Details.Children.Add(Hero(GlyphTile("\uEDA2"), "已使用 " + Bytes(r.PhysicalBytes), $"去重节省 {Bytes(r.DedupSavedBytes)} · {r.BlobCount:N0} 份媒体", $"热存储 {Bytes(r.HotBytes)} · 冷存储 {Bytes(r.ColdBytes)}"));
+            Details.Children.Add(SectionHeader("服务端媒体"));
             foreach (var c in r.Categories.OrderByDescending(c => c.Bytes))
             {
-                string label = $"{Category(c.Category)}    {Bytes(c.Bytes)}    {c.Count:N0} 项";
-                Details.Children.Add(StorageCategories.HasChats(c.Category) ? ActionButton(label, () => Go("storage-chats:" + c.Category, () => ShowStorageChats(c.Category))) : Text(label));
+                string category = c.Category;
+                Details.Children.Add(Card(Category(category), $"{c.Count:N0} 项", CategoryGlyph(category), CardValue(Bytes(c.Bytes)),
+                    StorageCategories.HasChats(category) ? () => Go("storage-chats:" + category, () => ShowStorageChats(category)) : null));
             }
+            Details.Children.Add(SectionHeader("策略与本机"));
+            Details.Children.Add(Card("全局存储策略", "原件保留天数、自动下载上限、冷存储下沉", "\uE713", click: () => Go($"policy:{PolicyScope.Global}::", () => ShowStoragePolicy(PolicyScope.Global))));
+            foreach (var (scene, label) in new[] { (Scene.Friend, "私聊"), (Scene.Group, "群聊"), (Scene.Temp, "临时会话") })
+                Details.Children.Add(Card(label + "存储策略", "覆盖全局策略", "\uE71D", click: () => Go($"policy:{PolicyScope.Scene}:{scene}:", () => ShowStoragePolicy(PolicyScope.Scene, scene))));
+            Details.Children.Add(Card("本机预览缓存", "缩略图、头像和表情的本地缓存", "\uE8B7", click: () => Go("preview-cache", ShowPreviewCache)));
         }
         else if (name == "通话记录")
         {
             var r = await api.ListCallsAsync(new() { Limit = 50 }, ct); ct.ThrowIfCancellationRequested();
-            if (r.Calls.Count == 0) Details.Children.Add(Text("暂无通话记录"));
-            foreach (var c in r.Calls) Details.Children.Add(Text($"{(c.Incoming ? "来电" : "呼出")} · {c.PeerName}\n{DateTimeOffset.FromUnixTimeSeconds(c.InviteAt).ToLocalTime():g} · {c.Phase}"));
+            if (r.Calls.Count == 0) Details.Children.Add(Card("暂无通话记录", null, "\uE717"));
+            foreach (var c in r.Calls)
+                Details.Children.Add(Card(c.PeerName, $"{(c.Incoming ? "来电" : "呼出")} · {c.Phase}", c.Incoming ? "\uE77E" : "\uE717",
+                    CardValue(DateTimeOffset.FromUnixTimeSeconds(c.InviteAt).ToLocalTime().ToString("g"))));
+        }
+    }
+    private static string CategoryGlyph(string key) => key switch { "image" => "\uEB9F", "video" => "\uE714", "record" => "\uE720", "file" or "group_file" => "\uE8A5", "avatar" => "\uE77B", "sticker" => "\uE76E", _ => "\uE8B7" };    // 退出登录：先问保留还是清除本机缓存（同 iOS）。缓存按服务器 + 设备凭据分库，重新登录会拿到新凭据、新库，
+    // 所以「保留」只是不删旧库；「清除」在连接全部关闭后删掉数据库和媒体预览目录。
+    private async Task SignOut()
+    {
+        var session = runtime; if (session is null) return;
+        var choice = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot, Title = "退出登录？",
+            Content = "本机缓存包括消息、联系人和媒体预览。清除后这台电脑上不再留有这个账号的聊天记录。",
+            PrimaryButtonText = "退出并保留缓存", SecondaryButtonText = "退出并清除缓存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close
+        };
+        var answer = await choice.ShowAsync();
+        if (answer == ContentDialogResult.None || runtime != session) return;
+        var saved = SessionSettings.Load();
+        string? cache = saved is null ? null : SessionSettings.CachePath(saved.Server, saved.Token);
+        var result = await LogoutCoordinator.RunAsync(() => PersistUnsavedDrafts(session), SessionSettings.Clear,
+            ct => session.Api.LogoutAsync(new(), ct), Disconnect);
+        lifetime = new();
+        connectionStatus = "尚未连接"; RefreshList(); ShowWelcome();
+        string? cacheError = null;
+        if (answer == ContentDialogResult.Secondary && cache is not null)
+        {
+            try { SessionSettings.DeleteCache(cache); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { cacheError = e.Message; }
+        }
+        if (!result.RemoteRevoked || cacheError is not null)
+        {
+            Notice.Severity = InfoBarSeverity.Warning;
+            Notice.Message = "已退出本机账号。" + (result.RemoteRevoked ? "" : "服务端注销未确认，可在其他设备的设备管理中撤销此设备。")
+                + (cacheError is null ? "" : "本机缓存没有完全删除：" + cacheError);
+            Notice.IsOpen = true;
         }
     }
     private static string Bytes(ulong n) => n >= 1073741824 ? $"{n / 1073741824d:F1} GB" : n >= 1048576 ? $"{n / 1048576d:F1} MB" : $"{n / 1024d:F1} KB";
@@ -179,13 +209,9 @@ public sealed partial class MainWindow
         var profileToken = pageTask?.Token ?? lifetime.Token;
         featurePage?.Dispose();
         var vm = new ContactProfileViewModel(peer, viaGroup, profileSession.GetUserProfileAsync, profileSession.GetGroupProfileAsync, profileSession.OpenChatAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        Detail(DisplayName(peer), peer.Kind == PeerKind.Group ? "群资料" : "联系人资料");
-        Details.Children.Add(new PersonPicture { DisplayName = DisplayName(peer), Width = 88, Height = 88, HorizontalAlignment = HorizontalAlignment.Left });
-        Details.Children.Add(Text(DisplayName(peer), 28));
-        Details.Children.Add(Text((peer.Kind == PeerKind.Group ? "群号 " : "QQ ") + peer.PeerId));
-        if (peer.Sign.Length > 0) Details.Children.Add(Text(peer.Sign));
-        if (peer.Kind == PeerKind.Group) Details.Children.Add(Text($"{peer.MemberCount} 位成员"));
-        Details.Children.Add(ActionButton("发送消息", async () =>
+        bool group = peer.Kind == PeerKind.Group;
+        Detail(DisplayName(peer), group ? "群资料" : "联系人资料");
+        async Task Open()
         {
             if (runtime != profileSession) return;
             bool opened = await vm.Open.ExecuteAsync(new(), profileToken);
@@ -193,8 +219,8 @@ public sealed partial class MainWindow
             if (!opened) { profileToken.ThrowIfCancellationRequested(); throw new IOException(vm.Open.Error ?? "无法打开会话。"); }
             profileToken.ThrowIfCancellationRequested();
             if (runtime == profileSession) { long target = vm.Open.Result!.ChatId; await Go(ChatKey(target), () => OpenChat(target)); }
-        }));
-        Details.Children.Add(ActionButton("刷新资料", async () =>
+        }
+        async Task Refresh()
         {
             if (runtime != profileSession) return;
             bool refreshed = await vm.Refresh.ExecuteAsync(new(), profileToken);
@@ -202,10 +228,26 @@ public sealed partial class MainWindow
             if (!refreshed) { profileToken.ThrowIfCancellationRequested(); throw new IOException(vm.Refresh.Error ?? "资料刷新失败。"); }
             profileToken.ThrowIfCancellationRequested();
             if (runtime == profileSession) ShowProfile(vm.Refresh.Result!, viaGroup);
-        }));
+        }
+        // 页头：大头像、名字、号码、签名 / 人数。
+        var avatar = new PersonPicture { DisplayName = DisplayName(peer), Width = 88, Height = 88, Tag = peer.PeerId };
+        avatar.Loaded += (_, _) => LoadSenderAvatar(avatar, peer.PeerId, group);
+        string name = DisplayName(peer);
+        string realName = peer.Remark.Length > 0 && peer.Name.Length > 0 && peer.Name != name ? "昵称 " + peer.Name : "";
+        Details.Children.Add(Hero(avatar, name, (group ? "群号 " : "QQ ") + peer.PeerId, realName, group ? $"{peer.MemberCount} 位成员" : peer.Sign));
+        Details.Children.Add(ActionRow(("发消息", "\uE8BD", Open), ("刷新资料", "\uE72C", Refresh)));
+        if (group)
+        {
+            Details.Children.Add(SectionHeader("群聊"));
+            foreach (var (title, description, glyph) in new[] { ("群成员", $"{peer.MemberCount} 位成员", "\uE716"), ("群公告", "群主和管理员发布的公告", "\uE789"),
+                ("群精华", "被设为精华的消息", "\uE734"), ("群文件", "浏览、下载和管理群文件", "\uE8B7"), ("群相册", "群里共享的照片", "\uEB9F") })
+                Details.Children.Add(Card(title, description, glyph, click: () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
+        }
         if (peer.Kind == PeerKind.User && peer.IsFriend && runtime is { } contactSession)
         {
-            Details.Children.Add(ActionButton("删除好友", async () =>
+            Details.Children.Add(SectionHeader("好友"));
+            var delete = new Button { Content = "删除好友" };
+            delete.Click += async (_, _) => await Guard(async () =>
             {
                 var ct = profileToken;
                 if (runtime != contactSession || featurePage != vm || ct.IsCancellationRequested) return;
@@ -217,7 +259,7 @@ public sealed partial class MainWindow
                 ct.ThrowIfCancellationRequested();
                 if (featurePage != vm || runtime != contactSession) return;
                 var confirm = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "删除好友",
-                    Content = $"确定删除 {DisplayName(peer)}（{peer.PeerId}）吗？", PrimaryButtonText = "删除", CloseButtonText = "取消" };
+                    Content = $"确定删除 {DisplayName(peer)}（{peer.PeerId}）吗？", PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
                 if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
                 ct.ThrowIfCancellationRequested();
                 if (runtime != contactSession || featurePage != vm) return;
@@ -227,14 +269,14 @@ public sealed partial class MainWindow
                 ct.ThrowIfCancellationRequested();
                 if (runtime != contactSession || featurePage != vm) return;
                 Detail("好友已删除", DisplayName(peer));
-            }));
+            });
+            Details.Children.Add(Card("删除好友", "双方都会从好友列表里移除", "\uE74D", delete));
         }
         if (section == "contacts")
-            Details.Children.Add(ActionButton("返回联系人分组", () => { ShowContactsOverview(); return Task.CompletedTask; }));
-        if (peer.Kind == PeerKind.Group)
         {
-            foreach (var title in new[] { "群成员", "群公告", "群精华", "群文件", "群相册" })
-                Details.Children.Add(ActionButton(title, () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
+            var all = new HyperlinkButton { Content = "所有联系人分组" };
+            all.Click += (_, _) => ShowContactsOverview();
+            Details.Children.Add(all);
         }
     }
     private async Task ShowGroup(Peer peer, string title, string folder = "")

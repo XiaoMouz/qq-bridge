@@ -51,6 +51,15 @@ public sealed record SessionSettings(string Server, string ProtectedToken)
         if (File.Exists(FilePath + ".tmp")) File.Delete(FilePath + ".tmp");
         if (File.Exists(FilePath)) File.Delete(FilePath);
     }
+    // 退出时选择清除本机缓存：数据库（含 WAL / SHM）和媒体预览目录。调用前账号必须已经断开；
+    // Microsoft.Data.Sqlite 的连接池会继续占着文件，先清空连接池再删。
+    public static void DeleteCache(string path)
+    {
+        if (!path.StartsWith(Root, StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("只能删除 BetterChat 自己的缓存。", nameof(path));
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var file in new[] { path, path + "-wal", path + "-shm" }) if (File.Exists(file)) File.Delete(file);
+        if (Directory.Exists(path + ".media")) Directory.Delete(path + ".media", true);
+    }
     public static string CachePath(string server, string token)
     {
         // 服务器与设备凭据分区，避免切换账号时显示上一个账号的缓存。

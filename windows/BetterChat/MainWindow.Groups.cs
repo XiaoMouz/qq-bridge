@@ -9,13 +9,42 @@ namespace BetterChat;
 
 public sealed partial class MainWindow
 {
+    // 群成员一行：头像、群名片、昵称和 QQ 号，右边群主 / 管理员标签；点开成员资料。
+    private FrameworkElement MemberRow(long userId, string name, string nickname, string role, Func<Task> open)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var avatar = new PersonPicture { Width = 32, Height = 32, DisplayName = name, Tag = userId };
+        avatar.Loaded += (_, _) => LoadSenderAvatar(avatar, userId);
+        grid.Children.Add(avatar);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis });
+        text.Children.Add(new TextBlock { Text = (nickname.Length > 0 ? nickname + " · " : "") + userId, Style = Res<Style>("SecondaryCaptionTextBlockStyle") });
+        Grid.SetColumn(text, 1); grid.Children.Add(text);
+        if (role is "owner" or "admin")
+        {
+            var badge = new Border
+            {
+                CornerRadius = new CornerRadius(4), Padding = new Thickness(6, 1, 6, 1), VerticalAlignment = VerticalAlignment.Center,
+                Background = Brush(role == "owner" ? "SystemFillColorCautionBackgroundBrush" : "SystemFillColorAttentionBackgroundBrush"),
+                Child = new TextBlock { Text = role == "owner" ? "群主" : "管理员", Style = Res<Style>("CaptionTextBlockStyle") }
+            };
+            Grid.SetColumn(badge, 2); grid.Children.Add(badge);
+        }
+        var button = new Button { Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(12, 8, 12, 8), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) };
+        button.Click += async (_, _) => { button.IsEnabled = false; try { await Guard(open); } finally { button.IsEnabled = true; } };
+        return button;
+    }
+
     private async Task GroupMembers(Peer group, CancellationToken ct)
     {
         if (runtime is not { } session) return;
         long groupId = group.PeerId;
         var vm = new GroupMembersViewModel(groupId, session.ListGroupMembersAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
         var count = Text("正在加载群成员…", 12); Details.Children.Add(count);
-        var rows = new StackPanel { Spacing = 8 }; Details.Children.Add(rows);
+        var rows = new StackPanel { Spacing = 2 }; Details.Children.Add(rows);
         bool busy = false;
         var seen = new HashSet<long>();
         var more = new Button { Content = "加载更多成员" }; Details.Children.Add(more);
@@ -36,8 +65,7 @@ public sealed partial class MainWindow
                 {
                     if (!seen.Add(member.UserId)) continue;
                     string name = member.Card.Length > 0 ? member.Card : member.Nickname;
-                    string role = member.Role switch { "owner" => "群主", "admin" => "管理员", _ => "成员" };
-                    rows.Children.Add(ActionButton($"{name} · {role} · {member.UserId}", async () =>
+                    rows.Children.Add(MemberRow(member.UserId, name.Length > 0 ? name : member.UserId.ToString(), member.Nickname != name ? member.Nickname : "", member.Role, async () =>
                     {
                         var profile = await session.GetUserProfileAsync(new() { UserId = member.UserId }, ct);
                         ct.ThrowIfCancellationRequested();
