@@ -266,6 +266,10 @@ struct DialogRow: View {
 
   /// 这个群正在群语音（收到了邀请、或者自己在里面）。
   private var inVoice: Bool {
+    #if DEBUG
+    // 调试：启动参数 -debugVoiceGroup <群号>，让这个群显示「语音中」（看布局用，不用真的有群语音）。
+    if item.isGroup, UserDefaults.standard.string(forKey: "debugVoiceGroup") == String(item.dialog.peerID) { return true }
+    #endif
     guard item.isGroup, let call = model.calls.call, call.groupID == item.dialog.peerID else { return false }
     return call.phase != .ended
   }
@@ -282,12 +286,18 @@ struct DialogRow: View {
             Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(.secondary)
           }
           if inVoice {
-            Label("语音中", systemImage: "waveform")
-              .font(.caption2.weight(.semibold))
-              .foregroundStyle(.white)
-              .padding(.horizontal, 6).padding(.vertical, 2)
-              .background(Capsule().fill(Color.green))
-              .fixedSize()
+            // 2026-10-17 实机：用 Label 时列表行里系统自动换成只有图标的样式，变成一个很大的绿圆、把整行撑高。
+            // 写死成图标 + 文字的小胶囊。
+            HStack(spacing: 2) {
+              Image(systemName: "waveform")
+              Text("语音中")
+            }
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(Color.green))
+            .fixedSize()
+            .accessibilityElement(children: .combine)
           }
           Spacer(minLength: 8)
           Text(Format.listTime(item.dialog.topTime)).font(.caption).foregroundStyle(.secondary)
