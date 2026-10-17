@@ -32,7 +32,7 @@ public sealed partial class MainWindow
         Details.Children.Add(refresh);
         Details.Children.Add(ActionButton("全部好友", () =>
         {
-            contactCategoryId = null; Filter.SelectedIndex = 0; listSignature = ""; RefreshList();
+            contactCategoryId = null; SelectFilter(0); listSignature = ""; RefreshList();
             return Task.CompletedTask;
         }));
         foreach (var category in vm.Directory.Categories)
@@ -40,7 +40,7 @@ public sealed partial class MainWindow
             var id = category.Id;
             Details.Children.Add(ActionButton($"{(category.SpecialCare ? "特别关心 · " : "")}{category.Name}（{category.UserIds.Count}）", () =>
             {
-                contactCategoryId = id; Filter.SelectedIndex = 0; listSignature = ""; RefreshList();
+                contactCategoryId = id; SelectFilter(0); listSignature = ""; RefreshList();
                 return Task.CompletedTask;
             }));
         }

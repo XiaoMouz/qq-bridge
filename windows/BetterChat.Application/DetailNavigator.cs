@@ -3,7 +3,11 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace BetterChat.Application;
 
 // Key 标识「同一个页面」：重复进入同一个 Key（刷新、重试、同会话内跳到某条消息）只替换当前页，不入栈。
-public sealed record DetailDestination(string Key, Func<Task> Show);
+// Landing：分区首页（切到「设置」「联系人」时右栏的默认页）。窄窗口一栏显示时，首页让位给列表，不算「打开了详情」。
+public sealed record DetailDestination(string Key, Func<Task> Show)
+{
+    public bool Landing { get; init; }
+}
 
 // 右栏的页面栈。左侧导航切换、列表选中、点通知是根导航（清栈）；在右栏里点进去的是下钻（入栈）。
 // 页面本身仍由 Show 重新构建，栈里只存怎么回到那一页，不缓存控件，所以返回时会重新加载数据。
@@ -16,6 +20,8 @@ public sealed class DetailNavigator : ObservableObject
     public DetailDestination? Current { get; private set; }
     public bool CanGoBack => back.Count > 0;
     public int Depth => back.Count;
+    // 右栏正显示一个具体页面（不是空白提示，也不是分区首页）。
+    public bool ShowsDetail => Current is { Landing: false };
 
     public Task ResetAsync(DetailDestination destination)
     {

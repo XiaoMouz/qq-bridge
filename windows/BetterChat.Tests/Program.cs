@@ -3121,7 +3121,13 @@ await Test("右栏页面栈：下钻入栈、同页替换、回到栈中页面�
     Check(nav.Depth == DetailNavigator.MaxDepth);
     var changed = new List<string?>(); nav.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
     nav.Clear();
-    Check(nav.Current is null && !nav.CanGoBack && changed.Contains(nameof(DetailNavigator.CanGoBack)));
+    Check(nav.Current is null && !nav.CanGoBack && !nav.ShowsDetail && changed.Contains(nameof(DetailNavigator.CanGoBack)));
+    await nav.ResetAsync(To("setting:连接与账号", "设置首页") with { Landing = true });
+    Check(!nav.ShowsDetail);
+    await nav.NavigateAsync(To("setting:存储", "存储"));
+    Check(nav.ShowsDetail && nav.CanGoBack);
+    await nav.GoBackAsync();
+    Check(!nav.ShowsDetail && nav.Current!.Landing);
 });
 await Test("导航未读角标与 iOS 规则一致", () =>
 {
@@ -3129,6 +3135,34 @@ await Test("导航未读角标与 iOS 规则一致", () =>
     Check(DialogBadge.Count(D("")) == 9 && DialogBadge.Count(D("all")) == 9);
     Check(DialogBadge.Count(D("muted")) == 3 && DialogBadge.Count(D("archived")) == 3 && DialogBadge.Count(D("mentions")) == 3);
     Check(new DialogRowViewModel(D("muted")).BadgeCount == 3);
+    return Task.CompletedTask;
+});
+await Test("会话行时间、未读文字、免打扰切换和发送者前缀与 iOS 一致", () =>
+{
+    var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+8", TimeSpan.FromHours(8), "UTC+8", "UTC+8");
+    // 2026-10-17（星期六）10:00 北京时间
+    var now = new DateTimeOffset(2026, 10, 17, 2, 0, 0, TimeSpan.Zero);
+    long At(int day, int hour) => new DateTimeOffset(2026, 10, day, hour, 30, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+    Check(DialogListFormat.ListTime(0, now, zone) == "");
+    Check(DialogListFormat.ListTime(At(17, 0), now, zone) == "00:30");
+    Check(DialogListFormat.ListTime(At(16, 23), now, zone) == "昨天");
+    Check(DialogListFormat.ListTime(At(12, 9), now, zone) == "星期一");
+    Check(DialogListFormat.ListTime(At(10, 9), now, zone) == "26/10/10");
+    Check(DialogListFormat.UnreadText(0) == "" && DialogListFormat.UnreadText(99) == "99" && DialogListFormat.UnreadText(100) == "99+");
+    var group = new Dialog { ChatId = 1, Scene = Scene.Group, NotifyPolicy = "default" };
+    var friend = new Dialog { ChatId = 2, Scene = Scene.Friend, NotifyPolicy = "muted" };
+    Check(DialogListFormat.ToggleMutedPolicy(group) == "muted" && DialogListFormat.ToggleMutedPolicy(friend) == "default");
+    Check(DialogListFormat.ToggleMutedPolicy(new Dialog { Scene = Scene.Group, NotifyPolicy = "archived" }) == "all");
+    Check(DialogListFormat.ToggleArchivedPolicy(group) == "archived" && DialogListFormat.ToggleArchivedPolicy(new Dialog { NotifyPolicy = "archived" }) == "muted");
+    var own = new HashSet<long> { 10 };
+    group.TopMessage = new Message { Seq = 5, Kind = MessageKind.Normal, SenderId = 20, SenderName = "一二三四五六七八九十十一" };
+    Check(DialogListFormat.SenderPrefix(group, own) == "一二三四五六七八九十…：");
+    group.TopMessage.SenderId = 10; Check(DialogListFormat.SenderPrefix(group, own) == "我：");
+    friend.TopMessage = new Message { Seq = 5, Kind = MessageKind.Normal, SenderId = 20, SenderName = "好友" };
+    Check(DialogListFormat.SenderPrefix(friend, own) == "");
+    group.Draft = new Draft(); group.Draft.Segments.Add(new OutgoingSegment { Text = "草稿" });
+    Check(DialogListFormat.SenderPrefix(group, own) == "");
+    group.Draft = null; group.TopMessage.Kind = MessageKind.Service; Check(DialogListFormat.SenderPrefix(group, own) == "");
     return Task.CompletedTask;
 });
 Console.WriteLine($"全部 {passed} 项测试通过。");

@@ -35,6 +35,32 @@
         <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}"/>
     </Style>
 
+    <!-- 会话行：置顶 / 免打扰的小图标，@ / 回复 / 全体的圆点，未读数胶囊（同 InfoBadge 的尺寸，但能显示 99+）。 -->
+    <Style x:Key="RowStateIconStyle" TargetType="FontIcon">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}"/>
+    </Style>
+    <Style x:Key="RowMarkStyle" TargetType="Border">
+        <Setter Property="Width" Value="18"/>
+        <Setter Property="Height" Value="18"/>
+        <Setter Property="CornerRadius" Value="9"/>
+    </Style>
+    <Style x:Key="UnreadPillStyle" TargetType="Border">
+        <Setter Property="MinWidth" Value="18"/>
+        <Setter Property="Height" Value="18"/>
+        <Setter Property="CornerRadius" Value="9"/>
+        <Setter Property="Padding" Value="5,0"/>
+    </Style>
+    <Style x:Key="RowMarkTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextLineBounds" Value="Tight"/>
+        <!-- Tight 在 18 像素的胶囊里取整后字形偏下约 1 像素（2026-10-17 放大截图实测：上 6 下 4），用底边距往上抬回中间。 -->
+        <Setter Property="Margin" Value="0,0,0,2"/>
+    </Style>
+
     <!-- 只有图标的工具按钮（会话选项等），和 CommandBar 里的按钮同尺寸。 -->
     <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="Transparent"/>

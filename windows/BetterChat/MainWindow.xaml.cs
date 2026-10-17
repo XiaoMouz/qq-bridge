@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
+using BetterChat.Application;
 using BetterChat.Core;
 using BetterChat.Infrastructure;
 using BetterChat.Application.ViewModels;
@@ -16,25 +17,6 @@ using Windows.UI.Text;
 using ProtoMessage = Qqbridge.V1.Message;
 
 namespace BetterChat;
-
-public sealed class ListEntry(string title, string subtitle, string badge, object value) : System.ComponentModel.INotifyPropertyChanged
-{
-    public string Title { get; private set; } = SingleLine(title);
-    public string Subtitle { get; private set; } = SingleLine(subtitle);
-    public string Badge { get; private set; } = badge;
-    public object Value { get; private set; } = value;
-    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
-    public string Key => Value switch { Dialog d => "d:" + d.ChatId, Peer p => $"p:{p.QqAccountId}:{p.Kind}:{p.PeerId}", _ => Title };
-    public void Update(ListEntry next)
-    {
-        Value = next.Value;
-        if (Title != next.Title) { Title = next.Title; PropertyChanged?.Invoke(this, new(nameof(Title))); }
-        if (Subtitle != next.Subtitle) { Subtitle = next.Subtitle; PropertyChanged?.Invoke(this, new(nameof(Subtitle))); }
-        if (Badge != next.Badge) { Badge = next.Badge; PropertyChanged?.Invoke(this, new(nameof(Badge))); }
-    }
-    private static string SingleLine(string text) => text.Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
-    public override string ToString() => Title;
-}
 
 public sealed record TimelineEntry(string Key, object Value)
 {
@@ -346,7 +328,9 @@ public sealed partial class MainWindow : Window
     private void RefreshList()
     {
         if (!ready || section == "search") return;
-        string signature = $"{section}:{Filter.SelectedIndex}:{store?.DialogRevision}:{store?.PeerRevision}:{contactRevision}:{contactCategoryId}";
+        int filter = FilterIndex;
+        // 日期也算进签名：跨天后「今天 / 昨天」的时间文字要重新算。
+        string signature = $"{section}:{filter}:{store?.DialogRevision}:{store?.PeerRevision}:{contactRevision}:{contactCategoryId}:{DateTime.Today:yyyyMMdd}";
         if (signature == listSignature) return;
         listSignature = signature;
         rendering = true;
@@ -356,15 +340,26 @@ public sealed partial class MainWindow : Window
             var rows = runtime?.Dialogs.Items.ToArray() ?? [];
             dialogIndex = rows.ToDictionary(r => r.ChatId, r => r.Snapshot);
             var names = rows.ToDictionary(r => r.ChatId, r => r.Title);
-            foreach (var d in dialogIndex.Values.Where(d => Filter.SelectedIndex == 2 ? d.NotifyPolicy == "archived" : d.NotifyPolicy != "archived").Where(d => Filter.SelectedIndex != 1 || d.UnreadCount > 0))
-                next.Add(new(names[d.ChatId], d.Draft is { Segments.Count: > 0 } ? "草稿 · " + OutgoingPreview(d.Draft.Segments) : d.TopMessage?.Text ?? "暂无消息", (d.Pinned ? "置顶 " : "") + (d.UnreadCount > 0 ? d.UnreadCount.ToString() : ""), d));
-
+            var own = runtime?.OwnUsers ?? new HashSet<long>();
+            var now = DateTimeOffset.Now;
+            foreach (var d in dialogIndex.Values.Where(d => filter == 2 ? d.NotifyPolicy == "archived" : d.NotifyPolicy != "archived").Where(d => filter != 1 || d.UnreadCount > 0))
+            {
+                bool draft = d.Draft is { Segments.Count: > 0 };
+                bool muted = DialogListFormat.IsMuted(d);
+                next.Add(new(names[d.ChatId], draft ? OutgoingPreview(d.Draft!.Segments) : d.TopMessage?.Text ?? "暂无消息",
+                    DialogListFormat.ListTime(d.TopTime, now, TimeZoneInfo.Local), d)
+                {
+                    DraftPrefix = draft ? "[草稿] " : "", SenderPrefix = DialogListFormat.SenderPrefix(d, own),
+                    Unread = DialogListFormat.UnreadText(d.UnreadCount), UnreadMuted = muted, Muted = muted, Pinned = d.Pinned,
+                    Mention = d.UnreadMentions > 0, Reply = d.UnreadReplies > 0, MentionAll = d.UnreadMentionAll > 0 && d.MentionAllNotify,
+                });
+            }
         }
         else if (section == "contacts" && store is not null)
         {
             var directory = runtime!.Contacts.Directory;
-            IEnumerable<Peer> peers = Filter.SelectedIndex == 0 ? directory.Friends : directory.Groups;
-            if (Filter.SelectedIndex == 0 && contactCategoryId is { } categoryId)
+            IEnumerable<Peer> peers = filter == 0 ? directory.Friends : directory.Groups;
+            if (filter == 0 && contactCategoryId is { } categoryId)
             {
                 var users = directory.Categories.FirstOrDefault(c => c.Id == categoryId)?.UserIds.ToHashSet() ?? [];
                 peers = peers.Where(p => users.Contains(p.PeerId));
@@ -374,8 +369,10 @@ public sealed partial class MainWindow : Window
         }
         else if (section == "settings")
         {
-            foreach (var (title, sub) in new[] { ("连接与账号", "账号与登录状态"), ("外观", "主题与阅读体验"), ("设备", "已连接的设备"), ("存储", "服务端空间与缓存"), ("服务端状态", "QQ、队列与通话桥"), ("存档完整性", "消息缺口与深度归档"), ("通话记录", "最近的 QQ 通话"), ("关于", "BetterChat for Windows") })
-                next.Add(new(title, sub, "", title));
+            foreach (var (title, sub, glyph) in new[] { ("连接与账号", "账号与登录状态", ""), ("外观", "主题与阅读体验", ""), ("设备", "已连接的设备", ""),
+                ("存储", "服务端空间与缓存", ""), ("服务端状态", "QQ、队列与通话桥", ""), ("存档完整性", "消息缺口与深度归档", ""),
+                ("通话记录", "最近的 QQ 通话", ""), ("关于", "BetterChat for Windows", "") })
+                next.Add(new(title, sub, "", title) { Glyph = glyph });
         }
         var existing = entries.ToDictionary(e => e.Key);
         var keys = next.Select(e => e.Key).ToHashSet();
@@ -392,6 +389,8 @@ public sealed partial class MainWindow : Window
         if (section == "messages") Items.SelectedItem = entries.FirstOrDefault(e => e.Value is Dialog d && d.ChatId == selectedChat);
         rendering = false;
     }
+    private int FilterIndex => Filter.SelectedItem is { } item ? Math.Max(0, Filter.Items.IndexOf(item)) : 0;
+    private void SelectFilter(int index) => Filter.SelectedItem = index < Filter.Items.Count ? Filter.Items[index] : null;
     private void NavChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (!ready || args.SelectedItemContainer is not NavigationViewItem item) return;
@@ -399,21 +398,21 @@ public sealed partial class MainWindow : Window
         section = (string)item.Tag; SectionTitle.Text = section == "messages" ? "消息" : section == "contacts" ? "联系人" : "设置";
         MoreSearchResults.Visibility = Visibility.Collapsed;
         rendering = true; Filter.Items.Clear();
-        foreach (string s in section == "messages" ? new[] { "全部消息", "未读", "群助手" } : section == "contacts" ? new[] { "好友", "群聊" } : Array.Empty<string>()) Filter.Items.Add(new ComboBoxItem { Content = s });
+        foreach (string s in section == "messages" ? new[] { "全部", "未读", "群助手" } : section == "contacts" ? new[] { "好友", "群聊" } : Array.Empty<string>()) Filter.Items.Add(new SelectorBarItem { Text = s });
         Filter.Visibility = section == "settings" ? Visibility.Collapsed : Visibility.Visible;
-        Filter.SelectedIndex = 0; rendering = false; RefreshList();
-        // 切换分区是根导航：上一个分区里点进去的页面栈不再保留。
-        if (section == "settings") _ = Guard(() => GoRoot(SettingKey("连接与账号"), () => { ShowConnection(); return Task.CompletedTask; }));
+        SelectFilter(0); rendering = false; RefreshList();
+        // 切换分区是根导航：上一个分区里点进去的页面栈不再保留。分区首页在窄窗口里不占右栏，先显示列表。
+        if (section == "settings") _ = Guard(() => GoLanding(SettingKey("连接与账号"), () => { ShowConnection(); return Task.CompletedTask; }));
         else if (api is null) ShowWelcome();
         else if (section == "contacts")
         {
             contactCategoryId = null;
-            _ = Guard(() => GoRoot("contacts", () => { ShowContactsOverview(); return Task.CompletedTask; }));
+            _ = Guard(() => GoLanding("contacts", () => { ShowContactsOverview(); return Task.CompletedTask; }));
             _ = Guard(() => runtime!.Contacts.LoadAsync(ct: lifetime.Token));
         }
         else { navigator.Clear(); Detail("选择一个会话", "从左侧列表继续"); }
     }
-    private void FilterChanged(object sender, SelectionChangedEventArgs e) { if (!rendering) RefreshList(); }
+    private void FilterChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args) { if (!rendering) RefreshList(); }
     private async void ItemSelected(object sender, SelectionChangedEventArgs e)
     {
         if (rendering || Items.SelectedItem is not ListEntry entry) return;

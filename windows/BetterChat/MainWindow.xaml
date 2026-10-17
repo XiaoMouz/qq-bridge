@@ -40,27 +40,51 @@
      <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon>
     </NavigationViewItem>
    </NavigationView.FooterMenuItems>
-  <Grid>
-   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-   <Grid Padding="{StaticResource ListPanePadding}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+  <Grid x:Name="PaneHost">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition x:Name="DetailColumn" Width="*"/></Grid.ColumnDefinitions>
+   <Grid x:Name="ListPane" Padding="{StaticResource ListPanePadding}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock x:Name="SectionTitle" Text="消息" Style="{StaticResource PageTitleTextBlockStyle}" Margin="8,0,0,12"/>
-    <ComboBox x:Name="Filter" Grid.Row="1" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="FilterChanged" Margin="4,0,4,12" AutomationProperties.Name="列表筛选">
-     <ComboBoxItem Content="全部消息"/><ComboBoxItem Content="未读"/><ComboBoxItem Content="群助手"/>
-    </ComboBox>
+    <TextBlock x:Name="SectionTitle" Text="消息" Style="{StaticResource PageTitleTextBlockStyle}" Margin="8,0,0,8"/>
+    <SelectorBar x:Name="Filter" Grid.Row="1" SelectionChanged="FilterChanged" Margin="0,0,0,8" AutomationProperties.Name="列表筛选"/>
     <ListView x:Name="Items" Grid.Row="2" SelectionChanged="ItemSelected" IsItemClickEnabled="False" SelectionMode="Single" HorizontalContentAlignment="Stretch" AutomationProperties.Name="项目列表">
      <ListView.ItemTemplate><DataTemplate x:DataType="local:ListEntry">
-      <Grid Padding="4,10" ColumnSpacing="10">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <PersonPicture DisplayName="{x:Bind Title, Mode=OneWay}" Width="42" Height="42" Loaded="AvatarLoaded" Unloaded="AvatarUnloaded" DataContextChanged="AvatarContextChanged"/>
-       <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" MaxLines="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/></StackPanel>
-       <TextBlock Grid.Column="2" Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+      <!-- 会话行和 iOS DialogRow 对齐：头像｜名称 + 置顶 / 免打扰 + 时间｜[草稿] 发送者：预览 + @ / 回复 / 全体 + 未读数。 -->
+      <Grid Padding="0,10" ColumnSpacing="{StaticResource SpaceM}" Background="Transparent" ContextRequested="ListRowContextRequested" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+       <PersonPicture DisplayName="{x:Bind Title, Mode=OneWay}" Width="40" Height="40" Visibility="{x:Bind HasAvatar, Mode=OneWay}" Loaded="AvatarLoaded" Unloaded="AvatarUnloaded" DataContextChanged="AvatarContextChanged"/>
+       <Border Width="40" Height="40" CornerRadius="{ThemeResource OverlayCornerRadius}" Background="{ThemeResource SubtleFillColorSecondaryBrush}" Visibility="{x:Bind HasGlyph, Mode=OneWay}">
+        <FontIcon Glyph="{x:Bind Glyph, Mode=OneWay}" FontSize="18"/>
+       </Border>
+       <Grid Grid.Column="1" RowSpacing="2" VerticalAlignment="Center">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="{x:Bind Title, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceXS}" Margin="8,0,0,0" VerticalAlignment="Center">
+         <FontIcon Glyph="&#xE718;" Style="{StaticResource RowStateIconStyle}" Visibility="{x:Bind Pinned, Mode=OneWay}" ToolTipService.ToolTip="已置顶"/>
+         <FontIcon Glyph="&#xE7ED;" Style="{StaticResource RowStateIconStyle}" Visibility="{x:Bind Muted, Mode=OneWay}" ToolTipService.ToolTip="免打扰"/>
+         <TextBlock Text="{x:Bind Caption, Mode=OneWay}" Style="{StaticResource SecondaryCaptionTextBlockStyle}"/>
+        </StackPanel>
+        <TextBlock Grid.Row="1" Style="{StaticResource SecondaryCaptionTextBlockStyle}" TextWrapping="NoWrap" Visibility="{x:Bind HasSubtitle, Mode=OneWay}">
+         <Run Text="{x:Bind DraftPrefix, Mode=OneWay}" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/><Run Text="{x:Bind SenderPrefix, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/><Run Text="{x:Bind Subtitle, Mode=OneWay}"/>
+        </TextBlock>
+        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="{StaticResource SpaceXS}" Margin="8,0,0,0">
+         <Border Style="{StaticResource RowMarkStyle}" Background="{ThemeResource SystemFillColorCriticalBrush}" Visibility="{x:Bind Mention, Mode=OneWay}" ToolTipService.ToolTip="有人@我"><TextBlock Text="@" Style="{StaticResource RowMarkTextStyle}"/></Border>
+         <Border Style="{StaticResource RowMarkStyle}" Background="{ThemeResource SystemFillColorSuccessBrush}" Visibility="{x:Bind Reply, Mode=OneWay}" ToolTipService.ToolTip="有人回复我"><FontIcon Glyph="&#xE97A;" FontSize="9" Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/></Border>
+         <Border Style="{StaticResource RowMarkStyle}" Background="{ThemeResource SystemFillColorCautionBrush}" Visibility="{x:Bind MentionAll, Mode=OneWay}" ToolTipService.ToolTip="@全体成员"><TextBlock Text="全" Style="{StaticResource RowMarkTextStyle}"/></Border>
+         <Border Style="{StaticResource UnreadPillStyle}" Background="{ThemeResource AccentFillColorDefaultBrush}" Visibility="{x:Bind AccentUnread, Mode=OneWay}"><TextBlock Text="{x:Bind Unread, Mode=OneWay}" Style="{StaticResource RowMarkTextStyle}"/></Border>
+         <Border Style="{StaticResource UnreadPillStyle}" Background="{ThemeResource ControlStrongFillColorDefaultBrush}" Visibility="{x:Bind MutedUnread, Mode=OneWay}"><TextBlock Text="{x:Bind Unread, Mode=OneWay}" Style="{StaticResource RowMarkTextStyle}"/></Border>
+        </StackPanel>
+       </Grid>
       </Grid>
      </DataTemplate></ListView.ItemTemplate>
     </ListView>
     <Button x:Name="MoreSearchResults" Grid.Row="3" Content="加载更多搜索结果" Visibility="Collapsed" HorizontalAlignment="Stretch" Margin="4,8" Click="LoadSearchMore"/>
    </Grid>
-   <Grid Grid.Column="1" Margin="{StaticResource DetailCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+   <!-- 拖动调整列表宽度；双击恢复默认。压在列表右边线上，左右各露 4 像素。 -->
+   <local:PaneSplitter x:Name="ListSplitter" HorizontalAlignment="Right" Width="8" Margin="0,0,-4,0" Canvas.ZIndex="1"
+    ManipulationMode="TranslateX" ManipulationDelta="ListSplitterDelta" ManipulationCompleted="ListSplitterCompleted" DoubleTapped="ListSplitterReset"
+    ToolTipService.ToolTip="拖动调整列表宽度，双击恢复默认" AutomationProperties.Name="调整列表宽度"/>
+   <Grid x:Name="DetailPane" Grid.Column="1" Margin="{StaticResource DetailCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Grid Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

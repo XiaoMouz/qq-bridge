@@ -39,7 +39,7 @@ dotnet build windows/BetterChat -p:Platform=x64 -p:OutputPath=bin/validation/
 
 | 模块 | 当前实现 | 仍需完成或验证 |
 |---|---|---|
-| 外壳 | NavigationView 紧凑导航（未读 InfoBadge、设置与账号在底部）、TitleBar 返回 / 展开导航、右栏页面栈（Alt+← 与鼠标返回键）、`Themes/Tokens.xaml` 设计数值、系统主题、Mica、共享应用图标 | 窄窗口适配、完整键盘及高对比度验收 |
+| 外壳 | NavigationView 紧凑导航（未读 InfoBadge、设置与账号在底部）、TitleBar 返回 / 展开导航、右栏页面栈（Alt+← 与鼠标返回键）、会话行（时间、置顶 / 免打扰、@ / 回复 / 全体、未读胶囊、右键菜单）、SelectorBar 筛选、三档自适应（<640 一栏）与列表宽度拖动、`Themes/Tokens.xaml` 设计数值、系统主题、Mica、共享应用图标 | 窄窗口下聊天页验收、完整键盘及高对比度验收；右键菜单的写操作未实测 |
 | 账号 | 密码登录、DPAPI 凭据及旧格式修复、设备 MVVM、离线退出协调 | 登录／退出／撤销设备真实交互验收 |
 | 同步 | SQLite v2、pts / chat_pts、Subscribe、缺口补齐、首屏预取、退避重连；真实冷启动读取通过 | 多设备实时联调、长时间断线恢复 |
 | 消息 | 持久化幂等发送／回复、撤回／回应 MVVM、多条消息／多目标和合并转发、双向历史、草稿、已读协调 | 真实发送／回复／撤回、多选转发与滚动／提及交互验收 |

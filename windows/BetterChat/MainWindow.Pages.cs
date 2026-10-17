@@ -1,3 +1,4 @@
+using BetterChat.Application;
 using BetterChat.Core;
 using BetterChat.Application.ViewModels;
 using Microsoft.UI.Xaml;
@@ -91,7 +92,7 @@ public sealed partial class MainWindow
             {
                 if (theme.SelectedIndex < 0) return Task.CompletedTask;
                 var value = (ElementTheme)theme.SelectedIndex;
-                new AppearanceSettings(value).Save(); Root.RequestedTheme = value;
+                (AppearanceSettings.Load() with { Theme = value }).Save(); Root.RequestedTheme = value;
                 return Task.CompletedTask;
             });
             Details.Children.Add(theme);
@@ -359,7 +360,7 @@ public sealed partial class MainWindow
             && (DisplayName(p).Contains(pager.Query, StringComparison.OrdinalIgnoreCase)
                 || p.PeerId.ToString().Contains(pager.Query, StringComparison.Ordinal))).ToList();
         foreach (var p in contacts) entries.Add(new(DisplayName(p), p.Kind == PeerKind.Group ? "群聊" : "联系人", "", p));
-        foreach (var m in pager.Results) entries.Add(new(m.SenderName.Length > 0 ? m.SenderName : m.SenderId.ToString(), m.Text, DateTimeOffset.FromUnixTimeSeconds(m.Time).ToLocalTime().ToString("MM-dd"), m));
+        foreach (var m in pager.Results) entries.Add(new(m.SenderName.Length > 0 ? m.SenderName : m.SenderId.ToString(), m.Text, DialogListFormat.ListTime(m.Time, DateTimeOffset.Now, TimeZoneInfo.Local), m));
         rendering = false;
         Details.Children.Clear(); Details.Children.Add(Text($"找到 {contacts.Count} 个联系人或群聊，{pager.Results.Count} 条消息。选择消息可定位到原会话。"));
         MoreSearchResults.Visibility = pager.Next is not null ? Visibility.Visible : Visibility.Collapsed;
