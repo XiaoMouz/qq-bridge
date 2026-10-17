@@ -141,6 +141,21 @@ public sealed partial class MainWindow
         else Nav.SelectedItem = SettingsNavItem;
     }
 
+    // 调试入口（同 iOS 的 -debugJump chatId:seq）：登录后直接打开某个会话、定位到某条消息附近。
+    // 验收时用它代替按列表位置点或模拟滚动（UI 自动化的滚动对这个 ListView 不生效，2026-10-17 实测）。只处理一次。
+    private bool debugJumpDone;
+    private void RunDebugJump()
+    {
+        if (debugJumpDone) return;
+        debugJumpDone = true;
+        var args = Environment.GetCommandLineArgs();
+        int at = Array.IndexOf(args, "-debugJump");
+        if (at < 0 || at + 1 >= args.Length) return;
+        var parts = args[at + 1].Split(':');
+        if (parts.Length != 2 || !long.TryParse(parts[0], out long chat) || !long.TryParse(parts[1], out long seq) || chat <= 0) return;
+        _ = Guard(() => GoRoot(ChatKey(chat), () => OpenChat(chat, seq > 0 ? seq : null)));
+    }
+
     private void UpdateUnreadBadge()
     {
         int count = runtime?.Dialogs.Items.Sum(row => row.BadgeCount) ?? 0;

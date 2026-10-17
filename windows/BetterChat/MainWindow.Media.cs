@@ -51,22 +51,32 @@ public sealed partial class MainWindow
             double width = media.Width > 0 ? Math.Min(300, media.Width) : 240;
             double height = media.Width > 0 && media.Height > 0 ? Math.Min(260, width * media.Height / media.Width) : 180;
             picture.Width = width; picture.Height = height; picture.Visibility = Visibility.Visible;
-            panel.Children.Add(picture);
+            // 图片、视频、表情包只显示画面（圆角裁切），文字说明只给语音、文件；视频叠一个播放图标。
+            var frame = new Grid { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Left, Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["SubtleFillColorSecondaryBrush"] };
+            frame.Children.Add(picture);
+            if (segment.Video is not null)
+                frame.Children.Add(new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(22), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    Child = new FontIcon { Glyph = "\uE768", FontSize = 18, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) } });
+            panel.Children.Add(frame);
         }
-        panel.Children.Add(Text(label)); panel.Children.Add(status);
-        var button = new Button { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(8), MaxWidth = 320 };
+        if (!visual) panel.Children.Add(Text(label));
+        panel.Children.Add(status);
+        var button = visual
+            ? new Button { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), MaxWidth = 320, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) }
+            : new Button { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(8), MaxWidth = 320 };
+        bool loaded = false;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
         bool opening = false;
         button.Click += async (_, _) => await Guard(async () =>
         {
             if (opening || owner is null || runtime != owner || ownerToken.IsCancellationRequested) return;
-            opening = true; button.IsEnabled = false; status.Text = "正在准备媒体…";
+            opening = true; button.IsEnabled = false; status.Text = "正在准备媒体…"; status.Visibility = Visibility.Visible;
             try { await ShowMedia(message, media, label); }
             finally
             {
                 opening = false;
                 if (!ownerToken.IsCancellationRequested && runtime == owner)
-                { button.IsEnabled = true; status.Text = "点击查看 / 重试"; }
+                { button.IsEnabled = true; status.Text = "点击查看 / 重试"; status.Visibility = visual && loaded ? Visibility.Collapsed : Visibility.Visible; }
             }
         });
         bool started = false;
@@ -87,7 +97,16 @@ public sealed partial class MainWindow
                     ct.ThrowIfCancellationRequested();
                     if (api != currentApi) return;
                     var bitmap = new BitmapImage { DecodePixelWidth = 600 };
-                    bitmap.ImageOpened += (_, _) => { if (!ct.IsCancellationRequested) { picture.Visibility = Visibility.Visible; status.Text = media.State == MediaState.Purged ? "原件已清理" : "点击查看"; } };
+                    bitmap.ImageOpened += (_, _) =>
+                    {
+                        if (ct.IsCancellationRequested) return;
+                        // 预览出来后只保留画面；原件已清理时仍提示一句。
+                        loaded = true; picture.Visibility = Visibility.Visible;
+                        // 没有尺寸信息时先按 240×180 占位；图出来后按实际比例收缩，去掉占位底色，避免两侧露灰边。
+                        picture.Width = double.NaN; picture.Height = double.NaN;
+                        if (picture.Parent is Grid frame) frame.Background = null;
+                        status.Text = "原件已清理"; status.Visibility = media.State == MediaState.Purged ? Visibility.Visible : Visibility.Collapsed;
+                    };
                     bitmap.ImageFailed += (_, _) => { if (!ct.IsCancellationRequested) status.Text = "预览加载失败，点击查看"; };
                     picture.Source = bitmap; bitmap.UriSource = uri;
                 }

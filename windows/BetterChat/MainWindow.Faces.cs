@@ -22,10 +22,10 @@ public sealed partial class MainWindow
         string path = Path.Combine(AppContext.BaseDirectory, "Assets", "FaceCatalog.json");
         return (JsonSerializer.Deserialize<List<FaceEntry>>(File.ReadAllText(path)) ?? []).ToDictionary(f => f.Id);
     }
-    private static Image? FaceImage(string id)
+    private static Image? FaceImage(string id, double size = 24)
     {
         if (!faces.TryGetValue(id, out var entry)) return null;
-        var image = new Image { Source = new BitmapImage(new Uri(entry.ImagePath)) { DecodePixelWidth = 64 }, Width = 24, Height = 24, Stretch = Stretch.Uniform };
+        var image = new Image { Source = new BitmapImage(new Uri(entry.ImagePath)) { DecodePixelWidth = (int)Math.Max(64, size * 2) }, Width = size, Height = size, Stretch = Stretch.Uniform };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, entry.Name);
         ToolTipService.SetToolTip(image, entry.Name);
         return image;

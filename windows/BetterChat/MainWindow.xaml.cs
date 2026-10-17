@@ -20,8 +20,13 @@ namespace BetterChat;
 
 public sealed record TimelineEntry(string Key, object Value)
 {
-    public override string ToString() => Value switch { ProtoMessage m => m.SenderName + "：" + m.Text, ChatEvent => "系统事件", _ => "发送中的消息" };
+    public ProtoMessage? Message => Value switch { MessageItem item => item.Message, ProtoMessage m => m, _ => null };
+    public override string ToString() => Value switch { MessageItem { Message: var m } => m.SenderName + "：" + m.Text, TimeHeader => "时间", ChatEvent => "系统事件", _ => "发送中的消息" };
 }
+// 时间线里的一条消息；ShowsSender 由前后消息决定（群里同一个人连续发的只在第一条显示名字和头像）。
+public sealed record MessageItem(ProtoMessage Message, bool ShowsSender);
+// 隔了 5 分钟以上的时间分隔条。
+public sealed record TimeHeader(long Time);
 
 public sealed partial class MainWindow : Window
 {
@@ -75,7 +80,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         InitializeChatState();
-        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); UpdateUnreadBadge(); RefreshList(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
+        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); UpdateUnreadBadge(); RefreshList(); UpdateFloatingButtons(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
         Root.RequestedTheme = AppearanceSettings.Load().Theme;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
@@ -237,6 +242,7 @@ public sealed partial class MainWindow : Window
             ToolTipService.SetToolTip(AccountButton, AccountAvatar.DisplayName);
             _ = LoadAccountAvatar(candidate, account.Uin, sessionToken);
         }
+        RunDebugJump();
     }
     private async Task LoadAccountAvatar(BridgeApi sessionApi, long userId, CancellationToken ct)
     {
@@ -434,6 +440,8 @@ public sealed partial class MainWindow : Window
         historyAnchor = anchor; messageViews.Clear(); Messages.Items.Clear();
         historyLoading = true; UpdateHistoryButtons();
         var d = dialogIndex.GetValueOrDefault(chat);
+        // 从通知或 -debugJump 进来时会话列表可能还没读完：从本地库补上会话，否则标题和群聊判断都会错。
+        if (d is null && await session.Repository.GetDialogAsync(chat, ct) is { } stored) { d = stored; dialogIndex[chat] = stored; }
         var localDraft = await session.Repository.GetLocalDraftAsync(chat, ct);
         ct.ThrowIfCancellationRequested();
         if (localDraft is not null) dirtyDrafts.Add(chat);
@@ -474,7 +482,7 @@ public sealed partial class MainWindow : Window
         ct.ThrowIfCancellationRequested();
         if (Messages.Items.Count > 0)
         {
-            var target = anchor.HasValue ? Messages.Items.OfType<TimelineEntry>().FirstOrDefault(x => x.Value is ProtoMessage m && m.Seq == anchor) : null;
+            var target = anchor.HasValue ? Messages.Items.OfType<TimelineEntry>().FirstOrDefault(x => x.Message?.Seq == anchor) : null;
             if (target is not null) Messages.ScrollIntoView(target); else QueueScrollToLatest();
         }
         var currentSync = session;
@@ -536,30 +544,37 @@ public sealed partial class MainWindow : Window
             var view = messageViews.GetValueOrDefault(key) ?? new TimelineEntry(key, value);
             retained[key] = view; return view;
         }
-        foreach (var entry in messages.Select(m => (Time: m.Time, Value: (object)m)).Concat(events.Select(e => (Time: e.Time, Value: (object)e))).OrderBy(x => x.Time))
+        var ordered = messages.Select(m => (Time: m.Time, Value: (object)m)).Concat(events.Select(e => (Time: e.Time, Value: (object)e))).OrderBy(x => x.Time).ToList();
+        bool group = dialogIndex.GetValueOrDefault(chat)?.Scene == Scene.Group;
+        var layout = ChatPresentation.Layout(ordered.Select(x => x.Value is ProtoMessage pm
+            ? new ChatPresentation.TimelineItem(pm.Time, pm.SenderId, pm.Kind != MessageKind.Service)
+            : new ChatPresentation.TimelineItem(x.Time, 0, false)).ToList(), group, session.OwnUsers);
+        timelineMessages = messages.GroupBy(m => m.Seq).ToDictionary(g => g.Key, g => g.Last());
+        for (int i = 0; i < ordered.Count; i++)
         {
-            if (entry.Value is ProtoMessage m) desired.Add(Retain($"m:{m.ChatId}:{m.Seq}:{m.Version}", m));
-            else if (entry.Value is ChatEvent e) desired.Add(Retain($"e:{e.ChatId}:{e.Id}:{e.Version}", e));
+            if (layout[i].ShowsTime) desired.Add(Retain($"h:{ordered[i].Time}", new TimeHeader(ordered[i].Time)));
+            if (ordered[i].Value is ProtoMessage m) desired.Add(Retain($"m:{m.ChatId}:{m.Seq}:{m.Version}:{(layout[i].ShowsSender ? 1 : 0)}", new MessageItem(m, layout[i].ShowsSender)));
+            else if (ordered[i].Value is ChatEvent e) desired.Add(Retain($"e:{e.ChatId}:{e.Id}:{e.Version}", e));
         }
         foreach (var pending in pendingEntries.Where(p => !outboxEntries.Any(o => o.ClientRandomId == p.ClientRandomId)))
         {
-            var panel = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8) };
-            panel.Children.Add(Text(OutgoingPreview(pending.Segments)));
-            panel.Children.Add(ActionButton("未确认发送 · 重试", () => Submit(pending)));
-            desired.Add(new TimelineEntry("pending:" + desired.Count, panel));
+            var retry = new HyperlinkButton { Content = "重试", Padding = new Thickness(4, 0, 4, 0) };
+            retry.Click += async (_, _) => await Guard(() => Submit(pending));
+            desired.Add(new TimelineEntry("pending:" + desired.Count, PendingBubble(OutgoingPreview(pending.Segments), "未确认发送", false, retry)));
         }
         foreach (var o in outboxEntries.Where(o => o.State != OutboxState.Sent))
         {
-            var panel = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8) };
-            panel.Children.Add(Text(OutgoingPreview(o.Segments)));
-            panel.Children.Add(Text(o.State == OutboxState.Failed ? "发送失败：" + o.Error : "等待 QQ 发送…", 12));
-            if (o.State == OutboxState.Failed)
+            FrameworkElement? action = null;
+            if (o.State == OutboxState.Failed && o.Segments.Any(s => s.KindCase == OutgoingSegment.KindOneofCase.Forward))
+                action = new TextBlock { Text = "请从原消息重新转发", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["CaptionTextBlockStyle"] };
+            else if (o.State == OutboxState.Failed)
             {
-                if (o.Segments.Any(s => s.KindCase == OutgoingSegment.KindOneofCase.Forward))
-                    panel.Children.Add(Text("合并转发失败，请从原消息重新选择转发。", 12));
-                else panel.Children.Add(ActionButton("重试", () => { var r = new SendMessageRequest { ChatId = o.ChatId, ClientRandomId = o.ClientRandomId, ReplyToSeq = o.ReplyToSeq }; r.Segments.Add(o.Segments); return Submit(r); }));
+                var retry = new HyperlinkButton { Content = "重试", Padding = new Thickness(4, 0, 4, 0) };
+                retry.Click += async (_, _) => await Guard(() => { var r = new SendMessageRequest { ChatId = o.ChatId, ClientRandomId = o.ClientRandomId, ReplyToSeq = o.ReplyToSeq }; r.Segments.Add(o.Segments); return Submit(r); });
+                action = retry;
             }
-            desired.Add(new TimelineEntry("pending:" + desired.Count, panel));
+            desired.Add(new TimelineEntry("pending:" + desired.Count, PendingBubble(OutgoingPreview(o.Segments),
+                o.State == OutboxState.Failed ? "发送失败：" + o.Error : "等待 QQ 发送…", o.State == OutboxState.Failed, action)));
         }
         // 保留未变化的行和容器，让 ItemsStackPanel 维持阅读锚点，避免每次推送清空整个列表。
         var wanted = desired.ToHashSet();
@@ -579,6 +594,8 @@ public sealed partial class MainWindow : Window
             var window = historyWindow; var last = desired[^1];
             DispatcherQueue.TryEnqueue(() => { if (historyWindow == window && Messages.Items.Contains(last)) Messages.ScrollIntoView(last); });
         }
+        // 内容还不够一屏时滚动事件不会触发，渲染完也检查一次是否要接着往上加载。
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, CheckAutoLoad);
     }
     private static T? Descendant<T>(DependencyObject parent) where T : DependencyObject
     {
@@ -590,12 +607,8 @@ public sealed partial class MainWindow : Window
         }
         return null;
     }
-    private static string EventText(ChatEvent e)
-    {
-        try { using var doc = System.Text.Json.JsonDocument.Parse(e.DataJson); if (doc.RootElement.TryGetProperty("text", out var t) && t.ValueKind == System.Text.Json.JsonValueKind.String) return t.GetString() ?? "系统事件"; }
-        catch (System.Text.Json.JsonException) { }
-        return e.Kind switch { "member_join" => "有新成员加入群聊", "member_leave" => "有成员离开群聊", "poke" => "戳一戳", "group_file" => "有新的群文件", "group_name" => "群名称已更新", "essence_add" => "消息被设为精华", _ => "群聊动态" };
-    }
+    private string EventText(ChatEvent e) => ChatPresentation.EventText(e.Kind, e.DataJson,
+        e.ActorId == 0 ? "" : PeerName(e.ActorId, Scene.Friend), e.TargetId == 0 ? "" : PeerName(e.TargetId, Scene.Friend), e.ActorId == e.TargetId);
     private void MessageSizeChanged(object sender, SizeChangedEventArgs args) => QueueScrollToLatest();
     private void QueueScrollToLatest()
     {
@@ -619,112 +632,13 @@ public sealed partial class MainWindow : Window
         if (args.Item is not TimelineEntry row) return;
         host.Content = row.Value switch
         {
-            ProtoMessage m => MessageView(m),
-            ChatEvent e => new TextBlock { Text = EventText(e), TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(12), FontSize = 12 },
+            MessageItem item => MessageView(item.Message, showSender: item.ShowsSender),
+            TimeHeader header => TimeHeaderView(header.Time),
+            ChatEvent e => EventNotice(e),
             FrameworkElement view => view,
             _ => null
         };
         args.Handled = true;
-    }
-    private FrameworkElement MessageView(ProtoMessage m, bool includeActions = true)
-    {
-        var owner = runtime;
-        var pageToken = pageTask?.Token ?? lifetime.Token;
-        Task OnOriginalPage(Func<Task> action) => owner is not null && runtime == owner && !pageToken.IsCancellationRequested ? action() : Task.CompletedTask;
-        bool own = runtime?.OwnUsers.Contains(m.SenderId) == true;
-        var body = new StackPanel { Spacing = 8, MaxWidth = 620 };
-        body.Children.Add(Text((own ? "你" : string.IsNullOrEmpty(m.SenderName) ? m.SenderId.ToString() : m.SenderName) + "  ·  " + DateTimeOffset.FromUnixTimeSeconds(m.Time).ToLocalTime().ToString("MM-dd HH:mm"), 11));
-        if (m.ReplyToSeq > 0) body.Children.Add(ActionButton($"回复 #{m.ReplyToSeq}", () => OnOriginalPage(() => Go(ChatKey(m.ChatId), () => OpenChat(m.ChatId, m.ReplyToSeq)))));
-        Microsoft.UI.Xaml.Documents.Paragraph? paragraph = null;
-        void Inline(Microsoft.UI.Xaml.Documents.Inline content)
-        {
-            if (paragraph is null)
-            {
-                paragraph = new Microsoft.UI.Xaml.Documents.Paragraph();
-                var rich = new RichTextBlock { IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, FontSize = 14 };
-                rich.Blocks.Add(paragraph); body.Children.Add(rich);
-            }
-            paragraph.Inlines.Add(content);
-        }
-        foreach (var s in m.Segments)
-        {
-            if (s.Text is null && s.Mention is null && s.MentionAll is null && s.Face is null) paragraph = null;
-            if (s.Text is { } t) Inline(new Microsoft.UI.Xaml.Documents.Run { Text = t.Text });
-            else if (s.Mention is { } at) Inline(new Microsoft.UI.Xaml.Documents.Run { Text = "@" + (at.Name.Length > 0 ? at.Name : at.UserId.ToString()), Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTextFillColorPrimaryBrush"] });
-            else if (s.MentionAll is not null) Inline(new Microsoft.UI.Xaml.Documents.Run { Text = "@全体成员" });
-            else if (s.Face is { } f)
-            {
-                if (FaceImage(f.FaceId) is { } picture) Inline(new Microsoft.UI.Xaml.Documents.InlineUIContainer { Child = picture });
-                else Inline(new Microsoft.UI.Xaml.Documents.Run { Text = "[" + (f.Name.Length > 0 ? f.Name : "表情 " + f.FaceId) + "]" });
-            }
-            else if (s.Markdown is { } markdown) body.Children.Add(Text(markdown.Content));
-            else if (Media(s) is { } media)
-            {
-                string label = s.File?.Name ?? (s.Image is not null ? "图片" : s.Record is not null ? $"语音 · {s.Record.DurationSec} 秒" : s.Video is not null ? "视频" : "表情");
-                body.Children.Add(MediaPreview(m, s, media, label));
-            }
-            else if (s.Forward is not null) body.Children.Add(ActionButton("聊天记录 · " + s.Forward.Title, () => OnOriginalPage(() => ShowForward(m))));
-            else if (s.Reply is null) body.Children.Add(Text(m.Text.Length > 0 ? m.Text : "[暂不支持的消息类型]"));
-        }
-        if (m.Segments.Count == 0) body.Children.Add(Text(m.Text));
-        if (m.State == MessageState.Recalled) body.Children.Add(Text("此消息已撤回", 11));
-        if (m.Reactions.Count > 0) body.Children.Add(Text(string.Join("  ", m.Reactions.Select(r => $"{r.EmojiId} × {r.Count}")), 12));
-        var bubble = new Border { Child = body, Padding = new Thickness(14, 10, 14, 10), CornerRadius = new CornerRadius(10), Margin = new Thickness(0, 6, 0, 6), HorizontalAlignment = m.Kind == MessageKind.Service ? HorizontalAlignment.Center : own ? HorizontalAlignment.Right : HorizontalAlignment.Left, Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[own ? "SubtleFillColorSecondaryBrush" : "CardBackgroundFillColorDefaultBrush"], Tag = m };
-        if (!includeActions) return bubble;
-        var menu = new MenuFlyout();
-        void Add(string label, Func<Task> action) { var item = new MenuFlyoutItem { Text = label }; item.Click += async (_, _) => await Guard(() => OnOriginalPage(action)); menu.Items.Add(item); }
-        Add("回复", () =>
-        {
-            if (selectedChat != m.ChatId) return Task.CompletedTask;
-            replySeq = m.Seq; replies[m.ChatId] = replySeq; dirtyDrafts.Add(m.ChatId); draftTimer.Start(); UpdateReply(); Composer.Focus(FocusState.Keyboard); return Task.CompletedTask;
-        });
-        Add("复制", () => { var data = new DataPackage(); data.SetText(m.Text); Clipboard.SetContent(data); return Task.CompletedTask; });
-        if (runtime is { } forwardingSession) Add("转发", () => Forward(forwardingSession, m.ChatId, [m.Seq]));
-        if (runtime is { } stickerSession)
-        {
-            int index = 0;
-            foreach (var segment in m.Segments.Where(s => s.Image is not null || s.MarketFace is not null))
-            {
-                var sha = Media(segment)?.Sha256;
-                if (sha is { Length: 64 }) Add("收藏图片为表情 " + (++index), () => AddMessageSticker(sha, stickerSession));
-            }
-        }
-        if (runtime is { } actionSession)
-        {
-            var actionToken = pageToken;
-            async Task ChangeMessage(bool recall)
-            {
-                if (runtime != actionSession) return;
-                await using var vm = new MessageActionsViewModel(m.ChatId, m.Seq, actionSession.RecallMessageAsync, actionSession.ReactAsync, new UiDispatcher(DispatcherQueue));
-                bool succeeded = recall ? await vm.RecallAsync(actionToken)
-                    : await vm.ReactAsync("128077", !m.Reactions.Any(r => r.EmojiId == "128077" && r.Me), actionToken);
-                if (runtime != actionSession || actionToken.IsCancellationRequested || succeeded) return;
-                string? error = recall ? vm.Recall.Error : vm.React.Error;
-                bool uncertain = recall ? vm.Recall.OutcomeUncertain : vm.React.OutcomeUncertain;
-                throw new IOException((error ?? "消息操作未完成。") + (uncertain ? " 请等待同步确认，避免重复操作。" : ""));
-            }
-            if (own && m.State == MessageState.Normal) Add("撤回", () => ChangeMessage(true));
-            if (m.State == MessageState.Normal && dialogIndex.GetValueOrDefault(m.ChatId)?.Scene == Scene.Group)
-                Add("回应 👍", () => ChangeMessage(false));
-        }
-            foreach (var reaction in m.Reactions)
-                Add("查看回应 " + reaction.EmojiId + " 的用户", () => ShowReactionUsers(m, reaction.EmojiId));
-        if (runtime is { } voiceSession && m.Segments.Any(s => s.Record is not null))
-        {
-            var voiceToken = pageToken;
-            Add("语音转文字", async () =>
-            {
-                if (runtime != voiceSession) return;
-                await using var operation = new RpcOperationViewModel<TranscribeVoiceRequest, TranscribeVoiceResponse>(voiceSession.TranscribeVoiceAsync, new UiDispatcher(DispatcherQueue), false);
-                bool succeeded = await operation.ExecuteAsync(new() { ChatId = m.ChatId, Seq = m.Seq }, voiceToken);
-                voiceToken.ThrowIfCancellationRequested();
-                if (runtime != voiceSession) return;
-                if (!succeeded) throw new IOException(operation.Error ?? "语音识别失败。");
-                string text = operation.Result!.Text;
-                await DialogBox("语音转文字", Text(text.Length > 0 ? text : "未识别出文字"));
-            });
-        }
-        bubble.ContextFlyout = menu; return bubble;
     }
     private static MediaInfo? Media(Segment s) => s.Image?.Media ?? s.Record?.Media ?? s.Video?.Media ?? s.File?.Media ?? s.MarketFace?.Media;
     private async Task DialogBox(string title, UIElement content) => await new ContentDialog { XamlRoot = Root.XamlRoot, Title = title, Content = content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close }.ShowAsync();
@@ -783,14 +697,19 @@ public sealed partial class MainWindow : Window
         if (session != runtime) return;
         Notice.Severity = InfoBarSeverity.Informational; Notice.Message = result.Entry.State == OutboxState.Sent ? "消息已发送" : "消息已进入发送队列"; Notice.IsOpen = true;
     }
-    private async void LoadOlder(object sender, RoutedEventArgs e) => await Guard(() => LoadHistoryPage(true));
-    private async void LoadNewer(object sender, RoutedEventArgs e) => await Guard(() => LoadHistoryPage(false));
-    private async void ReturnToLatest(object sender, RoutedEventArgs e) => await Guard(() => OpenChat(selectedChat));
+    // 「回到最新」：历史窗口本来就跟着最新时只滚到底；从搜索 / 引用跳进来的窗口要重新打开最新一页。
+    private async void ReturnToLatest(object sender, RoutedEventArgs e) => await Guard(async () =>
+    {
+        if (historyWindow?.FollowsLatest == true)
+        {
+            followLatest = true; QueueScrollToLatest(); return;
+        }
+        await GoRoot(ChatKey(selectedChat), () => OpenChat(selectedChat));
+    });
     private void UpdateHistoryButtons()
     {
-        OlderButton.IsEnabled = !historyLoading && historyWindow?.HasOlder == true;
-        NewerButton.IsEnabled = !historyLoading && historyWindow?.HasNewer == true;
-        NewerButton.Visibility = LatestButton.Visibility = historyWindow?.FollowsLatest == false ? Visibility.Visible : Visibility.Collapsed;
+        HistoryLoadingBar.Visibility = historyLoading && Messages.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateFloatingButtons();
     }
     private async Task LoadHistoryPage(bool older)
     {

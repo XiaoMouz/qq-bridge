@@ -3165,6 +3165,61 @@ await Test("会话行时间、未读文字、免打扰切换和发送者前缀�
     group.Draft = null; group.TopMessage.Kind = MessageKind.Service; Check(DialogListFormat.SenderPrefix(group, own) == "");
     return Task.CompletedTask;
 });
+await Test("聊天页时间分隔、发送者合并、链接识别与卡片解析与 iOS 一致", () =>
+{
+    var own = new HashSet<long> { 1 };
+    ChatPresentation.TimelineItem M(long t, long s) => new(t, s, true);
+    var layout = ChatPresentation.Layout([M(1000, 2), M(1060, 2), M(1100, 3), new(1110, 0, false), M(1120, 3), M(1500, 3), M(1510, 1)], true, own);
+    Check(layout[0] == new ChatPresentation.TimelineLayout(true, true));
+    Check(layout[1] == new ChatPresentation.TimelineLayout(false, false));
+    Check(layout[2] == new ChatPresentation.TimelineLayout(false, true));
+    Check(layout[3] == new ChatPresentation.TimelineLayout(false, false));
+    Check(layout[4].ShowsSender && !layout[4].ShowsTime);
+    Check(layout[5] == new ChatPresentation.TimelineLayout(true, true));
+    Check(!layout[6].ShowsSender);
+    Check(ChatPresentation.Layout([M(1000, 2)], false, own)[0] == new ChatPresentation.TimelineLayout(true, false));
+
+    var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+8", TimeSpan.FromHours(8), "UTC+8", "UTC+8");
+    var now = new DateTimeOffset(2026, 10, 17, 2, 0, 0, TimeSpan.Zero);
+    long At(int y, int mo, int d) => new DateTimeOffset(y, mo, d, 14, 5, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+    Check(ChatPresentation.TimeHeader(At(2026, 10, 17), now, zone) == "14:05");
+    Check(ChatPresentation.TimeHeader(At(2026, 10, 16), now, zone) == "昨天 14:05");
+    Check(ChatPresentation.TimeHeader(At(2026, 10, 12), now, zone) == "星期一 14:05");
+    Check(ChatPresentation.TimeHeader(At(2026, 3, 2), now, zone) == "3月2日 14:05");
+    Check(ChatPresentation.TimeHeader(At(2025, 12, 31), now, zone) == "2025年12月31日 14:05");
+
+    var runs = ChatPresentation.Linkify("看 https://example.com/a?b=1。加我 1114096791 或 www.qq.com, 编号 0x12345a 和 2026");
+    Check(runs.Count(r => r.Kind == ChatPresentation.TextRunKind.Link) == 2);
+    Check(runs.First(r => r.Kind == ChatPresentation.TextRunKind.Link).Target == "https://example.com/a?b=1");
+    Check(runs.Last(r => r.Kind == ChatPresentation.TextRunKind.Link).Target == "https://www.qq.com");
+    Check(runs.Single(r => r.Kind == ChatPresentation.TextRunKind.Number).Text == "1114096791");
+    Check(string.Concat(runs.Select(r => r.Text)) == "看 https://example.com/a?b=1。加我 1114096791 或 www.qq.com, 编号 0x12345a 和 2026");
+    Check(ChatPresentation.Linkify("").Count == 0);
+
+    var mini = ChatPresentation.ParseAppCard("""{"prompt":"[QQ小程序]哔哩哔哩","meta":{"detail_1":{"appid":"1109937557","title":"哔哩哔哩","desc":"视频标题","preview":"pic.qq.com/x.png","qqdocurl":"http://b23.tv/abc","url":"m.q.qq.com/a"}}}""", "com.tencent.miniapp");
+    Check(mini is { Source: "哔哩哔哩", Title: "视频标题", Description: "", Preview: "https://pic.qq.com/x.png", Url: "https://b23.tv/abc" });
+    var share = ChatPresentation.ParseAppCard("""{"prompt":"[分享]文章","meta":{"news":{"title":"文章","desc":"摘要","tag":"知乎","jumpUrl":"mqqapi://x","url":"https://zhihu.com/q"}}}""", "com.tencent.structmsg");
+    Check(share is { Source: "知乎", Title: "文章", Description: "摘要", Url: "https://zhihu.com/q" });
+    Check(ChatPresentation.ParseAppCard("""{"meta":{"x":{}}}""", "a") is null && ChatPresentation.ParseAppCard("坏的", "a") is null);
+    Check(ChatPresentation.CardText("""{"prompt":"[群公告]"}""") == "[群公告]" && ChatPresentation.CardText("""{"meta":{"a":{"desc":"说明"}}}""") == "[卡片] 说明");
+
+    Check(ChatPresentation.Unsupported("nt:9", """{"walletElement":{"receiver":{"title":"恭喜发财"}}}""") is { Title: "QQ红包", Subtitle: "恭喜发财" });
+    Check(ChatPresentation.Unsupported("nt:13", """{"structLongMsgElement":{"xmlContent":"<msg brief=\"[长消息]\"><summary>点击查看</summary></msg>"}}""").Subtitle == "点击查看");
+    Check(ChatPresentation.Unsupported("nt:99", """{"arkElement":null,"zzElement":{},"extBufForUI":{}}""").Subtitle == "zzElement");
+    Check(ChatPresentation.Unsupported("nt:99", "不是 JSON").Subtitle == "nt:99");
+
+    Check(ChatPresentation.EventText("member_join", """{"via":"invite"}""", "甲", "乙", false) == "甲 邀请 乙 加入了群聊");
+    Check(ChatPresentation.EventText("member_join", """{"via":"approve"}""", "管理", "乙", false) == "乙 加入了群聊");
+    Check(ChatPresentation.EventText("member_leave", """{"how":"kick"}""", "甲", "乙", false) == "乙 被 甲 移出了群聊");
+    Check(ChatPresentation.EventText("mute", """{"duration":7380}""", "甲", "乙", false) == "乙 被 甲 禁言 2 小时 3 分");
+    Check(ChatPresentation.EventText("mute", "{}", "甲", "", false) == "甲 开启了全员禁言");
+    Check(ChatPresentation.EventText("unmute", "{}", "", "乙", false) == "乙 被解除禁言");
+    Check(ChatPresentation.EventText("call", """{"result":"answered","durationSec":125,"media":"audio"}""", "甲", "", false) == "语音通话 2:05");
+    Check(ChatPresentation.EventText("call", """{"group":true,"media":"video"}""", "甲", "", false) == "甲 发起的群视频通话已结束");
+    Check(ChatPresentation.EventText("gray_tip", """{"text":"灰条"}""", "", "", false) == "灰条");
+    Check(ChatPresentation.EventText("poke", "坏", "甲", "乙", false) == "甲 戳了戳 乙" && ChatPresentation.EventText("x", "{}", "", "", false) == "[x]");
+    return Task.CompletedTask;
+});
 Console.WriteLine($"全部 {passed} 项测试通过。");
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
 {

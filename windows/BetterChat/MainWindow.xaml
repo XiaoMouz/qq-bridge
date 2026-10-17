@@ -95,11 +95,8 @@
      <ScrollViewer x:Name="DetailScroll" Padding="{StaticResource PagePadding}"><StackPanel x:Name="Details" Spacing="{StaticResource SpaceL}" MaxWidth="{StaticResource DetailContentMaxWidth}" HorizontalAlignment="Left"/></ScrollViewer>
      <Grid x:Name="ChatPanel" Visibility="Collapsed">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,8">
-       <Button x:Name="OlderButton" Content="加载更早消息" Click="LoadOlder"/>
-       <Button x:Name="NewerButton" Content="加载后续消息" Visibility="Collapsed" Click="LoadNewer"/>
-       <Button x:Name="LatestButton" Content="回到最新" Visibility="Collapsed" Click="ReturnToLatest"/>
-      </StackPanel>
+      <!-- 滚到顶部 / 底部附近自动加载上一页 / 下一页，加载时只显示一条细进度条。 -->
+      <ProgressBar x:Name="HistoryLoadingBar" IsIndeterminate="True" Visibility="Collapsed" Margin="20,4,20,0"/>
       <InfoBar x:Name="ChatLoadNotice" Grid.Row="1" Severity="Warning" IsClosable="True" Margin="20,0,20,8">
        <InfoBar.ActionButton><Button Content="重试" Click="RetryChatLoad"/></InfoBar.ActionButton>
       </InfoBar>
@@ -112,6 +109,21 @@
        <TextBlock x:Name="ChatStateTitle" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"/>
        <TextBlock x:Name="ChatStateDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
        <Button x:Name="ChatRetry" Content="重新加载" Click="RetryChatLoad" HorizontalAlignment="Center"/>
+      </StackPanel>
+      <!-- 浮动按钮：右下角，「@」在上、「回到最新」在下。 -->
+      <StackPanel Grid.Row="2" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,24,16" Spacing="{StaticResource SpaceS}">
+       <Grid>
+        <Button x:Name="MentionJumpButton" Style="{StaticResource FloatingButtonStyle}" Visibility="Collapsed" Click="MentionJumpClicked"
+         ToolTipService.ToolTip="有人@我或回复我" AutomationProperties.Name="查看 @我 和回复我的消息">
+         <TextBlock Text="@" FontWeight="SemiBold" FontSize="16"/>
+        </Button>
+        <InfoBadge x:Name="MentionJumpBadge" Style="{ThemeResource CriticalValueInfoBadgeStyle}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-6,-6,0"
+         Visibility="{x:Bind MentionJumpButton.Visibility, Mode=OneWay}" IsHitTestVisible="False"/>
+       </Grid>
+       <Button x:Name="LatestButton" Style="{StaticResource FloatingButtonStyle}" Visibility="Collapsed" Click="ReturnToLatest"
+        ToolTipService.ToolTip="回到最新" AutomationProperties.Name="回到最新">
+        <FontIcon Glyph="&#xE74B;" FontSize="16"/>
+       </Button>
       </StackPanel>
      </Grid>
     </Grid>

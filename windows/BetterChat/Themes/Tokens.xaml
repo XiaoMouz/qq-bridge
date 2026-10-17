@@ -61,6 +61,32 @@
         <Setter Property="Margin" Value="0,0,0,2"/>
     </Style>
 
+    <!-- 聊天页右下角的圆形浮动按钮（回到最新、@我）。 -->
+    <Style x:Key="FloatingButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Width" Value="40"/>
+        <Setter Property="Height" Value="40"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="CornerRadius" Value="20"/>
+        <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    </Style>
+
+    <!-- 聊天气泡：自己的用强调色，别人的用卡片底色加描边；引用块、卡片在气泡里再套一层浅底。 -->
+    <x:Double x:Key="BubbleMaxWidth">560</x:Double>
+    <Thickness x:Key="BubblePadding">12,8,12,6</Thickness>
+    <Style x:Key="BubbleTimeTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Opacity" Value="0.7"/>
+        <Setter Property="HorizontalAlignment" Value="Right"/>
+    </Style>
+    <Style x:Key="NoticeBorderStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="10,3"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="24,6"/>
+    </Style>
+
     <!-- 只有图标的工具按钮（会话选项等），和 CommandBar 里的按钮同尺寸。 -->
     <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="Transparent"/>
