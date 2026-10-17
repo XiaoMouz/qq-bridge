@@ -1,0 +1,118 @@
+<Window x:Class="BetterChat.MainWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="using:BetterChat" Title="BetterChat">
+ <Grid x:Name="Root" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+  <Grid.Resources>
+   <DataTemplate x:Key="FaceTemplate" x:DataType="local:FaceEntry">
+    <Grid Width="44" Height="44" ToolTipService.ToolTip="{x:Bind Name}" AutomationProperties.Name="{x:Bind Name}">
+     <Image Source="{x:Bind ImagePath}" Width="30" Height="30" Stretch="Uniform"/>
+    </Grid>
+   </DataTemplate>
+  </Grid.Resources>
+  <Grid.RowDefinitions><RowDefinition Height="58"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid x:Name="Workspace" Grid.Row="1" Visibility="Collapsed">
+   <Grid.RowDefinitions><RowDefinition Height="0"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <Grid.ColumnDefinitions><ColumnDefinition Width="80"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Grid Grid.RowSpan="2" Background="{ThemeResource LayerOnMicaBaseAltFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+    <Grid.RowDefinitions><RowDefinition Height="0"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+    <ListView x:Name="Rail" Grid.Row="1" SelectionChanged="RailChanged" SelectionMode="Single" Margin="6,8" AutomationProperties.Name="主导航">
+     <ListViewItem Tag="messages" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="消息"><StackPanel Spacing="6"><PathIcon Width="24" Height="24" Data="M2,2 L17,2 Q19,2 19,4 L19,12 Q19,14 17,14 L8,14 L4,18 L4,14 L2,14 Q0,14 0,12 L0,4 Q0,2 2,2 Z M2,4 L2,12 L6,12 L6,14 L8,12 L17,12 L17,4 Z M21,8 L23,8 L23,19 Q23,21 21,21 L19,21 L19,24 L15,21 L10,21 L10,19 L16,19 L17,20 L17,19 L21,19 Z"/><TextBlock Text="消息" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
+     <ListViewItem Tag="contacts" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="联系人"><StackPanel Spacing="6"><PathIcon Width="24" Height="24" Data="M8,1 A5,5 0 1 1 8,11 A5,5 0 1 1 8,1 Z M8,3 A3,3 0 1 0 8,9 A3,3 0 1 0 8,3 Z M0,22 L0,20 Q0,13 8,13 Q16,13 16,20 L16,22 Z M2,20 L14,20 Q14,15 8,15 Q2,15 2,20 Z M17,2 A4,4 0 0 1 17,10 L17,8 A2,2 0 0 0 17,4 Z M18,13 Q24,14 24,20 L24,22 L18,22 L18,20 L22,20 Q22,16 18,15 Z"/><TextBlock Text="联系人" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
+     <ListViewItem Tag="settings" HorizontalContentAlignment="Center" Padding="8,12" AutomationProperties.Name="设置"><StackPanel Spacing="6"><FontIcon Glyph="&#xE713;"/><TextBlock Text="设置" FontSize="12" HorizontalAlignment="Center"/></StackPanel></ListViewItem>
+    </ListView>
+    <PersonPicture x:Name="AccountAvatar" Grid.Row="2" Visibility="Collapsed" Width="36" Height="36" Margin="0,12,0,20" AutomationProperties.Name="当前账号头像"/>
+   </Grid>
+  <Grid Grid.Row="1" Grid.Column="1">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="300"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+   <Grid Padding="12,18,12,10" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <TextBlock x:Name="SectionTitle" Text="消息" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="8,0,0,12"/>
+    <ComboBox x:Name="Filter" Grid.Row="1" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="FilterChanged" Margin="4,0,4,12" AutomationProperties.Name="列表筛选">
+     <ComboBoxItem Content="全部消息"/><ComboBoxItem Content="未读"/><ComboBoxItem Content="群助手"/>
+    </ComboBox>
+    <ListView x:Name="Items" Grid.Row="2" SelectionChanged="ItemSelected" IsItemClickEnabled="False" SelectionMode="Single" HorizontalContentAlignment="Stretch" AutomationProperties.Name="项目列表">
+     <ListView.ItemTemplate><DataTemplate x:DataType="local:ListEntry">
+      <Grid Padding="4,10" ColumnSpacing="10">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="42"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <PersonPicture DisplayName="{x:Bind Title, Mode=OneWay}" Width="42" Height="42" Loaded="AvatarLoaded" Unloaded="AvatarUnloaded" DataContextChanged="AvatarContextChanged"/>
+       <StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" MaxLines="1" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/></StackPanel>
+       <TextBlock Grid.Column="2" Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+      </Grid>
+     </DataTemplate></ListView.ItemTemplate>
+    </ListView>
+    <Button x:Name="MoreSearchResults" Grid.Row="3" Content="加载更多搜索结果" Visibility="Collapsed" HorizontalAlignment="Stretch" Margin="4,8" Click="LoadSearchMore"/>
+   </Grid>
+   <Grid Grid.Column="1" Margin="8,0,12,12" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid Padding="24,18" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Spacing="4"><TextBlock x:Name="ContentTitle" Text="欢迎使用 BetterChat" Style="{ThemeResource SubtitleTextBlockStyle}"/><TextBlock x:Name="ContentSubtitle" Text="你的 QQ 消息，在 Windows 上保持同步" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/></StackPanel>
+     <Button x:Name="ChatMore" Grid.Column="1" Content="&#xE712;" FontFamily="Segoe Fluent Icons" Visibility="Collapsed" AutomationProperties.Name="会话选项" Click="ChatOptions"/>
+    </Grid>
+    <Grid Grid.Row="1">
+     <ScrollViewer x:Name="DetailScroll" Padding="28,24"><StackPanel x:Name="Details" Spacing="16" MaxWidth="800" HorizontalAlignment="Stretch"/></ScrollViewer>
+     <Grid x:Name="ChatPanel" Visibility="Collapsed">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8" Margin="0,8">
+       <Button x:Name="OlderButton" Content="加载更早消息" Click="LoadOlder"/>
+       <Button x:Name="NewerButton" Content="加载后续消息" Visibility="Collapsed" Click="LoadNewer"/>
+       <Button x:Name="LatestButton" Content="回到最新" Visibility="Collapsed" Click="ReturnToLatest"/>
+      </StackPanel>
+      <InfoBar x:Name="ChatLoadNotice" Grid.Row="1" Severity="Warning" IsClosable="True" Margin="20,0,20,8">
+       <InfoBar.ActionButton><Button Content="重试" Click="RetryChatLoad"/></InfoBar.ActionButton>
+      </InfoBar>
+      <ListView x:Name="Messages" Grid.Row="2" SelectionMode="None" HorizontalContentAlignment="Stretch" Padding="20,10" AutomationProperties.Name="聊天消息" ContainerContentChanging="MessageContainerChanging">
+       <ListView.ItemTemplate><DataTemplate x:DataType="local:TimelineEntry"><ContentControl HorizontalContentAlignment="Stretch" IsTabStop="False" SizeChanged="MessageSizeChanged"/></DataTemplate></ListView.ItemTemplate>
+       <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel ItemsUpdatingScrollMode="KeepItemsInView"/></ItemsPanelTemplate></ListView.ItemsPanel>
+      </ListView>
+      <StackPanel x:Name="ChatState" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="12" Margin="24" Visibility="Collapsed">
+       <ProgressRing x:Name="ChatLoading" Width="32" Height="32" IsActive="False"/>
+       <TextBlock x:Name="ChatStateTitle" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+       <TextBlock x:Name="ChatStateDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+       <Button x:Name="ChatRetry" Content="重新加载" Click="RetryChatLoad" HorizontalAlignment="Center"/>
+      </StackPanel>
+     </Grid>
+    </Grid>
+    <StackPanel x:Name="ComposerPanel" Grid.Row="2" Visibility="Collapsed" Margin="20,8,20,18" Spacing="8">
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="ReplyLabel" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis"/><Button Grid.Column="1" x:Name="CancelReply" Content="取消回复" Visibility="Collapsed" Click="ClearReply"/></Grid>
+     <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="4">
+       <Button Content="&#xE723;" FontFamily="Segoe Fluent Icons" Click="AttachFile" AutomationProperties.Name="添加附件"/>
+       <Button x:Name="FaceButton" Content="&#xE899;" FontFamily="Segoe Fluent Icons" Click="ChooseFace" AutomationProperties.Name="选择 QQ 表情"/>
+       <Button x:Name="MentionButton" Content="@" Click="ChooseMention" Visibility="Collapsed" AutomationProperties.Name="提及群成员"/>
+      </StackPanel>
+      <TextBox x:Name="Composer" Grid.Column="1" PlaceholderText="输入消息…" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="160" MinHeight="42" BeforeTextChanging="ComposerBeforeTextChanging" TextChanged="DraftChanged" KeyDown="ComposerKeyDown" AutomationProperties.Name="消息输入框"/>
+      <Button x:Name="SendButton" Grid.Column="2" Content="发送" Style="{ThemeResource AccentButtonStyle}" VerticalAlignment="Bottom" Click="SendClicked"/>
+     </Grid>
+     <TextBlock Text="Enter 发送 · Shift + Enter 换行" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+    </StackPanel>
+   </Grid>
+  </Grid>
+  </Grid>
+  <ScrollViewer x:Name="Onboarding" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+   <Grid MinHeight="600" Padding="32,48">
+    <StackPanel MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
+     <Image Source="ms-appx:///Assets/AppIcon.png" Width="80" Height="80" HorizontalAlignment="Left"/>
+     <TextBlock Text="BetterChat" FontSize="36" FontWeight="SemiBold"/>
+     <TextBlock x:Name="OnboardingSubtitle" Text="在 Windows 上，继续你的 QQ 聊天。" TextWrapping="Wrap" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+     <StackPanel x:Name="OnboardingContent" Spacing="16"/>
+    </StackPanel>
+   </Grid>
+  </ScrollViewer>
+  <TitleBar x:Name="AppTitleBar" Title="BetterChat" Height="58">
+   <TitleBar.Resources>
+    <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
+    <x:Double x:Key="TitleBarIconMaxWidth">32</x:Double><x:Double x:Key="TitleBarIconMaxHeight">32</x:Double>
+    <x:Double x:Key="TitleBarLeftPaddingWidth">24</x:Double>
+    <Thickness x:Key="TitleBarIconMargin">0,0,24,0</Thickness>
+   </TitleBar.Resources>
+   <TitleBar.IconSource><BitmapIconSource UriSource="ms-appx:///Assets/AppIcon.png" ShowAsMonochrome="False"/></TitleBar.IconSource>
+   <TitleBar.Content>
+    <AutoSuggestBox x:Name="Search" Visibility="Collapsed" MinWidth="180" MaxWidth="580" HorizontalAlignment="Stretch" PlaceholderText="搜索消息、联系人和群聊" QueryIcon="Find" QuerySubmitted="SearchSubmitted" VerticalAlignment="Center" AutomationProperties.Name="全局搜索"/>
+   </TitleBar.Content>
+  </TitleBar>
+  <InfoBar x:Name="Notice" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Error" Margin="12,0,12,8"/>
+ </Grid>
+</Window>

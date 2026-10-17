@@ -1,0 +1,1433 @@
+[
+  {
+    "service": "AdminService",
+    "method": "GetStatus",
+    "request": "GetStatusRequest",
+    "response": "GetStatusResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/AppModel.swift:178",
+      "ios/QQBridge/App/SettingsViews.swift:94",
+      "ios/QQBridge/App/SettingsViews.swift:645"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Admin.cs:25",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:440"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AdminService",
+    "method": "GetQqLogin",
+    "request": "GetQqLoginRequest",
+    "response": "GetQqLoginResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/QqLoginSheet.swift:61",
+      "ios/QQBridge/App/QqLoginSheet.swift:76"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.QqLogin.cs:15",
+      "windows/BetterChat.Application/ViewModels/QqLoginViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:245"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AdminService",
+    "method": "RefreshQqLoginQrcode",
+    "request": "RefreshQqLoginQrcodeRequest",
+    "response": "RefreshQqLoginQrcodeResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/QqLoginSheet.swift:75"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.QqLogin.cs:15",
+      "windows/BetterChat.Application/ViewModels/QqLoginViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:249"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AdminService",
+    "method": "ListArchiveStatus",
+    "request": "ListArchiveStatusRequest",
+    "response": "ListArchiveStatusResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Admin.cs:56",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:444"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AdminService",
+    "method": "SetDeepArchive",
+    "request": "SetDeepArchiveRequest",
+    "response": "SetDeepArchiveResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Admin.cs:56",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:449"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AdminService",
+    "method": "FillHolesNow",
+    "request": "FillHolesNowRequest",
+    "response": "FillHolesNowResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Admin.cs:56",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:452"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AuthService",
+    "method": "Login",
+    "request": "LoginRequest",
+    "response": "LoginResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/AppModel.swift:126",
+      "ios/QQBridge/App/LoginView.swift:106",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:106",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Session/Session.swift:122",
+      "macos/BetterChat/App/Application/MacWorkspaceAssembly.swift:21"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:66",
+      "windows/BetterChat.Application/Authentication.cs:26"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AuthService",
+    "method": "Logout",
+    "request": "LogoutRequest",
+    "response": "LogoutResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/AppModel.swift:151",
+      "ios/QQBridge/App/AppModel.swift:218",
+      "ios/QQBridge/App/SettingsViews.swift:39",
+      "ios/QQBridge/App/SettingsViews.swift:40",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Session/Session.swift:136"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:27"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AuthService",
+    "method": "ListDevices",
+    "request": "ListDevicesRequest",
+    "response": "ListDevicesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:115",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:454"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AuthService",
+    "method": "RevokeDevice",
+    "request": "RevokeDeviceRequest",
+    "response": "RevokeDeviceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:115",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:458"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "AuthService",
+    "method": "RegisterPush",
+    "request": "RegisterPushRequest",
+    "response": "RegisterPushResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/Push.swift:189",
+      "ios/QQBridge/App/Push.swift:202"
+    ],
+    "windows": [],
+    "platform_exemption": "APNs 专用注册；Windows 使用 Subscribe 事件与原生本地通知，不注册 APNs，也不扩展 WNS。"
+  },
+  {
+    "service": "CallService",
+    "method": "StartCall",
+    "request": "StartCallRequest",
+    "response": "StartCallResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/CallManager.swift:70",
+      "ios/QQBridge/App/ChatScreen.swift:703",
+      "ios/QQBridge/App/ChatScreen.swift:773"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/CallCoordinator.cs:30"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "CallService",
+    "method": "GetActiveCall",
+    "request": "GetActiveCallRequest",
+    "response": "GetActiveCallResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/CallManager.swift:289"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/ViewModels/CallStateViewModel.cs:29"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "CallService",
+    "method": "AnswerCall",
+    "request": "AnswerCallRequest",
+    "response": "AnswerCallResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/CallManager.swift:197"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/CallCoordinator.cs:39"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "CallService",
+    "method": "HangupCall",
+    "request": "HangupCallRequest",
+    "response": "HangupCallResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/CallManager.swift:242"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/CallCoordinator.cs:103",
+      "windows/BetterChat.Application/CallCoordinator.cs:147"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "CallService",
+    "method": "ListCalls",
+    "request": "ListCallsRequest",
+    "response": "ListCallsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:167"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListFriends",
+    "request": "ListFriendsRequest",
+    "response": "ListFriendsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ContactsViews.swift:197",
+      "ios/QQBridge/App/ImageViewer.swift:752",
+      "macos/BetterChat/App/Core/Services/MacContactsService.swift:32"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/ViewModels/ContactsViewModel.cs:94"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroups",
+    "request": "ListGroupsRequest",
+    "response": "ListGroupsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ContactsViews.swift:200",
+      "ios/QQBridge/App/ImageViewer.swift:753",
+      "macos/BetterChat/App/Core/Services/MacContactsService.swift:33"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/ViewModels/ContactsViewModel.cs:95"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "GetUserProfile",
+    "request": "GetUserProfileRequest",
+    "response": "GetUserProfileResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ProfileViews.swift:179"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Groups.cs:42",
+      "windows/BetterChat/MainWindow.Pages.cs:180",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:230"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "GetGroupProfile",
+    "request": "GetGroupProfileRequest",
+    "response": "GetGroupProfileResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ProfileViews.swift:299",
+      "macos/BetterChat/App/Features/GroupContent/ViewModels/MacGroupProfileViewModel.swift:21"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:180",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:235"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupMembers",
+    "request": "ListGroupMembersRequest",
+    "response": "ListGroupMembersResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatModels.swift:238",
+      "ios/QQBridge/App/ChatModels.swift:249"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Composer.cs:49",
+      "windows/BetterChat/MainWindow.Groups.cs:16",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:392"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "RefreshContacts",
+    "request": "RefreshContactsRequest",
+    "response": "RefreshContactsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ContactsViews.swift:195",
+      "macos/BetterChat/App/Navigation/MacSidebarToolbar.swift:36",
+      "macos/BetterChat/App/Core/Services/MacContactsService.swift:31"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/ViewModels/ContactsViewModel.cs:91"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "GetAvatars",
+    "request": "GetAvatarsRequest",
+    "response": "GetAvatarsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatModels.swift:368"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Avatars.cs:75",
+      "windows/BetterChat/MainWindow.xaml.cs:260",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:277"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupNotices",
+    "request": "ListGroupNoticesRequest",
+    "response": "ListGroupNoticesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatExtras.swift:614",
+      "macos/BetterChat/App/Core/Services/MacGroupListService.swift:18"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:260",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:372"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupEssence",
+    "request": "ListGroupEssenceRequest",
+    "response": "ListGroupEssenceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupContentViews.swift:60",
+      "macos/BetterChat/App/Core/Services/MacGroupEssenceService.swift:33"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:266",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:377"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupFiles",
+    "request": "ListGroupFilesRequest",
+    "response": "ListGroupFilesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:365",
+      "ios/QQBridge/App/GroupFilesView.swift:677",
+      "macos/BetterChat/App/Core/Services/MacGroupFilesService.swift:19",
+      "macos/BetterChat/App/Core/Services/MacGroupListService.swift:42"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.GroupFiles.cs:36",
+      "windows/BetterChat/MainWindow.Pages.cs:292",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:37",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:337"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupAlbums",
+    "request": "ListGroupAlbumsRequest",
+    "response": "ListGroupAlbumsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatExtras.swift:771",
+      "macos/BetterChat/App/Core/Services/MacGroupListService.swift:30"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:323",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:382"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "ListGroupAlbumMedia",
+    "request": "ListGroupAlbumMediaRequest",
+    "response": "ListGroupAlbumMediaResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatExtras.swift:878",
+      "macos/BetterChat/App/Core/Services/MacAlbumMediaService.swift:20"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Groups.cs:63",
+      "windows/BetterChat.Application/ViewModels/AlbumMediaViewModel.cs:25",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:387"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "FetchGroupFile",
+    "request": "FetchGroupFileRequest",
+    "response": "FetchGroupFileResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:404"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.GroupFiles.cs:16",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:367"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "DeleteGroupFiles",
+    "request": "DeleteGroupFilesRequest",
+    "response": "DeleteGroupFilesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:535"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:293",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:37",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:347"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "MoveGroupFiles",
+    "request": "MoveGroupFilesRequest",
+    "response": "MoveGroupFilesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:554"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:293",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:38",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:357"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "RenameGroupFile",
+    "request": "RenameGroupFileRequest",
+    "response": "RenameGroupFileResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:574"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:293",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:38",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:352"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "CreateGroupFolder",
+    "request": "CreateGroupFolderRequest",
+    "response": "CreateGroupFolderResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:588"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:293",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:38",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:362"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "DeleteGroupFolder",
+    "request": "DeleteGroupFolderRequest",
+    "response": "DeleteGroupFolderResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/GroupFilesView.swift:600"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:292",
+      "windows/BetterChat.Application/ViewModels/GroupFilesViewModel.cs:37",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:342"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "ContactService",
+    "method": "DeleteFriend",
+    "request": "DeleteFriendRequest",
+    "response": "DeleteFriendResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ProfileViews.swift:223"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/ViewModels/ContactsViewModel.cs:40"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "ListDialogs",
+    "request": "ListDialogsRequest",
+    "response": "ListDialogsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "MarkRead",
+    "request": "MarkReadRequest",
+    "response": "MarkReadResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:1040",
+      "ios/QQBridge/App/DialogListView.swift:125",
+      "ios/QQBridge/App/DialogListView.swift:147",
+      "ios/QQBridge/App/DialogListView.swift:161",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Outbox/Uploader.swift:119",
+      "macos/BetterChat/App/Core/Services/MacConversationService.swift:34",
+      "macos/BetterChat/App/Features/Conversations/ViewModels/MacDialogsViewModel.swift:144",
+      "macos/BetterChat/App/Features/Conversations/Views/MacDialogsController.swift:300"
+    ],
+    "windows": [
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:464"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SetPinned",
+    "request": "SetPinnedRequest",
+    "response": "SetPinnedResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/DialogListView.swift:168",
+      "ios/QQBridge/App/ProfileViews.swift:131",
+      "ios/QQBridge/App/ProfileViews.swift:518",
+      "macos/BetterChat/App/Core/Services/MacConversationService.swift:31",
+      "macos/BetterChat/App/Features/Conversations/ViewModels/MacDialogsViewModel.swift:141"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.DialogPreferences.cs:21",
+      "windows/BetterChat.Application/ViewModels/DialogPreferencesViewModel.cs:27",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:287"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SetNotifyPolicy",
+    "request": "SetNotifyPolicyRequest",
+    "response": "SetNotifyPolicyResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/DialogListView.swift:183",
+      "macos/BetterChat/App/Core/Services/MacConversationService.swift:40"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.DialogPreferences.cs:21",
+      "windows/BetterChat.Application/ViewModels/DialogPreferencesViewModel.cs:27",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:292"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SetMentionAllNotify",
+    "request": "SetMentionAllNotifyRequest",
+    "response": "SetMentionAllNotifyResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ProfileViews.swift:525"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.DialogPreferences.cs:21",
+      "windows/BetterChat.Application/ViewModels/DialogPreferencesViewModel.cs:27",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:297"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SaveDraft",
+    "request": "SaveDraftRequest",
+    "response": "SaveDraftResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:746",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:153"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SetActiveChat",
+    "request": "SetActiveChatRequest",
+    "response": "SetActiveChatResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:1392"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.ChatState.cs:50",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:55"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "SetTyping",
+    "request": "SetTypingRequest",
+    "response": "SetTypingResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:735",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:479"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "DialogService",
+    "method": "OpenChat",
+    "request": "OpenChatRequest",
+    "response": "OpenChatResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:800",
+      "ios/QQBridge/App/ContactsViews.swift:232",
+      "ios/QQBridge/App/ContactsViews.swift:254",
+      "ios/QQBridge/App/ImageViewer.swift:765",
+      "ios/QQBridge/App/ImageViewer.swift:805",
+      "ios/QQBridge/App/OtherTabs.swift:157",
+      "ios/QQBridge/App/ProfileViews.swift:189",
+      "ios/QQBridge/App/ProfileViews.swift:198",
+      "ios/QQBridge/App/ProfileViews.swift:212",
+      "macos/BetterChat/App/Application/MacRootView.swift:135",
+      "macos/BetterChat/App/Navigation/MacWorkspaceCoordinator.swift:82",
+      "macos/BetterChat/App/Core/Services/MacContactGroupService.swift:14",
+      "macos/BetterChat/App/Core/Services/MacSearchService.swift:28",
+      "macos/BetterChat/App/Features/Search/ViewModels/MacSidebarSearchViewModel.swift:198"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:180",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:241"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "PrepareUpload",
+    "request": "PrepareUploadRequest",
+    "response": "PrepareUploadResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Outbox/Uploader.swift:69"
+    ],
+    "windows": [
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:173"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "SignMediaUrls",
+    "request": "SignMediaUrlsRequest",
+    "response": "SignMediaUrlsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Media/MediaCache.swift:40"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Media.cs:28",
+      "windows/BetterChat/MainWindow.xaml.cs:264",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:114",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:272"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ListMediaUsages",
+    "request": "ListMediaUsagesRequest",
+    "response": "ListMediaUsagesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/StorageBrowseViews.swift:527",
+      "macos/BetterChat/App/Core/Services/MacStorageReferencesService.swift:32"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:68",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:436"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "GetStorageOverview",
+    "request": "GetStorageOverviewRequest",
+    "response": "GetStorageOverviewResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/SettingsViews.swift:386"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:143",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:423"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "PlanCleanup",
+    "request": "PlanCleanupRequest",
+    "response": "PlanCleanupResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:93",
+      "windows/BetterChat.Application/ViewModels/CleanupViewModel.cs:21",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:414"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ExecuteCleanup",
+    "request": "ExecuteCleanupRequest",
+    "response": "ExecuteCleanupResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:93",
+      "windows/BetterChat.Application/ViewModels/CleanupViewModel.cs:21",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:419"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ListStoragePolicies",
+    "request": "ListStoragePoliciesRequest",
+    "response": "ListStoragePoliciesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.StoragePolicy.cs:15",
+      "windows/BetterChat.Application/ViewModels/StoragePolicyViewModel.cs:17",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:401"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "SetStoragePolicy",
+    "request": "SetStoragePolicyRequest",
+    "response": "SetStoragePolicyResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.StoragePolicy.cs:15",
+      "windows/BetterChat.Application/ViewModels/StoragePolicyViewModel.cs:17",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:405"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "DeleteStoragePolicy",
+    "request": "DeleteStoragePolicyRequest",
+    "response": "DeleteStoragePolicyResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [
+      "windows/BetterChat/MainWindow.StoragePolicy.cs:15",
+      "windows/BetterChat.Application/ViewModels/StoragePolicyViewModel.cs:17",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:409"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "GetChatStorage",
+    "request": "GetChatStorageRequest",
+    "response": "GetChatStorageResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/SettingsViews.swift:452",
+      "macos/BetterChat/App/Core/Services/MacStorageSummaryService.swift:40"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:128",
+      "windows/BetterChat.Application/ViewModels/ChatStorageViewModel.cs:19",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:397"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ListStorageChats",
+    "request": "ListStorageChatsRequest",
+    "response": "ListStorageChatsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/StorageBrowseViews.swift:227",
+      "macos/BetterChat/App/Core/Services/MacStorageSummaryService.swift:30"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:15",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:427"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ListStorageItems",
+    "request": "ListStorageItemsRequest",
+    "response": "ListStorageItemsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/StorageBrowseViews.swift:310",
+      "macos/BetterChat/App/Core/Services/MacStorageItemsService.swift:77"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Storage.cs:38",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:432"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "RunTiering",
+    "request": "RunTieringRequest",
+    "response": "RunTieringResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [],
+    "windows": [],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "ListStickers",
+    "request": "ListStickersRequest",
+    "response": "ListStickersResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/MediaAndSearch.swift:461"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Stickers.cs:19",
+      "windows/BetterChat/MainWindow.Stickers.cs:84",
+      "windows/BetterChat.Application/ViewModels/StickerCatalogViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:302"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "PrepareStickers",
+    "request": "PrepareStickersRequest",
+    "response": "PrepareStickersResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/MediaAndSearch.swift:483"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Stickers.cs:19",
+      "windows/BetterChat/MainWindow.Stickers.cs:84",
+      "windows/BetterChat.Application/ViewModels/StickerCatalogViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:307"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "AddSticker",
+    "request": "AddStickerRequest",
+    "response": "AddStickerResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:981",
+      "ios/QQBridge/App/MessageRow.swift:301"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Stickers.cs:19",
+      "windows/BetterChat/MainWindow.Stickers.cs:84",
+      "windows/BetterChat.Application/ViewModels/StickerCatalogViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:312"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MediaService",
+    "method": "RequestMedia",
+    "request": "RequestMediaRequest",
+    "response": "RequestMediaResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatExtras.swift:392",
+      "ios/QQBridge/App/ChatModels.swift:414",
+      "ios/QQBridge/App/ChatScreen.swift:971",
+      "ios/QQBridge/App/ImageViewer.swift:910",
+      "ios/QQBridge/App/MediaAndSearch.swift:174"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Media.cs:102",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:257",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:267"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "GetHistory",
+    "request": "GetHistoryRequest",
+    "response": "GetHistoryResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:148",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:281",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:302"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:266",
+      "windows/BetterChat/MainWindow.xaml.cs:459",
+      "windows/BetterChat/MainWindow.xaml.cs:483",
+      "windows/BetterChat/MainWindow.xaml.cs:801",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:95"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "SendMessage",
+    "request": "SendMessageRequest",
+    "response": "SendMessageResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Outbox/Sender.swift:16",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Outbox/Sender.swift:83"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Recording.cs:50",
+      "windows/BetterChat/MainWindow.Stickers.cs:78",
+      "windows/BetterChat/MainWindow.xaml.cs:777",
+      "windows/BetterChat/MainWindow.xaml.cs:826",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:200"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "RecallMessage",
+    "request": "RecallMessageRequest",
+    "response": "RecallMessageResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:1330"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:693",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:524"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "SearchMessages",
+    "request": "SearchMessagesRequest",
+    "response": "SearchMessagesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/MessageSearch.swift:88",
+      "macos/BetterChat/App/Core/Services/MacChatHistoryService.swift:18",
+      "macos/BetterChat/App/Core/Services/MacSearchService.swift:25",
+      "macos/BetterChat/App/Features/Search/ViewModels/MacSidebarSearchViewModel.swift:178"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Pages.cs:336",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:519"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "React",
+    "request": "ReactRequest",
+    "response": "ReactResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:1064",
+      "ios/QQBridge/App/MessageRow.swift:274",
+      "ios/QQBridge/App/MessageRow.swift:320",
+      "ios/QQBridge/App/MessageRow.swift:1076",
+      "ios/QQBridge/App/MessageRow.swift:1090"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:693",
+      "windows/BetterChat/MainWindow.xaml.cs:695",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:533"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "GetForward",
+    "request": "GetForwardRequest",
+    "response": "GetForwardResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/MediaAndSearch.swift:216",
+      "ios/QQBridge/App/MediaAndSearch.swift:294"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Forward.cs:100",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:282"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "ListSharedMedia",
+    "request": "ListSharedMediaRequest",
+    "response": "ListSharedMediaResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatExtras.swift:450",
+      "macos/BetterChat/App/Core/Services/MacSharedMediaService.swift:27"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.SharedMedia.cs:80",
+      "windows/BetterChat.Application/ViewModels/SharedMediaViewModel.cs:30",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:317"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "ForwardMessages",
+    "request": "ForwardMessagesRequest",
+    "response": "ForwardMessagesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:583"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:867",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:217"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "ListUnreadMentions",
+    "request": "ListUnreadMentionsRequest",
+    "response": "ListUnreadMentionsResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:831"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Mentions.cs:16",
+      "windows/BetterChat.Application/ViewModels/MentionsViewModel.cs:32",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:322"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "MarkMentionsSeen",
+    "request": "MarkMentionsSeenRequest",
+    "response": "MarkMentionsSeenResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/ChatScreen.swift:890"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Mentions.cs:16",
+      "windows/BetterChat.Application/ViewModels/MentionsViewModel.cs:32",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:327"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "TranscribeVoice",
+    "request": "TranscribeVoiceRequest",
+    "response": "TranscribeVoiceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/VoiceTranscripts.swift:17"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:713",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:488"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "ListAiVoices",
+    "request": "ListAiVoicesRequest",
+    "response": "ListAiVoicesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/AiVoiceViewModel.swift:18"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.AiVoice.cs:17",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:493"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "SendAiVoice",
+    "request": "SendAiVoiceRequest",
+    "response": "SendAiVoiceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/AiVoiceViewModel.swift:22"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.AiVoice.cs:17",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:507"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "MessageService",
+    "method": "ListReactionUsers",
+    "request": "ListReactionUsersRequest",
+    "response": "ListReactionUsersResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridge/App/MessageRow.swift:1210",
+      "macos/BetterChat/App/Core/Services/MacReactionUsersService.swift:19"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.Mentions.cs:95",
+      "windows/BetterChat.Application/ViewModels/ReactionUsersViewModel.cs:23",
+      "windows/BetterChat.Infrastructure/ClientSessionRuntime.cs:332"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "SyncService",
+    "method": "GetState",
+    "request": "GetStateRequest",
+    "response": "GetStateResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:112",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Session/Session.swift:156",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:94"
+    ],
+    "windows": [
+      "windows/BetterChat/MainWindow.xaml.cs:196",
+      "windows/BetterChat.Application/SyncEngine.cs:23"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "SyncService",
+    "method": "GetDifference",
+    "request": "GetDifferenceRequest",
+    "response": "GetDifferenceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:119",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:127"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/SyncEngine.cs:60"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "SyncService",
+    "method": "GetChatDifference",
+    "request": "GetChatDifferenceRequest",
+    "response": "GetChatDifferenceResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:127",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:258"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/SyncEngine.cs:159"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "SyncService",
+    "method": "GetChatDifferences",
+    "request": "GetChatDifferencesRequest",
+    "response": "GetChatDifferencesResponse",
+    "streaming": false,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:139",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:324"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/SyncEngine.cs:97",
+      "windows/BetterChat.Application/SyncEngine.cs:133"
+    ],
+    "platform_exemption": null
+  },
+  {
+    "service": "SyncService",
+    "method": "Subscribe",
+    "request": "SubscribeRequest",
+    "response": "SubscribeResponse",
+    "streaming": true,
+    "contract": true,
+    "transport": true,
+    "apple": [
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Client/APIClient.swift:152",
+      "ios/QQBridgeKit/Sources/QQBridgeKit/Sync/SyncEngine.swift:102"
+    ],
+    "windows": [
+      "windows/BetterChat.Application/SyncEngine.cs:36"
+    ],
+    "platform_exemption": null
+  }
+]
