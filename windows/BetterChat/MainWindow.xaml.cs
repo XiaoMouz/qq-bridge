@@ -159,7 +159,8 @@ public sealed partial class MainWindow : Window
     {
         contactsOverview = false;
         ContentTitle.Text = title; ContentSubtitle.Text = subtitle;
-        ChatPanel.Visibility = ComposerPanel.Visibility = ChatMore.Visibility = Visibility.Collapsed;
+        ExitSelection(); CloseChatSearch();
+        ChatPanel.Visibility = ComposerPanel.Visibility = ChatMore.Visibility = ChatSearchButton.Visibility = Visibility.Collapsed;
         _ = UpdateActiveChat();
         DetailScroll.Visibility = Visibility.Visible; Details.Children.Clear();
     }
@@ -434,7 +435,7 @@ public sealed partial class MainWindow : Window
     {
         if (api is null || store is null || runtime is null) return;
         var session = runtime;
-        _ = Guard(SaveDraft); var ct = NewPage(); selectedChat = chat; messageSignature = "";
+        _ = Guard(SaveDraft); var ct = NewPage(); ExitSelection(); CloseChatSearch(); selectedChat = chat; messageSignature = "";
         var window = new HistoryWindow(!anchor.HasValue); historyWindow = window; followLatest = !anchor.HasValue;
         historyError = ""; readTimer.Stop();
         historyAnchor = anchor; messageViews.Clear(); Messages.Items.Clear();
@@ -448,7 +449,7 @@ public sealed partial class MainWindow : Window
         ContentTitle.Text = d is null ? "聊天" : PeerName(d.PeerId, d.Scene);
         ContentSubtitle.Text = d?.Scene == Scene.Group ? "群聊" : "私聊";
         DetailScroll.Visibility = Visibility.Collapsed;
-        ChatPanel.Visibility = ComposerPanel.Visibility = ChatMore.Visibility = Visibility.Visible;
+        ChatPanel.Visibility = ComposerPanel.Visibility = ChatMore.Visibility = ChatSearchButton.Visibility = Visibility.Visible;
         rendering = true;
         if (!drafts.TryGetValue(chat, out var document))
         {
@@ -457,7 +458,7 @@ public sealed partial class MainWindow : Window
         }
         Composer.Text = document.Text;
         MentionButton.Visibility = d?.Scene == Scene.Group ? Visibility.Visible : Visibility.Collapsed;
-        replySeq = replies.GetValueOrDefault(chat, localDraft?.ReplyToSeq ?? d?.Draft?.ReplyToSeq ?? 0); UpdateReply(); rendering = false;
+        replySeq = replies.GetValueOrDefault(chat, localDraft?.ReplyToSeq ?? d?.Draft?.ReplyToSeq ?? 0); UpdateReply(); RenderAttachments(); rendering = false;
         await RenderMessages();
         ct.ThrowIfCancellationRequested();
         QueueScrollToLatest();
@@ -589,6 +590,8 @@ public sealed partial class MainWindow : Window
         }
         messageViews = retained;
         UpdateChatState();
+        // 回复条要等时间线加载后才能拿到原消息的发送者和内容。
+        if (replySeq > 0) UpdateReply();
         if (followBottom && desired.Count > 0)
         {
             var window = historyWindow; var last = desired[^1];
@@ -642,7 +645,18 @@ public sealed partial class MainWindow : Window
     }
     private static MediaInfo? Media(Segment s) => s.Image?.Media ?? s.Record?.Media ?? s.Video?.Media ?? s.File?.Media ?? s.MarketFace?.Media;
     private async Task DialogBox(string title, UIElement content) => await new ContentDialog { XamlRoot = Root.XamlRoot, Title = title, Content = content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close }.ShowAsync();
-    private void UpdateReply() { ReplyLabel.Text = replySeq > 0 ? $"回复消息 #{replySeq}" : ""; CancelReply.Visibility = replySeq > 0 ? Visibility.Visible : Visibility.Collapsed; }
+    // 回复条：「回复 某人」+ 原文一行；原消息不在当前窗口时只写序号。
+    private void UpdateReply()
+    {
+        ReplyBar.Visibility = replySeq > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (replySeq <= 0) return;
+        if (timelineMessages.TryGetValue(replySeq, out var target) && target.ChatId == selectedChat)
+        {
+            ReplyLabel.Text = "回复 " + SenderDisplay(target);
+            ReplyPreview.Text = (target.Text.Length > 0 ? target.Text : "[消息]").Replace('\n', ' ');
+        }
+        else { ReplyLabel.Text = "回复消息"; ReplyPreview.Text = "#" + replySeq; }
+    }
     private void ClearReply(object sender, RoutedEventArgs e) { replySeq = 0; replies[selectedChat] = 0; dirtyDrafts.Add(selectedChat); UpdateReply(); draftTimer.Start(); }
     private async void DraftChanged(object sender, TextChangedEventArgs e)
     {
@@ -665,11 +679,11 @@ public sealed partial class MainWindow : Window
         try { await session.SaveDraftAsync(request, ct); }
         catch { if (runtime == session) dirtyDrafts.Add(request.ChatId); throw; }
     }
-    private async void SendClicked(object sender, RoutedEventArgs e) => await Guard(SendText);
+    private async void SendClicked(object sender, RoutedEventArgs e) => await Guard(SendAll);
     private async void ComposerKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != VirtualKey.Enter || Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
-        e.Handled = true; await Guard(SendText);
+        e.Handled = true; await Guard(SendAll);
     }
     private async Task SendText()
     {
@@ -728,29 +742,6 @@ public sealed partial class MainWindow : Window
         }
         finally { if (historyWindow == window) { historyLoading = false; UpdateHistoryButtons(); } }
     }
-    private async void AttachFile(object sender, RoutedEventArgs e) => await Guard(async () =>
-    {
-        var session = runtime;
-        if (session is null || selectedChat == 0) return;
-        long chat = selectedChat; var ct = lifetime.Token;
-        var picker = new FileOpenPicker(); WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this)); picker.FileTypeFilter.Add("*");
-        var file = await picker.PickSingleFileAsync();
-        ct.ThrowIfCancellationRequested();
-        if (file is null || runtime != session) return;
-        var confirm = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "发送附件", Content = file.Name, PrimaryButtonText = "发送", CloseButtonText = "取消" };
-        if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
-        ct.ThrowIfCancellationRequested();
-        if (runtime != session) return;
-        using var stream = await file.OpenStreamForReadAsync();
-        var media = await session.UploadMediaAsync(stream, file.Name, file.ContentType, ct);
-        ct.ThrowIfCancellationRequested();
-        if (runtime != session) return;
-        var request = new SendMessageRequest { ChatId = chat, ClientRandomId = RandomId() };
-        request.Segments.Add(file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ? new OutgoingSegment { Image = media } : new OutgoingSegment { File = media });
-        var result = await session.SendMessageAsync(request, ct);
-        if (runtime != session) return;
-        Notice.Severity = InfoBarSeverity.Informational; Notice.Message = result.Entry.State == OutboxState.Sent ? "附件已发送" : "附件已进入发送队列"; Notice.IsOpen = true;
-    });
     private async Task ShowMedia(ProtoMessage message, MediaInfo media, string label)
     {
         if (api is null) return;
@@ -771,7 +762,7 @@ public sealed partial class MainWindow : Window
         }
         else await Launcher.LaunchUriAsync(uri);
     }
-    private async Task Forward(ClientSessionRuntime session, long fromChat, IReadOnlyList<long> sequences)
+    private async Task Forward(ClientSessionRuntime session, long fromChat, IReadOnlyList<long> sequences, bool bundled = false)
     {
         if (runtime != session || sequences.Count is < 1 or > 100) return;
         var ct = lifetime.Token;
@@ -779,7 +770,7 @@ public sealed partial class MainWindow : Window
         ct.ThrowIfCancellationRequested();
         if (runtime != session) return;
         var options = new ListView { ItemsSource = dialogs.Select(d => new ListEntry(PeerName(d.PeerId, d.Scene), "", "", d)).ToList(), DisplayMemberPath = "Title", MinWidth = 280, Height = 320, SelectionMode = ListViewSelectionMode.Multiple };
-        var bundle = new CheckBox { Content = "合并为聊天记录" };
+        var bundle = new CheckBox { Content = "合并为聊天记录", IsChecked = bundled };
         var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(options); panel.Children.Add(bundle);
         var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "转发到（最多 20 个会话）", Content = panel, PrimaryButtonText = "转发", CloseButtonText = "取消", IsPrimaryButtonEnabled = false };
         options.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = options.SelectedItems.Count is > 0 and <= 20;

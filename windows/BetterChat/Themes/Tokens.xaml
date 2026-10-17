@@ -87,6 +87,22 @@
         <Setter Property="Margin" Value="24,6"/>
     </Style>
 
+    <!-- 输入区左侧的附件下拉按钮，和旁边的图标按钮同高、透明底。 -->
+    <Style x:Key="ComposerDropDownStyle" TargetType="DropDownButton">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Height" Value="36"/>
+        <Setter Property="Padding" Value="8,0,4,0"/>
+    </Style>
+    <!-- 输入区上方的附件卡片。 -->
+    <Style x:Key="AttachmentChipStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{ThemeResource OverlayCornerRadius}"/>
+        <Setter Property="Padding" Value="6"/>
+    </Style>
+
     <!-- 只有图标的工具按钮（会话选项等），和 CommandBar 里的按钮同尺寸。 -->
     <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="Transparent"/>

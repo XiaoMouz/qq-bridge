@@ -370,16 +370,8 @@ public sealed partial class MainWindow
         var d = store?.Dialogs.FirstOrDefault(d => d.ChatId == selectedChat); if (d is null || api is null) return;
         var menu = new MenuFlyout();
         void Item(string label, Func<Task> run) { var item = new MenuFlyoutItem { Text = label }; item.Click += async (_, _) => await Guard(run); menu.Items.Add(item); }
-        Item("查找聊天记录", async () =>
-        {
-            var query = new TextBox { PlaceholderText = "搜索此会话中的消息", MinWidth = 280 };
-            var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "查找聊天记录", Content = query, PrimaryButtonText = "搜索", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
-            if (await dialog.ShowAsync() == ContentDialogResult.Primary) await StartSearch(query.Text, d.ChatId);
-        });
         Item("会话与通知设置", () => Go("prefs:" + d.ChatId, () => ShowDialogPreferences(d.ChatId)));
-        Item("收藏表情", ChooseSticker);
-        if (runtime is { } forwardSession) Item("多选转发", () => SelectMessagesToForward(forwardSession, d.ChatId));
-        Item("录制语音", () => ShowVoiceRecording(d.ChatId));
+        Item("多选消息", () => { EnterSelection(); return Task.CompletedTask; });
         Item("共享媒体与文件", () => Go("shared:" + d.ChatId, () => ShowSharedMedia(d.ChatId)));
         Item("提及和回复我的消息", () => Go("mentions:" + d.ChatId, () => ShowMentions(d.ChatId)));
         if (d.Scene == Scene.Group) Item("AI 语音", () => ShowAiVoice(d.ChatId));

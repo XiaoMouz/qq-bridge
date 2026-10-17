@@ -18,31 +18,6 @@ public sealed record ForwardRow(int Index, ForwardNode Node)
 
 public sealed partial class MainWindow
 {
-    private async Task SelectMessagesToForward(BetterChat.Infrastructure.ClientSessionRuntime session, long chat)
-    {
-        if (runtime != session || selectedChat != chat || historyWindow is not { } window) return;
-        var ct = pageTask?.Token ?? lifetime.Token;
-        var snapshot = await session.Repository.GetTimelineAsync(window.Capture(chat) with { IncludeOutgoing = false }, ct);
-        ct.ThrowIfCancellationRequested();
-        if (runtime != session || selectedChat != chat || historyWindow != window) return;
-        var candidates = snapshot.Messages.Where(m => m.State == MessageState.Normal).OrderBy(m => m.Seq)
-            .Select(m => new ListEntry(m.SenderName + " · #" + m.Seq + " · " + (m.Text.Length > 0 ? m.Text : "[媒体消息]"), "", "", m)).ToArray();
-        if (candidates.Length == 0) { await DialogBox("多选转发", Text("当前历史窗口没有可转发消息。")); return; }
-        var selection = new ListView { ItemsSource = candidates, DisplayMemberPath = "Title", SelectionMode = ListViewSelectionMode.Multiple, Height = 400, Width = 480 };
-        var count = Text("请选择 1 至 100 条消息。", 12);
-        var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(Text("仅列出当前已加载的历史窗口；需要更早的消息时，先返回聊天加载历史。", 12)); panel.Children.Add(selection); panel.Children.Add(count);
-        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "选择转发消息", Content = panel, PrimaryButtonText = "选择目标", CloseButtonText = "取消", IsPrimaryButtonEnabled = false };
-        selection.SelectionChanged += (_, _) =>
-        {
-            count.Text = $"已选择 {selection.SelectedItems.Count} 条（最多 100 条）";
-            dialog.IsPrimaryButtonEnabled = selection.SelectedItems.Count is > 0 and <= 100;
-        };
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        ct.ThrowIfCancellationRequested();
-        if (runtime != session || selectedChat != chat) return;
-        var sequences = selection.SelectedItems.Cast<ListEntry>().Select(row => ((ProtoMessage)row.Value).Seq).Distinct().Order().ToArray();
-        await Forward(session, chat, sequences);
-    }
     private event Action<MediaReadyUpdate>? ForwardMediaReady;
     private readonly SemaphoreSlim forwardPreviews = new(4, 4);
 

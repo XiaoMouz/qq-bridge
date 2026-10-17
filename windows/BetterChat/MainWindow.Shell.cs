@@ -30,6 +30,9 @@ public sealed partial class MainWindow
             back.Invoked += (sender, e) => { if (CanNavigateBack) { e.Handled = true; _ = Guard(GoBack); } };
             Root.KeyboardAccelerators.Add(back);
         }
+        var find = new KeyboardAccelerator { Key = VirtualKey.F, Modifiers = VirtualKeyModifiers.Control };
+        find.Invoked += (sender, e) => { if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) { e.Handled = true; OpenChatSearch(); } };
+        Root.KeyboardAccelerators.Add(find);
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((sender, e) =>
         {
             if (!e.GetCurrentPoint(Root).Properties.IsXButton1Pressed || !CanNavigateBack) return;

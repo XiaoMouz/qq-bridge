@@ -9,75 +9,74 @@ namespace BetterChat;
 
 public sealed partial class MainWindow
 {
-    private async Task ChooseSticker()
+    // 表情面板的「收藏」页：QQ 收藏表情的缩略图网格，点一下发送；没准备好的先准备再发。面板关闭时取消加载。
+    private FrameworkElement StickerPanel(Flyout popup, long chat)
     {
-        var session = runtime;
-        long chat = selectedChat, reply = replySeq;
-        if (session is null || chat <= 0) return;
-        var sessionToken = lifetime.Token;
-        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(pageTask?.Token ?? sessionToken);
-        using var vm = new StickerCatalogViewModel(session.ListStickersAsync, session.PrepareStickersAsync, session.AddStickerAsync, new UiDispatcher(DispatcherQueue));
+        var page = new StackPanel { Spacing = 8 };
+        if (runtime is not { } session) return page;
+        var cancel = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        var vm = new StickerCatalogViewModel(session.ListStickersAsync, session.PrepareStickersAsync, session.AddStickerAsync, new UiDispatcher(DispatcherQueue));
+        popup.Closed += (_, _) => { cancel.Cancel(); cancel.Dispose(); vm.Dispose(); };
         var ct = cancel.Token;
-        var list = new ListView { Height = 260, DisplayMemberPath = "Title", SelectionMode = ListViewSelectionMode.Single };
-        var preview = new Image { Height = 160, MaxWidth = 320 };
-        var status = Text("正在加载收藏表情…", 12);
-        var panel = new StackPanel { Width = 420, Spacing = 8 };
-        var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "收藏表情", Content = panel,
-            PrimaryButtonText = "发送", CloseButtonText = "取消", IsPrimaryButtonEnabled = false };
-        string? selected = null;
-        bool busy = false;
-        void Render()
+        var status = new TextBlock { Text = "正在加载收藏表情…", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["SecondaryCaptionTextBlockStyle"] };
+        var refresh = new HyperlinkButton { Content = "从 QQ 刷新", Padding = new Thickness(4, 0, 4, 0) };
+        var header = new Grid(); header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(status); Grid.SetColumn(refresh, 1); header.Children.Add(refresh);
+        var grid = new GridView { Height = 300, Width = 360, IsItemClickEnabled = true, SelectionMode = ListViewSelectionMode.None };
+        page.Children.Add(header); page.Children.Add(grid);
+        var thumbs = new SemaphoreSlim(4, 4);
+        FrameworkElement Tile(Sticker item)
         {
-            var previous = selected;
-            list.ItemsSource = vm.Items.Select(s => new ListEntry(string.IsNullOrWhiteSpace(s.Desc) ? "表情 " + s.Md5[..Math.Min(8, s.Md5.Length)] : s.Desc, "", "", s)).ToArray();
-            if (previous is not null) list.SelectedItem = ((IEnumerable<ListEntry>)list.ItemsSource).FirstOrDefault(r => ((Sticker)r.Value).Md5 == previous);
+            var image = new Image { Width = 72, Height = 72, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform };
+            var tile = new Grid { Width = 80, Height = 80, Tag = item.Md5 };
+            tile.Children.Add(new TextBlock { Text = item.Desc.Length > 0 ? item.Desc : "表情", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["CaptionTextBlockStyle"], TextWrapping = TextWrapping.Wrap, MaxLines = 2, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.6 });
+            tile.Children.Add(image);
+            ToolTipService.SetToolTip(tile, item.Desc.Length > 0 ? item.Desc : "收藏表情");
+            string sha = item.ThumbSha256.Length == 64 ? item.ThumbSha256 : item.Sha256;
+            if (sha.Length == 64) tile.Loaded += async (_, _) =>
+            {
+                if (image.Source is not null) return;
+                try
+                {
+                    await thumbs.WaitAsync(ct);
+                    try { var uri = await PreviewUri(session.Api, sha, ct); if (!ct.IsCancellationRequested) image.Source = new BitmapImage(uri) { DecodePixelWidth = 144 }; }
+                    finally { thumbs.Release(); }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception) { /* 缩略图失败只显示文字，不影响发送。 */ }
+            };
+            return tile;
         }
-        async Task Load(bool refresh)
+        async Task Load(bool fromQq)
         {
-            if (busy) return; busy = true;
-            dialog.IsPrimaryButtonEnabled = false;
+            status.Text = fromQq ? "正在从 QQ 刷新…" : "正在加载收藏表情…";
+            if (!await vm.LoadAsync(fromQq, ct)) { ct.ThrowIfCancellationRequested(); status.Text = vm.Load.Error ?? "加载失败，请重试。"; return; }
+            ct.ThrowIfCancellationRequested();
+            grid.ItemsSource = vm.Items.Select(Tile).ToList();
+            status.Text = vm.Items.Count == 0 ? "还没有收藏表情；右键消息里的图片可以收藏。" : $"{vm.Items.Count} 个收藏表情";
+        }
+        bool sending = false;
+        grid.ItemClick += async (_, e) => await Guard(async () =>
+        {
+            if (sending || e.ClickedItem is not FrameworkElement { Tag: string md5 } || runtime != session || selectedChat != chat) return;
+            sending = true; status.Text = "正在发送…";
             try
             {
-                bool success = await vm.LoadAsync(refresh, ct); ct.ThrowIfCancellationRequested();
-                status.Text = success ? $"{vm.Items.Count} 个表情；选择后点击准备，可预览并发送。" : vm.Load.Error ?? "加载失败，请重试。";
-                if (success) Render();
-            }
-            finally { busy = false; }
-        }
-        async Task Prepare()
-        {
-            if (busy || selected is null) return;
-            string target = selected; busy = true; dialog.IsPrimaryButtonEnabled = false;
-            try
-            {
-                bool ready = await vm.PrepareAsync([target], ct); ct.ThrowIfCancellationRequested();
-                if (!ready) { status.Text = vm.Prepare.Error ?? "准备失败，请重试。"; return; }
-                var item = vm.Items.FirstOrDefault(s => s.Md5 == target);
-                if (item is null || item.Sha256.Length != 64) { status.Text = "表情尚未准备好，可再次尝试。"; return; }
-                var uri = await PreviewUri(session.Api, item.ThumbSha256.Length == 64 ? item.ThumbSha256 : item.Sha256, ct);
+                var item = vm.Items.FirstOrDefault(s => s.Md5 == md5);
+                if (item is null) return;
+                if (item.Sha256.Length != 64 && !await vm.PrepareAsync([md5], ct)) { status.Text = vm.Prepare.Error ?? "表情准备失败，请重试。"; return; }
                 ct.ThrowIfCancellationRequested();
-                if (selected != target) return;
-                preview.Source = new BitmapImage(uri); status.Text = "已准备，可以发送。";
-                dialog.IsPrimaryButtonEnabled = true;
+                long reply = replySeq;
+                await session.SendMessageAsync(vm.CreateMessage(md5, chat, RandomId(), reply), lifetime.Token);
+                if (selectedChat == chat && replySeq == reply && reply != 0) { replySeq = 0; replies[chat] = 0; UpdateReply(); }
+                popup.Hide();
             }
-            finally { busy = false; }
-        }
-        list.SelectionChanged += (_, _) =>
-        {
-            selected = (list.SelectedItem as ListEntry)?.Value is Sticker item ? item.Md5 : null;
-            preview.Source = null; dialog.IsPrimaryButtonEnabled = false;
-        };
-        panel.Children.Add(status); panel.Children.Add(list); panel.Children.Add(preview);
-        panel.Children.Add(ActionButton("准备所选表情 / 重试", Prepare));
-        panel.Children.Add(ActionButton("从 QQ 刷新收藏", () => Load(true)));
-        dialog.Opened += async (_, _) => await Guard(() => Load(false));
-        dialog.Closed += (_, _) => cancel.Cancel();
-        var result = await dialog.ShowAsync();
-        if (result != ContentDialogResult.Primary || runtime != session || selectedChat != chat || selected is null) return;
-        var request = vm.CreateMessage(selected, chat, RandomId(), reply);
-        await session.SendMessageAsync(request, sessionToken);
+            finally { sending = false; }
+        });
+        refresh.Click += async (_, _) => await Guard(() => Load(true));
+        _ = Guard(() => Load(false));
+        return page;
     }
-
     private async Task AddMessageSticker(string sha, ClientSessionRuntime session)
     {
         if (runtime != session) return;

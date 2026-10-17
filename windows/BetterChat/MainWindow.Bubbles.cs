@@ -397,34 +397,41 @@ public sealed partial class MainWindow
         throw new IOException((vm.React.Error ?? "回应未完成。") + (vm.React.OutcomeUncertain ? " 请等待同步确认，避免重复操作。" : ""));
     }
 
-    // 消息右键菜单（P3 换成 CommandBarFlyout）。
-    private MenuFlyout MessageMenu(ProtoMessage m, bool own, bool group, CancellationToken pageToken, Func<Func<Task>, Task> onPage)
+    // 消息右键菜单：CommandBarFlyout，上面一排常用（回复、复制、转发、群里的 👍），展开后是其余操作。
+    private CommandBarFlyout MessageMenu(ProtoMessage m, bool own, bool group, CancellationToken pageToken, Func<Func<Task>, Task> onPage)
     {
-        var menu = new MenuFlyout();
-        void Add(string label, string glyph, Func<Task> action)
+        var menu = new CommandBarFlyout { AlwaysExpanded = true };
+        AppBarButton Command(string label, string glyph, Func<Task> action)
         {
-            var item = new MenuFlyoutItem { Text = label, Icon = new FontIcon { Glyph = glyph } };
-            item.Click += async (_, _) => await Guard(() => onPage(action)); menu.Items.Add(item);
+            var button = new AppBarButton { Label = label, Icon = new FontIcon { Glyph = glyph } };
+            ToolTipService.SetToolTip(button, label);
+            button.Click += async (_, _) => { menu.Hide(); await Guard(() => onPage(action)); };
+            return button;
         }
-        Add("回复", "", () =>
+        void Primary(string label, string glyph, Func<Task> action) => menu.PrimaryCommands.Add(Command(label, glyph, action));
+        void Secondary(string label, string glyph, Func<Task> action) => menu.SecondaryCommands.Add(Command(label, glyph, action));
+        bool normal = m.State == MessageState.Normal;
+        Primary("回复", "\uE97A", () =>
         {
             if (selectedChat != m.ChatId) return Task.CompletedTask;
             replySeq = m.Seq; replies[m.ChatId] = replySeq; dirtyDrafts.Add(m.ChatId); draftTimer.Start(); UpdateReply(); Composer.Focus(FocusState.Keyboard); return Task.CompletedTask;
         });
-        Add("复制", "", () => { var data = new DataPackage(); data.SetText(m.Text); Clipboard.SetContent(data); return Task.CompletedTask; });
-        if (runtime is { } forwardingSession) Add("转发", "", () => Forward(forwardingSession, m.ChatId, [m.Seq]));
+        Primary("复制", "\uE8C8", () => { var data = new DataPackage(); data.SetText(m.Text); Clipboard.SetContent(data); return Task.CompletedTask; });
+        if (runtime is { } forwardingSession && normal) Primary("转发", "\uE72D", () => Forward(forwardingSession, m.ChatId, [m.Seq]));
+        if (normal && group) Primary("👍", "\uE8E1", () => React(m, "128077", !m.Reactions.Any(r => r.EmojiId == "128077" && r.Me), pageToken));
+        if (normal && selectedChat == m.ChatId) Secondary("选择", "\uE762", () => { EnterSelection(m.Seq); return Task.CompletedTask; });
         if (runtime is { } stickerSession)
         {
             int index = 0;
             foreach (var segment in m.Segments.Where(s => s.Image is not null || s.MarketFace is not null))
             {
                 var sha = Media(segment)?.Sha256;
-                if (sha is { Length: 64 }) Add("收藏图片为表情 " + (++index), "", () => AddMessageSticker(sha, stickerSession));
+                if (sha is { Length: 64 }) Secondary(index++ == 0 ? "收藏为表情" : $"收藏第 {index} 张为表情", "\uE734", () => AddMessageSticker(sha, stickerSession));
             }
         }
         if (runtime is { } voiceSession && m.Segments.Any(s => s.Record is not null))
         {
-            Add("语音转文字", "", async () =>
+            Secondary("语音转文字", "\uE8D2", async () =>
             {
                 if (runtime != voiceSession) return;
                 await using var operation = new RpcOperationViewModel<TranscribeVoiceRequest, TranscribeVoiceResponse>(voiceSession.TranscribeVoiceAsync, new UiDispatcher(DispatcherQueue), false);
@@ -436,11 +443,15 @@ public sealed partial class MainWindow
                 await DialogBox("语音转文字", Text(text.Length > 0 ? text : "未识别出文字"));
             });
         }
-        if (m.State == MessageState.Normal && group) Add("回应 👍", "", () => React(m, "128077", !m.Reactions.Any(r => r.EmojiId == "128077" && r.Me), pageToken));
-        if (own && m.State == MessageState.Normal && runtime is { } actionSession)
+        foreach (var reaction in m.Reactions)
         {
-            menu.Items.Add(new MenuFlyoutSeparator());
-            Add("撤回", "", async () =>
+            string emoji = reaction.EmojiId;
+            Secondary($"谁回应了 {ReactionEmoji(emoji)}", "\uE716", () => ShowReactionUsers(m, emoji));
+        }
+        if (own && normal && runtime is { } actionSession)
+        {
+            if (menu.SecondaryCommands.Count > 0) menu.SecondaryCommands.Add(new AppBarSeparator());
+            Secondary("撤回", "\uE7A7", async () =>
             {
                 if (runtime != actionSession) return;
                 await using var vm = new MessageActionsViewModel(m.ChatId, m.Seq, actionSession.RecallMessageAsync, actionSession.ReactAsync, new UiDispatcher(DispatcherQueue));
@@ -450,7 +461,6 @@ public sealed partial class MainWindow
         }
         return menu;
     }
-
     // 气泡和 @ 徽章里的用户头像，与列表头像共用缓存和并发限制。
     private async void LoadSenderAvatar(PersonPicture picture, long userId)
     {
