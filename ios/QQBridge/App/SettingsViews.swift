@@ -68,6 +68,11 @@ struct SettingsView: View {
     }
   }
 
+  /// Mac 开独立的扫码窗口，iOS 弹表单。
+  private func openQqLogin() {
+    if let open = PlatformQqLogin.open { open() } else { showQqLogin = true }
+  }
+
   /// 本地优先：先用上次记下的 QQ 信息，静默刷新后再换成新的。
   @ViewBuilder private var qqCard: some View {
     if let qq = status?.qq.first ?? model.qqAccount {
@@ -87,10 +92,10 @@ struct SettingsView: View {
       }
       .padding(.vertical, 4)
       if !qq.connected {
-        Button("扫码登录 QQ", systemImage: "qrcode.viewfinder") { showQqLogin = true }
+        Button("扫码登录 QQ", systemImage: "qrcode.viewfinder") { openQqLogin() }
       }
     } else if status != nil {
-      Button("还没有登录 QQ · 扫码登录", systemImage: "qrcode.viewfinder") { showQqLogin = true }
+      Button("还没有登录 QQ · 扫码登录", systemImage: "qrcode.viewfinder") { openQqLogin() }
     } else if statusError {
       Label("连不上服务器", systemImage: "wifi.exclamationmark").foregroundStyle(.secondary)
     } else {

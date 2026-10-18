@@ -12,7 +12,8 @@ enum MacQuickReplyWindow {
 
   static func open(_ chatId: Int64) {
     if let session = UIApplication.shared.openSessions.first(where: {
-      $0.configuration.name == configurationName && ($0.scene?.delegate as? MacQuickReplySceneDelegate)?.chatId == chatId
+      // 按场景委托找：代码里新建的场景 configuration.name 读回来是 nil（2026-10-18 实机）。
+      ($0.scene?.delegate as? MacQuickReplySceneDelegate)?.chatId == chatId
     }) {
       UIApplication.shared.activateSceneSession(for: UISceneSessionActivationRequest(session: session))
       return
@@ -29,7 +30,7 @@ enum MacQuickReplyWindow {
 
   /// 退出登录：草稿依赖的账号会话失效，全部关掉。
   static func closeAll() {
-    for session in UIApplication.shared.openSessions where session.configuration.name == configurationName {
+    for session in UIApplication.shared.openSessions where session.scene?.delegate is MacQuickReplySceneDelegate {
       UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
     }
   }

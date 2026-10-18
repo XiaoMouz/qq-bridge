@@ -58,7 +58,8 @@ final class MacMediaWindows {
 
   func closeAll() {
     cancelPending()
-    for session in UIApplication.shared.openSessions where session.configuration.name == Self.configurationName {
+    // 按场景委托找：代码里新建的场景 configuration.name 读回来是 nil（2026-10-18 实机）。
+    for session in UIApplication.shared.openSessions where session.scene?.delegate is MacMediaSceneDelegate {
       (session.scene?.delegate as? MacMediaSceneDelegate)?.invalidate()
       UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
     }

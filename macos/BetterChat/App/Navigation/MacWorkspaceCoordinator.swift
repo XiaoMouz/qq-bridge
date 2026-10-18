@@ -72,6 +72,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     router.detach(self)
     MacSettingsWindow.close()
     MacQuickReplyWindow.closeAll()
+    MacQqLoginWindow.close()
     manualSync.cancel()
     search.cancel()
   }

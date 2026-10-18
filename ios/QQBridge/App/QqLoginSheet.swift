@@ -5,15 +5,45 @@ import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
 
+/// Mac 上换成打开独立的扫码窗口（由 Mac App 启动时设上，见 MacQqLoginWindow）；iOS 为 nil，照常弹表单。
+@MainActor
+enum PlatformQqLogin {
+  static var open: (() -> Void)?
+}
+
 struct QqLoginSheet: View {
   let session: Session
+  /// 在独立窗口里时：关窗口（登录成功、点完成）。为 nil 时关表单。
+  var onDone: (() -> Void)? = nil
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
   @State private var state: Qqbridge_V1_GetQqLoginResponse?
   @State private var refreshing = false
 
   var body: some View {
+    #if targetEnvironment(macCatalyst)
+    // Mac：独立窗口，标题在窗口标题栏，用窗口的关闭按钮。
+    content.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+      .task { await poll() }
+    #else
     NavigationStack {
+      content
+      .padding()
+      .navigationTitle("QQ 扫码登录")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) { Button("完成") { finish() } }
+      }
+      .task { await poll() }
+    }
+    #endif
+  }
+
+  private func finish() {
+    if let onDone { onDone() } else { dismiss() }
+  }
+
+  private var content: some View {
       VStack(spacing: 20) {
         if let state, state.loggedIn {
           ContentUnavailableView("QQ 已登录", systemImage: "checkmark.circle.fill")
@@ -42,17 +72,13 @@ struct QqLoginSheet: View {
         } label: {
           Label("换一张二维码", systemImage: "arrow.clockwise")
         }
+        #if targetEnvironment(macCatalyst)
+        .buttonStyle(.bordered)
+        #else
         .buttonStyle(.glass)
+        #endif
         .disabled(refreshing || state?.loggedIn == true)
       }
-      .padding()
-      .navigationTitle("QQ 扫码登录")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
-      }
-      .task { await poll() }
-    }
   }
 
   /// 每 3 秒问一次，登录成功就关掉。
@@ -60,9 +86,11 @@ struct QqLoginSheet: View {
     while !Task.isCancelled {
       state = try? await session.api.admin.getQqLogin(request: .init(), headers: session.api.headers).get()
       if state?.loggedIn == true {
-        await model.refreshQqStatus()
+        // 先关，再刷新状态：刷新要问 QQ，2026-10-18 实测要十几秒，等它关窗口太慢。
         try? await Task.sleep(for: .seconds(1))
-        dismiss()
+        finish()
+        let model = model
+        Task { await model.refreshQqStatus() }
         return
       }
       try? await Task.sleep(for: .seconds(3))

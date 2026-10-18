@@ -32,7 +32,6 @@ private struct MacGlobalOverlays: ViewModifier {
   let manualSync: MacManualSync
   let router: MacCommandRouter
   @Environment(AppModel.self) private var model
-  @State private var qqLogin = false
 
   func body(content: Content) -> some View {
     content
@@ -48,7 +47,6 @@ private struct MacGlobalOverlays: ViewModifier {
       } message: {
         Text(manualSync.error ?? "")
       }
-      .sheet(isPresented: $qqLogin) { QqLoginSheet(session: session) }
       .modifier(MacQuickReplyOpener())
       .sheet(isPresented: Binding(get: {
         model.calls.call != nil && !model.calls.minimized && (model.calls.expanded || !model.calls.isRinging || !model.calls.quiet)
@@ -86,7 +84,7 @@ private struct MacGlobalOverlays: ViewModifier {
       if model.connection != .online {
         ConnectionBanner(state: model.connection).padding(8).glassEffect()
       } else if model.qqOnline == false {
-        Button("QQ 已掉线 · 扫码登录", systemImage: "qrcode") { qqLogin = true }
+        Button("QQ 已掉线 · 扫码登录", systemImage: "qrcode") { MacQqLoginWindow.open() }
           .buttonStyle(.plain)
           .padding(.horizontal, 12).padding(.vertical, 8)
           .glassEffect(.regular.interactive(), in: .capsule)

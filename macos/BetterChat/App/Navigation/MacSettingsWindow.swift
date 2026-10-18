@@ -11,7 +11,8 @@ enum MacSettingsWindow {
 
   /// 已开着就拉到前面，没有就新开一个；同一时间只有一个设置窗口。
   static func open(_ setting: MacSetting? = nil) {
-    if let session = UIApplication.shared.openSessions.first(where: { $0.configuration.name == configurationName }),
+    // 按场景委托的类型找：代码里新建的场景 configuration.name 读回来是 nil（2026-10-18 实机）。
+    if let session = UIApplication.shared.openSessions.first(where: { $0.scene?.delegate is MacSettingsSceneDelegate }),
        let delegate = session.scene?.delegate as? MacSettingsSceneDelegate {
       if let setting { delegate.show(setting) }
       UIApplication.shared.activateSceneSession(for: UISceneSessionActivationRequest(session: session))
@@ -29,7 +30,7 @@ enum MacSettingsWindow {
 
   /// 退出登录：页面依赖的账号会话失效，关掉设置窗口。
   static func close() {
-    for session in UIApplication.shared.openSessions where session.configuration.name == configurationName {
+    for session in UIApplication.shared.openSessions where session.scene?.delegate is MacSettingsSceneDelegate {
       UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
     }
   }

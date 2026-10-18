@@ -35,6 +35,10 @@ struct MacMenuBuilder {
         router.workspace?.requestWindowSize(width: CGFloat(width), height: CGFloat(height))
       }
     }), atEndOfMenu: .window)
+    // QQ 在线时看不到扫码入口：调试时从这里打开扫码窗口看样式（已登录时显示「QQ 已登录」后自己关掉）。
+    builder.insertChild(UIMenu(title: "", options: .displayInline, children: [
+      UIAction(title: "扫码登录窗口") { _ in MacQqLoginWindow.open() },
+    ]), atEndOfMenu: .window)
     // 只覆盖本 App 的窗口，用于深浅色截图；不改用户的系统外观，也不持久化。
     let appearances: [(String, UIUserInterfaceStyle)] = [("跟随系统", .unspecified), ("浅色", .light), ("深色", .dark)]
     builder.insertChild(UIMenu(title: "外观检查", children: appearances.map { title, style in
@@ -65,8 +69,6 @@ final class MacWindow: UIWindow {
   init(windowScene: UIWindowScene, router: MacCommandRouter) {
     self.router = router
     super.init(windowScene: windowScene)
-    // 回应面板、资料卡在鼠标位置弹出（见 MacPopover.swift）。
-    MacPointer.install(on: self)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 

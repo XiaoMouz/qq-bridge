@@ -20,6 +20,7 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
   func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
     if Self.runsStateTests { return true }
     notifications.attach(AppModel.shared)
+    PlatformQqLogin.open = { MacQqLoginWindow.open() }
     router.workspaceChanged = { UIMenuSystem.main.setNeedsRebuild() }
     MacUpdater.start()
     return notifications.application(application, didFinishLaunchingWithOptions: options)
@@ -33,6 +34,13 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
     if settings {
       let configuration = UISceneConfiguration(name: MacSettingsWindow.configurationName, sessionRole: session.role)
       configuration.delegateClass = MacSettingsSceneDelegate.self
+      return configuration
+    }
+    let qqLogin = options.userActivities.contains { $0.activityType == MacQqLoginWindow.activityType }
+      || session.configuration.name == MacQqLoginWindow.configurationName
+    if qqLogin {
+      let configuration = UISceneConfiguration(name: MacQqLoginWindow.configurationName, sessionRole: session.role)
+      configuration.delegateClass = MacQqLoginSceneDelegate.self
       return configuration
     }
     let quickReply = options.userActivities.contains { $0.activityType == MacQuickReplyWindow.activityType }
@@ -90,11 +98,13 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
     // 由 UINavigationBar 的 Mac 行为统一承载两栏工具，窗口标题不再另占一行。
     scene.titlebar?.titleVisibility = .visible
     scene.titlebar?.toolbarStyle = .unified
-    scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == nil OR NOT (SELF BEGINSWITH 'media:' OR SELF BEGINSWITH 'quickreply:' OR SELF == 'settings')")
+    scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == nil OR NOT (SELF BEGINSWITH 'media:' OR SELF BEGINSWITH 'quickreply:' OR SELF == 'settings' OR SELF == 'qqlogin')")
     scene.sizeRestrictions?.minimumSize = MacMetrics.minimumWindow
     let window = MacWindow(windowScene: scene, router: router)
     window.tintColor = .systemBlue
     window.rootViewController = UIHostingController(rootView: MacRootView(router: router).environment(AppModel.shared))
+    // 回应面板、资料卡、转发在鼠标位置弹出（见 MacPopover.swift）。
+    if let root = window.rootViewController?.view { MacPointer.install(on: root) }
     self.window = window
     scene.title = "BetterChat"
     window.makeKeyAndVisible()
