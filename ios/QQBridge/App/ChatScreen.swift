@@ -364,7 +364,8 @@ struct ChatScreen: View {
     }
     #if targetEnvironment(macCatalyst)
     // Mac：在右键的消息 / 点的按钮旁边弹出，点别处收起（以前是窗口中间的模态表单）。
-    .macPointerPopover(item: $pendingForward, size: CGSize(width: 360, height: 480)) { pending in
+    .macPointerPopover(item: $pendingForward, size: CGSize(width: 360, height: 480),
+                       anchorRect: { pending in pending.seqs.count == 1 ? bubbleFrames.windowFrame(pending.seqs[0]) : nil }) { pending in
       ChatPicker(session: session, showsCancel: false) { target in
         pendingForward = nil
         Task { await forward(pending, to: target) }
@@ -463,7 +464,7 @@ struct ChatScreen: View {
       }
       .presentationDetents([.medium, .large])
     }
-    .modifier(ReactionSheet(message: $reactingTo, react: actions.react))
+    .modifier(ReactionSheet(message: $reactingTo, bubbleFrames: bubbleFrames, react: actions.react))
     .platformFullScreenCover(isPresented: $showCamera) {
       CameraPicker { result in
         composer.attachmentQueue.enqueueImport {
@@ -1614,13 +1615,15 @@ struct ReactTarget: Identifiable {
 /// 完整的回应面板（单独成一个修饰器：聊天页的修饰链太长，编译器推断不过来）。
 struct ReactionSheet: ViewModifier {
   @Binding var message: Qqbridge_V1_Message?
+  let bubbleFrames: BubbleFrames
   let react: (Qqbridge_V1_Message, String) -> Void
 
   func body(content: Content) -> some View {
     let target = Binding(get: { message.map(ReactTarget.init) }, set: { message = $0?.message })
     #if targetEnvironment(macCatalyst)
     // Mac：在右键的那条消息旁边弹出，点别处收起。
-    content.macPointerPopover(item: target, size: CGSize(width: 360, height: 420)) { target in
+    content.macPointerPopover(item: target, size: CGSize(width: 360, height: 420),
+                              anchorRect: { [bubbleFrames] target in bubbleFrames.windowFrame(target.message.seq) }) { target in
       ReactionPicker { id in
         message = nil
         react(target.message, id)

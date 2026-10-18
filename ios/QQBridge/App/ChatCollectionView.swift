@@ -45,6 +45,7 @@ struct ChatCollectionView: UIViewControllerRepresentable {
 
   func updateUIViewController(_ controller: ChatCollectionController, context _: Context) {
     controller.messageContext = context
+    context.bubbleFrames.windowLocator = { [weak controller] seq in controller?.windowFrame(ofMessage: seq) }
     controller.onReachTop = onReachTop
     controller.onBottomChange = onBottomChange
     controller.onVisibleSeqs = onVisibleSeqs
@@ -87,6 +88,16 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var restoring = false
 
   private static let flip = CGAffineTransform(scaleX: 1, y: -1)
+
+  /// 这条消息的气泡在窗口里的位置；不在屏幕上时返回 nil。
+  /// 格子整体在窗口里的位置由 UIKit 换算（已处理列表的上下翻转）；气泡在行内的位置来自 BubbleFrames（行内坐标，左右边距 12、上下 2）。
+  func windowFrame(ofMessage seq: Int64) -> CGRect? {
+    guard let id = byId.first(where: { if case .message(let m) = $0.value { m.seq == seq } else { false } })?.key,
+          let path = dataSource.indexPath(for: id), let cell = collectionView.cellForItem(at: path) else { return nil }
+    let row = cell.convert(cell.bounds, to: nil)
+    guard let bubble = messageContext?.bubbleFrames.frame(seq) else { return row }
+    return CGRect(x: row.minX + 12 + bubble.minX, y: row.minY + 2 + bubble.minY, width: bubble.width, height: bubble.height)
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()

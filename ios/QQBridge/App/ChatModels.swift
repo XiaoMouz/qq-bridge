@@ -551,6 +551,9 @@ final class BubbleFrames {
   private var frames: [Int64: CGRect] = [:]
   func set(_ seq: Int64, _ rect: CGRect) { frames[seq] = rect }
   func frame(_ seq: Int64) -> CGRect? { frames[seq] }
+  /// 聊天列表提供：某条消息的气泡在窗口里的位置（Mac 的回应、转发弹出框对着它弹出）。
+  var windowLocator: ((Int64) -> CGRect?)?
+  func windowFrame(_ seq: Int64) -> CGRect? { windowLocator?(seq) }
 }
 
 /// 订阅移除附件后，仍在等待的发送动作要能辨认成功确认，不能把迟到 RPC 失败当作未发送。
