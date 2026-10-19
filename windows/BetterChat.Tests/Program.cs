@@ -3220,6 +3220,16 @@ await Test("聊天页时间分隔、发送者合并、链接识别与卡片解�
     Check(ChatPresentation.EventText("poke", "坏", "甲", "乙", false) == "甲 戳了戳 乙" && ChatPresentation.EventText("x", "{}", "", "", false) == "[x]");
     return Task.CompletedTask;
 });
+await Test("同步第一次 GetState 之前先用登录时的账号列表认出自己", () =>
+{
+    var sync = new SyncEngine(null!, null!);
+    Check(sync.OwnUsers.Count == 0);
+    sync.SeedOwnUsers([1114096791, 0]);
+    Check(sync.OwnUsers.SetEquals([1114096791L]));
+    sync.SeedOwnUsers([42]);
+    Check(sync.OwnUsers.SetEquals([1114096791L]));
+    return Task.CompletedTask;
+});
 Console.WriteLine($"全部 {passed} 项测试通过。");
 sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler) : HttpMessageHandler
 {

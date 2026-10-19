@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Qqbridge.V1;
@@ -23,7 +24,41 @@ public sealed partial class MainWindow
     private static readonly Brush OnAccentOverlay = new SolidColorBrush(Windows.UI.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
 
     private static T Res<T>(string key) where T : class => (T)Microsoft.UI.Xaml.Application.Current.Resources[key];
-    private static Brush Brush(string key) => Res<Brush>(key);
+
+    // 代码里创建控件用的主题画刷。Application.Current.Resources[...] 只按应用级主题（浅色）取值，不跟窗口上设置的
+    // 深色 / 高对比度走，深色模式下自己的气泡还是浅色主题的深蓝、图片下的时间变成深灰看不见（2026-10-19 实测）。
+    // 这里按窗口实际主题到主题字典里找，找不到再退回应用资源。
+    private static string themeKey = "Light";
+    private static Brush Brush(string key)
+    {
+        foreach (var dictionary in Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries.Prepend(Microsoft.UI.Xaml.Application.Current.Resources))
+        {
+            if (dictionary.ThemeDictionaries.TryGetValue(themeKey, out var theme) && theme is ResourceDictionary resources && resources.TryGetValue(key, out var value) && value is Brush brush)
+                return brush;
+            foreach (var nested in dictionary.MergedDictionaries)
+                if (nested.ThemeDictionaries.TryGetValue(themeKey, out var nestedTheme) && nestedTheme is ResourceDictionary nestedResources && nestedResources.TryGetValue(key, out var nestedValue) && nestedValue is Brush nestedBrush)
+                    return nestedBrush;
+        }
+        return Res<Brush>(key);
+    }
+
+    // 主题字典的键：XamlControlsResources 里深色叫 Default。高对比度优先。
+    private void UpdateThemeKey()
+    {
+        bool contrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+        themeKey = contrast ? "HighContrast" : Root.ActualTheme == ElementTheme.Dark ? "Default" : "Light";
+    }
+
+    // 主题变了：代码创建的气泡、页面用的是旧画刷，重建时间线并重新显示当前页。
+    private void ThemeChanged()
+    {
+        string previous = themeKey;
+        UpdateThemeKey();
+        if (previous == themeKey) return;
+        timelineRenderRevision++; messageSignature = ""; messageViews.Clear(); Messages.Items.Clear();
+        if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages);
+        else if (navigator.Current is { } page) _ = Guard(page.Show);
+    }
 
     private static FrameworkElement TimeHeaderView(long time) => new TextBlock
     {
@@ -120,6 +155,8 @@ public sealed partial class MainWindow
         var inner = own ? OnAccentOverlay : Brush("SubtleFillColorSecondaryBrush");
 
         FrameworkElement content;
+        // 气泡里可选中文字的控件：右键时要打开消息菜单，而不是它们自带的「全选」文字菜单。
+        var texts = new List<FrameworkElement>();
         if (m.ReplyToSeq == 0 && JumboFaces(m) is { } jumbo) content = jumbo;
         else
         {
@@ -132,6 +169,7 @@ public sealed partial class MainWindow
                 {
                     paragraph = new Paragraph();
                     var rich = new RichTextBlock { IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, FontSize = 14, Foreground = foreground };
+                    texts.Add(rich);
                     rich.Blocks.Add(paragraph); body.Children.Add(rich);
                 }
                 paragraph.Inlines.Add(item);
@@ -147,7 +185,11 @@ public sealed partial class MainWindow
                     if (FaceImage(f.FaceId) is { } picture) Inline(new InlineUIContainer { Child = picture });
                     else Inline(new Run { Text = "[" + (f.Name.Length > 0 ? f.Name : "表情 " + f.FaceId) + "]" });
                 }
-                else if (s.Markdown is { } markdown) body.Children.Add(new TextBlock { Text = markdown.Content, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, Foreground = foreground });
+                else if (s.Markdown is { } markdown)
+                {
+                    var block = new TextBlock { Text = markdown.Content, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, Foreground = foreground };
+                    texts.Add(block); body.Children.Add(block);
+                }
                 else if (s.Record is { } record && Media(s) is { } voice) body.Children.Add(VoiceView(m, record, voice, own, foreground, pageToken));
                 else if (Media(s) is { } media)
                 {
@@ -179,7 +221,21 @@ public sealed partial class MainWindow
             };
         }
         content.Tag = m;
-        if (includeActions) content.ContextFlyout = MessageMenu(m, own, group, pageToken, OnOriginalPage);
+        if (includeActions)
+        {
+            // 不用 ContextFlyout：CommandBarFlyout 挂在列表项里的元素上不会打开，文字控件还会先弹自带的文字菜单（2026-10-17 实测）。
+            // 自己处理 ContextRequested（右键、Shift+F10、菜单键都走这里），在点击位置打开。
+            var menu = MessageMenu(m, own, group, pageToken, OnOriginalPage);
+            void OpenMenu(UIElement sender, ContextRequestedEventArgs e)
+            {
+                e.Handled = true;
+                var options = new Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowOptions { ShowMode = Microsoft.UI.Xaml.Controls.Primitives.FlyoutShowMode.Standard };
+                if (e.TryGetPosition(content, out var point)) options.Position = point;
+                menu.ShowAt(content, options);
+            }
+            content.ContextRequested += OpenMenu;
+            foreach (var text in texts) { text.ContextFlyout = null; if (text is RichTextBlock r) r.SelectionFlyout = null; else if (text is TextBlock b) b.SelectionFlyout = null; }
+        }
 
         var column = new StackPanel { Spacing = 2, HorizontalAlignment = own ? HorizontalAlignment.Right : HorizontalAlignment.Left };
         if (showSender) column.Children.Add(new TextBlock { Text = SenderDisplay(m), Style = Res<Style>("SecondaryCaptionTextBlockStyle"), Margin = new Thickness(2, 0, 0, 0) });
@@ -379,6 +435,8 @@ public sealed partial class MainWindow
             var toggle = new ToggleButton { Content = content, IsChecked = reaction.Me, Padding = new Thickness(6, 2, 8, 2), MinHeight = 0, CornerRadius = new CornerRadius(12), IsEnabled = group && m.State == MessageState.Normal };
             ToolTipService.SetToolTip(toggle, reaction.Me ? "取消回应（右键查看谁回应了）" : "回应（右键查看谁回应了）");
             string emoji = reaction.EmojiId; bool mine = reaction.Me;
+            // 读屏要能念出是哪个回应、几个人、我有没有点过（原来按钮没有名字，只念「切换按钮」，2026-10-19 实测）。
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(toggle, $"回应 {(faces.TryGetValue(emoji, out var faceEntry) ? faceEntry.Name : ReactionEmoji(emoji))}，{reaction.Count} 人" + (mine ? "，包括我" : ""));
             toggle.Click += async (_, _) => await Guard(() => React(m, emoji, !mine, pageToken));
             toggle.RightTapped += async (_, e) => { e.Handled = true; await Guard(() => ShowReactionUsers(m, emoji)); };
             bar.Children.Add(toggle);

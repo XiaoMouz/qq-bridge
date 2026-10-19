@@ -96,6 +96,13 @@ public sealed partial class MainWindow
         MentionJumpButton.Visibility = chat && mentions > 0 ? Visibility.Visible : Visibility.Collapsed;
         MentionJumpBadge.Value = (int)Math.Min(mentions, 99);
     }
+    // 从调试跳转 / 通知直接打开会话时联系人资料还没加载，标题先显示成号码；资料到了以后补上名字（2026-10-19 实测）。
+    private void UpdateChatTitle()
+    {
+        if (selectedChat == 0 || ChatPanel.Visibility != Visibility.Visible || dialogIndex.GetValueOrDefault(selectedChat) is not { } dialog) return;
+        string name = PeerName(dialog.PeerId, dialog.Scene);
+        if (ContentTitle.Text != name) ContentTitle.Text = name;
+    }
     private async void MentionJumpClicked(object sender, RoutedEventArgs args)
     {
         long chat = selectedChat;

@@ -216,7 +216,8 @@ public sealed partial class MainWindow
         };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(play, "播放语音");
         var progress = new ProgressBar { Minimum = 0, Maximum = 1, Value = 0, Width = Math.Clamp(80 + duration * 4, 100, 220), VerticalAlignment = VerticalAlignment.Center };
-        if (own) progress.Foreground = Brush("TextOnAccentFillColorPrimaryBrush");
+        // 强调色底上的轨道用半透明白，默认的深色轨道看不清（2026-10-19 实测）。
+        if (own) { progress.Foreground = Brush("TextOnAccentFillColorPrimaryBrush"); progress.Background = OnAccentOverlay; }
         var time = new TextBlock { Text = $"{(int)duration}″", Style = Res<Style>("CaptionTextBlockStyle"), Foreground = foreground, VerticalAlignment = VerticalAlignment.Center };
         var transcribe = new Button { Content = new TextBlock { Text = "转文字", Style = Res<Style>("CaptionTextBlockStyle"), Foreground = foreground }, Padding = new Thickness(8, 2, 8, 2), MinHeight = 0, Background = own ? OnAccentOverlay : Brush("SubtleFillColorSecondaryBrush"), BorderThickness = new Thickness(0) };
         var transcript = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = foreground, IsTextSelectionEnabled = true, Visibility = Visibility.Collapsed, MaxWidth = 360 };

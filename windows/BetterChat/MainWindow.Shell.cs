@@ -22,6 +22,11 @@ public sealed partial class MainWindow
         navigator.PropertyChanged += (_, _) => { ApplyAdaptiveLayout(); UpdateShellChrome(); };
         Workspace.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateShellChrome());
         Root.SizeChanged += (_, _) => ApplyAdaptiveLayout();
+        UpdateThemeKey();
+        Root.ActualThemeChanged += (_, _) => ThemeChanged();
+        // 系统高对比度开关不会触发 ActualThemeChanged；AccessibilitySettings.HighContrastChanged 在桌面应用里订阅会直接失败
+        // （0x80070490，依赖 CoreWindow，2026-10-19 实测启动崩溃），改成窗口每次激活时重新检查一次。
+        Activated += (_, _) => ThemeChanged();
         ApplyAdaptiveLayout();
         // 返回：Alt+←、键盘 / 鼠标的返回键，和 TitleBar 的返回按钮一致。
         foreach (var (key, modifiers) in new[] { (VirtualKey.Left, VirtualKeyModifiers.Menu), (VirtualKey.GoBack, VirtualKeyModifiers.None) })
@@ -156,7 +161,14 @@ public sealed partial class MainWindow
         if (at < 0 || at + 1 >= args.Length) return;
         var parts = args[at + 1].Split(':');
         if (parts.Length != 2 || !long.TryParse(parts[0], out long chat) || !long.TryParse(parts[1], out long seq) || chat <= 0) return;
-        _ = Guard(() => GoRoot(ChatKey(chat), () => OpenChat(chat, seq > 0 ? seq : null)));
+        // -debugAttach <文件路径>：打开会话后直接放进附件预览条（不经过系统文件选择框），用来验收上传和发送。
+        int attach = Array.IndexOf(args, "-debugAttach");
+        string? file = attach >= 0 && attach + 1 < args.Length ? args[attach + 1] : null;
+        _ = Guard(async () =>
+        {
+            await GoRoot(ChatKey(chat), () => OpenChat(chat, seq > 0 ? seq : null));
+            if (file is not null && selectedChat == chat) AddAttachments([await Windows.Storage.StorageFile.GetFileFromPathAsync(file)]);
+        });
     }
 
     private void UpdateUnreadBadge()

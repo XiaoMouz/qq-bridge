@@ -52,7 +52,7 @@ public sealed partial class MainWindow
             double height = media.Width > 0 && media.Height > 0 ? Math.Min(260, width * media.Height / media.Width) : 180;
             picture.Width = width; picture.Height = height; picture.Visibility = Visibility.Visible;
             // 图片、视频、表情包只显示画面（圆角裁切），文字说明只给语音、文件；视频叠一个播放图标。
-            var frame = new Grid { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Left, Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["SubtleFillColorSecondaryBrush"] };
+            var frame = new Grid { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Left, Background = Brush("SubtleFillColorSecondaryBrush") };
             frame.Children.Add(picture);
             if (segment.Video is not null)
                 frame.Children.Add(new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(22), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,

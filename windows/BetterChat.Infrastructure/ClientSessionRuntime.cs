@@ -36,6 +36,7 @@ public sealed class ClientSessionRuntime : IAsyncDisposable
     // 旧调试页面仍同步读写缓存；所有权始终属于运行时，宿主不得单独 Dispose。
     public ILocalStore LegacyStore => store;
     public IReadOnlySet<long> OwnUsers => sync.OwnUsers;
+    public void SeedOwnUsers(IEnumerable<long> users) => sync.SeedOwnUsers(users);
     public LocalRepository Repository { get; }
     public ContactsViewModel Contacts { get; }
     public DialogListViewModel Dialogs { get; }

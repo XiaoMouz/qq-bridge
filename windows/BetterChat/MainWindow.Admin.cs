@@ -15,8 +15,8 @@ public sealed partial class MainWindow
         Details.Children.Add(new Border
         {
             Child = body, Padding = new Thickness(20), CornerRadius = new CornerRadius(8),
-            Background = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
-            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["CardStrokeColorDefaultBrush"], BorderThickness = new Thickness(1)
+            Background = Brush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = Brush("CardStrokeColorDefaultBrush"), BorderThickness = new Thickness(1)
         });
     }
     private async Task ShowServerStatus(CancellationToken ct)

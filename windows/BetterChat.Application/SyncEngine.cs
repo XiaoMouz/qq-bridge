@@ -12,6 +12,13 @@ public sealed class SyncEngine(IBridgeApi api, ILocalStore store)
     public event Action<Message>? StreamMessageReceived;
     public IReadOnlySet<long> OwnUsers { get; private set; } = new HashSet<long>();
 
+    // 登录时已经拿到过账号列表：先用它填上「自己的账号」。否则在同步循环第一次 GetState 之前打开会话，
+    // 自己发的消息会被当成别人的（显示在左边、没有撤回，2026-10-17 实测）。同步拿到的列表随后会覆盖它。
+    public void SeedOwnUsers(IEnumerable<long> users)
+    {
+        if (OwnUsers.Count == 0) OwnUsers = users.Where(u => u > 0).ToHashSet();
+    }
+
     public async Task RunAsync(CancellationToken ct)
     {
         int delay = 1;

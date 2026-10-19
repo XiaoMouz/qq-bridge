@@ -80,7 +80,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         InitializeChatState();
-        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); UpdateUnreadBadge(); RefreshList(); UpdateFloatingButtons(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
+        refreshTimer.Tick += (_, _) => { refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0); UpdateUnreadBadge(); RefreshList(); UpdateFloatingButtons(); UpdateChatTitle(); if (selectedChat != 0 && ChatPanel.Visibility == Visibility.Visible) _ = Guard(RenderMessages); };
         Root.RequestedTheme = AppearanceSettings.Load().Theme;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
@@ -194,6 +194,7 @@ public sealed partial class MainWindow : Window
         api = candidate;
         readReceipts = runtime.ReadReceipts;
         store = runtime.LegacyStore;
+        runtime.SeedOwnUsers(accountState.QqAccounts.Select(a => a.Uin));
         SessionSettings.Save(server, token);
         var currentRuntime = runtime;
         AttachNotifications(currentRuntime);
@@ -534,7 +535,7 @@ public sealed partial class MainWindow : Window
         if (session != runtime || currentWindow != historyWindow || chat != selectedChat || revision != timelineRenderRevision) return;
         var messages = snapshot.Messages; var events = snapshot.Events;
         var pendingEntries = snapshot.Pending; var outboxEntries = snapshot.Outbox;
-        string signature = selectedChat + ":" + string.Join(',', messages.Select(m => $"{m.Seq}.{m.Version}")) + "/" + string.Join(',', events.Select(e => $"{e.Id}.{e.Version}")) + "/" + string.Join(',', pendingEntries.Select(p => p.ClientRandomId)) + "/" + string.Join(',', outboxEntries.Select(o => $"{o.ClientRandomId}.{o.Pts}"));
+        string signature = selectedChat + ":" + string.Join('.', session.OwnUsers) + ":" + string.Join(',', messages.Select(m => $"{m.Seq}.{m.Version}")) + "/" + string.Join(',', events.Select(e => $"{e.Id}.{e.Version}")) + "/" + string.Join(',', pendingEntries.Select(p => p.ClientRandomId)) + "/" + string.Join(',', outboxEntries.Select(o => $"{o.ClientRandomId}.{o.Pts}"));
         if (signature == messageSignature) { UpdateChatState(); return; }
         messageSignature = signature;
         var scroll = Descendant<ScrollViewer>(Messages);
@@ -556,7 +557,7 @@ public sealed partial class MainWindow : Window
         for (int i = 0; i < ordered.Count; i++)
         {
             if (layout[i].ShowsTime) desired.Add(Retain($"h:{ordered[i].Time}", new TimeHeader(ordered[i].Time)));
-            if (ordered[i].Value is ProtoMessage m) desired.Add(Retain($"m:{m.ChatId}:{m.Seq}:{m.Version}:{(layout[i].ShowsSender ? 1 : 0)}", new MessageItem(m, layout[i].ShowsSender)));
+            if (ordered[i].Value is ProtoMessage m) desired.Add(Retain($"m:{m.ChatId}:{m.Seq}:{m.Version}:{(layout[i].ShowsSender ? 1 : 0)}:{(session.OwnUsers.Contains(m.SenderId) ? 1 : 0)}", new MessageItem(m, layout[i].ShowsSender)));
             else if (ordered[i].Value is ChatEvent e) desired.Add(Retain($"e:{e.ChatId}:{e.Id}:{e.Version}", e));
         }
         foreach (var pending in pendingEntries.Where(p => !outboxEntries.Any(o => o.ClientRandomId == p.ClientRandomId)))
@@ -709,9 +710,8 @@ public sealed partial class MainWindow : Window
     private async Task Submit(SendMessageRequest request)
     {
         var session = runtime; if (session is null) return;
-        var result = await session.SendMessageAsync(request, lifetime.Token);
-        if (session != runtime) return;
-        Notice.Severity = InfoBarSeverity.Informational; Notice.Message = result.Entry.State == OutboxState.Sent ? "消息已发送" : "消息已进入发送队列"; Notice.IsOpen = true;
+        // 发送状态由时间线里的气泡显示（发送中 / 失败可重试），不再每条都弹底部提示（2026-10-17 实测会一直占着底部）。
+        await session.SendMessageAsync(request, lifetime.Token);
     }
     // 「回到最新」：历史窗口本来就跟着最新时只滚到底；从搜索 / 引用跳进来的窗口要重新打开最新一页。
     private async void ReturnToLatest(object sender, RoutedEventArgs e) => await Guard(async () =>
