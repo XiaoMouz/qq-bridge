@@ -15,9 +15,9 @@ public sealed partial class MainWindow
         var ct = NewPage();
         var vm = new MentionsViewModel(chat, true, session.ListUnreadMentionsAsync, session.MarkMentionsSeenAsync, new UiDispatcher(DispatcherQueue));
         featurePage = vm;
-        Detail("提及和回复", "提及已读独立于普通消息已读；每次查询最多返回 200 项");
+        Detail("提及和回复", "点一条跳到原消息；「已读」只清这条提醒，不影响普通已读");
         var includeAll = new CheckBox { Content = "包含 @全体成员", IsChecked = true };
-        var status = Text("");
+        var status = new TextBlock { Style = Res<Microsoft.UI.Xaml.Style>("SecondaryCaptionTextBlockStyle") };
         var rows = new StackPanel { Spacing = 8 };
         bool refreshing = false, refreshRequested = false;
         void Render()
@@ -30,14 +30,16 @@ public sealed partial class MainWindow
                 if ((mention.Flags & 32) != 0) labels.Add("@我");
                 if ((mention.Flags & 64) != 0) labels.Add("@全体成员");
                 if ((mention.Flags & 256) != 0) labels.Add("回复我");
-                var row = new StackPanel { Spacing = 4 };
-                row.Children.Add(Text($"消息 {mention.Seq} · {string.Join(" / ", labels)}"));
-                row.Children.Add(ActionButton("定位消息", async () =>
+                // 原消息在已加载的时间线里就显示发送者和内容，否则只写序号；点卡片跳到原消息。
+                string preview = timelineMessages.TryGetValue(mention.Seq, out var original) && original.ChatId == chat
+                    ? SenderDisplay(original) + "：" + (original.Text.Length > 0 ? original.Text : "[消息]") : $"消息 #{mention.Seq}";
+                var seen = new Button { Content = "已读" };
+                var row = Card(string.Join(" · ", labels), preview.Replace('\n', ' '), (mention.Flags & 256) != 0 && (mention.Flags & 96) == 0 ? "\uE97A" : "\uE910", seen, async () =>
                 {
                     ct.ThrowIfCancellationRequested();
                     if (runtime == session) await Go(ChatKey(chat), () => OpenChat(chat, mention.Seq));
-                }));
-                row.Children.Add(ActionButton("标记此提及已读", async () =>
+                });
+                seen.Click += async (_, _) => await Guard(async () =>
                 {
                     ct.ThrowIfCancellationRequested();
                     bool success = await vm.MarkSeenAsync([mention.Seq], ct);
@@ -45,10 +47,10 @@ public sealed partial class MainWindow
                     if (runtime != session) return;
                     Render();
                     if (!success) status.Text = vm.MarkSeen.Error ?? "标记未完成，请刷新确认。";
-                }));
+                });
                 rows.Children.Add(row);
             }
-            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : $"当前列表 {vm.Items.Count} 项";
+            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : vm.Items.Count == 0 ? "没有未读的 @我 和回复我" : $"{vm.Items.Count} 条未读";
         }
         async Task Reload()
         {
@@ -82,7 +84,8 @@ public sealed partial class MainWindow
             ct.ThrowIfCancellationRequested();
             await vm.SetIncludeAllAsync(includeAll.IsChecked == true); Render();
         });
-        Details.Children.Add(includeAll); Details.Children.Add(ActionButton("刷新", Reload));
+        var toolbar = ActionRow(("刷新", "\uE72C", Reload)); toolbar.Children.Add(includeAll);
+        Details.Children.Add(toolbar);
         Details.Children.Add(status); Details.Children.Add(rows);
         await Reload();
     }

@@ -47,6 +47,8 @@ public sealed partial class MainWindow
         Details.Children.Add(ActionRow(("重试", "\uE72C", retry)));
     }
 
+    private string PeerNameForChat(long chat) => dialogIndex.GetValueOrDefault(chat) is { } dialog ? PeerName(dialog.PeerId, dialog.Scene) : $"会话 {chat}";
+
     private static TextBlock SectionHeader(string text) => new()
     {
         Text = text, Style = Res<Style>("BodyStrongTextBlockStyle"), Margin = new Thickness(1, 12, 0, 0)

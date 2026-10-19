@@ -15,21 +15,27 @@ public sealed partial class MainWindow
         var load = new RpcOperationViewModel<ListStorageChatsRequest, ListStorageChatsResponse>(session.ListStorageChatsAsync, new UiDispatcher(DispatcherQueue), false); featurePage = load;
         Detail(Category(category), "按会话查看服务端占用");
         var request = new ListStorageChatsRequest { Limit = 200 }; request.Categories.Add(category);
-        if (!await load.ExecuteAsync(request, ct))
+        var loaded = PageLoading("正在统计各会话的占用…");
+        bool ok;
+        try { ok = await load.ExecuteAsync(request, ct); } finally { loaded(); }
+        if (!ok)
         {
             ct.ThrowIfCancellationRequested();
             if (featurePage != load || runtime != session) return;
-            throw new IOException(load.Error ?? "存储会话加载失败。");
+            PageError("存储会话加载失败", load.Error, () => ShowStorageChats(category)); return;
         }
         ct.ThrowIfCancellationRequested();
         if (featurePage != load || runtime != session) return;
         var response = load.Result!;
         foreach (var chat in response.Chats)
-            Details.Children.Add(ActionButton($"{PeerName(chat.PeerId, chat.Scene)} · {Bytes(chat.Bytes)} · {chat.Count:N0} 项",
+        {
+            var target = chat;
+            Details.Children.Add(Card(PeerName(target.PeerId, target.Scene), $"{target.Count:N0} 项", target.Scene == Scene.Group ? "\uE716" : "\uE77B", CardValue(Bytes(target.Bytes)),
                 () => StorageCategories.HasMediaItems(category)
-                    ? Go($"storage-items:{chat.ChatId}:{category}", () => ShowStorageItems(chat.ChatId, category))
-                    : Go("chat-storage:" + chat.ChatId, () => ShowChatStorage(chat.ChatId))));
-        if (response.Chats.Count == 0) Details.Children.Add(Text("此分类暂无内容。"));
+                    ? Go($"storage-items:{target.ChatId}:{category}", () => ShowStorageItems(target.ChatId, category))
+                    : Go("chat-storage:" + target.ChatId, () => ShowChatStorage(target.ChatId))));
+        }
+        if (response.Chats.Count == 0) Details.Children.Add(Card("此分类暂无内容", null, CategoryGlyph(category)));
     }
 
     private async Task ShowStorageItems(long chat, string category)
@@ -38,9 +44,9 @@ public sealed partial class MainWindow
         var ct = NewPage();
         var vm = new StorageItemsViewModel(chat, category, session.ListStorageItemsAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
         Detail(Category(category), "会话媒体 · 按大小排序");
-        Details.Children.Add(ActionButton("清理此会话的媒体原件…", () => PlanStorageCleanup(chat)));
-        Details.Children.Add(ActionButton("会话存储详情与生效策略", () => Go("chat-storage:" + chat, () => ShowChatStorage(chat))));
-        var rows = new StackPanel { Spacing = 12 }; Details.Children.Add(rows);
+        Details.Children.Add(ActionRow(("清理媒体原件…", "\uE74D", () => PlanStorageCleanup(chat)),
+            ("存储详情与策略", "\uE946", () => Go("chat-storage:" + chat, () => ShowChatStorage(chat)))));
+        var rows = new StackPanel { Spacing = 8 }; Details.Children.Add(rows);
         bool loading = false;
         var seen = new HashSet<string>();
         var more = new Button { Content = "加载更多" }; Details.Children.Add(more);
@@ -60,10 +66,9 @@ public sealed partial class MainWindow
                 foreach (var item in vm.Items)
                 {
                     if (!seen.Add(item.Sha256)) continue;
-                    var panel = new StackPanel { Spacing = 6 };
-                    panel.Children.Add(Text(item.Name.Length > 0 ? item.Name : Category(item.Category), 18));
-                    panel.Children.Add(Text($"{Bytes(item.Size)} · {(item.State == "purged" ? "原件已清理" : item.Tier == "cold" ? "冷存储" : "热存储")} · {item.RefChats} 个会话引用", 12));
-                    panel.Children.Add(ActionButton("查看引用位置", async () =>
+                    var panel = Card(item.Name.Length > 0 ? item.Name : Category(item.Category),
+                        $"{(item.State == "purged" ? "原件已清理" : item.Tier == "cold" ? "冷存储" : "热存储")} · {item.RefChats} 个会话引用",
+                        CategoryGlyph(item.Category), CardValue(Bytes(item.Size)), async () =>
                     {
                         var usage = await session.ListMediaUsagesAsync(new() { Sha256 = item.Sha256 }, ct); ct.ThrowIfCancellationRequested();
                         if (featurePage != vm || runtime != session) return;
@@ -74,11 +79,12 @@ public sealed partial class MainWindow
                         choices.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = choices.SelectedItem is ListEntry { Value: MediaUsage { MessageSeq: > 0 } };
                         if (await dialog.ShowAsync() == ContentDialogResult.Primary && !ct.IsCancellationRequested && featurePage == vm && runtime == session && choices.SelectedItem is ListEntry { Value: MediaUsage chosen })
                             await Go(ChatKey(chosen.ChatId), () => OpenChat(chosen.ChatId, chosen.MessageSeq));
-                    }));
+                    });
+                    ToolTipService.SetToolTip(panel, "查看引用位置");
                     rows.Children.Add(panel);
                 }
                 more.Visibility = vm.HasMore ? Visibility.Visible : Visibility.Collapsed;
-                if (rows.Children.Count == 0) rows.Children.Add(Text("暂无内容。"));
+                if (rows.Children.Count == 0) rows.Children.Add(Card("暂无内容", null, CategoryGlyph(category)));
             }
             finally { loading = false; more.IsEnabled = true; }
         }
@@ -121,26 +127,44 @@ public sealed partial class MainWindow
         await ShowSetting("存储");
     }
 
+    // MediaKind 换成存储分类的键，复用分类的中文名和图标。
+    private static string KindKey(MediaKind kind) => kind switch
+    {
+        MediaKind.Image => "image", MediaKind.Video => "video", MediaKind.Audio => "record", MediaKind.File => "file", MediaKind.Sticker => "sticker", _ => "other"
+    };
+
     private async Task ShowChatStorage(long chat)
     {
         var session = runtime; if (session is null) return;
         var ct = NewPage(); Detail("会话存储详情", "服务端占用；共享内容不等于本会话可释放空间。");
         var vm = new ChatStorageViewModel(chat, session.GetChatStorageAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        if (!await vm.LoadAsync(ct: ct))
-        { ct.ThrowIfCancellationRequested(); Details.Children.Add(Text(vm.Load.Error ?? "加载失败")); Details.Children.Add(ActionButton("重试", () => ShowChatStorage(chat))); return; }
+        var loaded = PageLoading("正在读取会话存储…");
+        bool ok;
+        try { ok = await vm.LoadAsync(ct: ct); } finally { loaded(); }
+        if (!ok) { ct.ThrowIfCancellationRequested(); PageError("会话存储加载失败", vm.Load.Error, () => ShowChatStorage(chat)); return; }
         ct.ThrowIfCancellationRequested();
         if (featurePage != vm || runtime != session) return;
         var detail = vm.Detail!;
+        Details.Children.Add(ActionRow(("清理媒体原件…", "\uE74D", () => PlanStorageCleanup(chat)),
+            ("编辑存储策略", "\uE713", () => Go($"policy:{PolicyScope.Chat}::{chat}", () => ShowStoragePolicy(PolicyScope.Chat, chat: chat)))));
+        Details.Children.Add(SectionHeader("按类型"));
         foreach (var kind in detail.Kinds)
-            Details.Children.Add(Text($"{kind.Kind}：逻辑占用 {Bytes(kind.LogicalBytes)} · 独占 {Bytes(kind.ExclusiveBytes)} · 热 {Bytes(kind.HotBytes)} · 冷 {Bytes(kind.ColdBytes)} · 已清理 {kind.PurgedCount} 项"));
+            Details.Children.Add(Card(Category(KindKey(kind.Kind)), $"独占 {Bytes(kind.ExclusiveBytes)} · 热 {Bytes(kind.HotBytes)} · 冷 {Bytes(kind.ColdBytes)}" + (kind.PurgedCount > 0 ? $" · 已清理 {kind.PurgedCount} 项" : ""),
+                CategoryGlyph(KindKey(kind.Kind)), CardValue(Bytes(kind.LogicalBytes))));
         if (detail.Policy is { } policy)
-            Details.Children.Add(Text($"生效策略：原件保留 {policy.KeepOriginalDays} 天；自动下载上限 {Bytes(policy.AutoFetchMaxBytes)}；{policy.ColdAfterDays} 天未访问后下沉；下沉大小门槛 {Bytes(policy.ColdMinBytes)}；热存储配额 {Bytes(policy.HotQuotaBytes)}。\n-1 表示永久保留或永不下沉；配额 0 表示不限。"));
+        {
+            Details.Children.Add(SectionHeader("生效策略"));
+            Details.Children.Add(Card("原件保留", policy.KeepOriginalDays < 0 ? "永久保留" : policy.KeepOriginalDays == 0 ? "只保留缩略图和预览" : $"{policy.KeepOriginalDays} 天", "\uE823"));
+            Details.Children.Add(Card("自动下载上限", Bytes(policy.AutoFetchMaxBytes), "\uE896"));
+            Details.Children.Add(Card("下沉到冷存储", (policy.ColdAfterDays < 0 ? "永不下沉" : $"{policy.ColdAfterDays} 天未访问后") + $" · 门槛 {Bytes(policy.ColdMinBytes)}", "\uE81E"));
+            Details.Children.Add(Card("热存储配额", policy.HotQuotaBytes == 0 ? "不限" : Bytes(policy.HotQuotaBytes), "\uEDA2"));
+        }
+        if (detail.Largest.Count > 0) Details.Children.Add(SectionHeader("最大的文件"));
         foreach (var item in detail.Largest)
         {
-            var label = $"{item.Kind} · {Bytes(item.Size)} · {item.Tier} · {(item.Shared ? "共享" : "独占")}";
-            Details.Children.Add(item.FirstSeq > 0 ? ActionButton(label, () => Go(ChatKey(chat), () => OpenChat(chat, item.FirstSeq))) : Text(label));
+            var target = item;
+            Details.Children.Add(Card(Category(KindKey(target.Kind)), $"{(target.Tier == "cold" ? "冷存储" : "热存储")} · {(target.Shared ? "多个会话共享" : "本会话独占")}", CategoryGlyph(KindKey(target.Kind)),
+                CardValue(Bytes(target.Size)), target.FirstSeq > 0 ? () => Go(ChatKey(chat), () => OpenChat(chat, target.FirstSeq)) : null));
         }
-        Details.Children.Add(ActionButton("预估清理原件…", () => PlanStorageCleanup(chat)));
-        Details.Children.Add(ActionButton("编辑此会话存储策略", () => Go($"policy:{PolicyScope.Chat}::{chat}", () => ShowStoragePolicy(PolicyScope.Chat, chat: chat))));
     }
 }
