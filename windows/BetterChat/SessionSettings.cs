@@ -30,9 +30,27 @@ public sealed record SessionSettings(string Server, string ProtectedToken)
     }
     [System.Text.Json.Serialization.JsonIgnore]
     public string Token => validatedToken ?? Decrypt(ProtectedToken);
+    // 登录表单的服务器地址下拉里预置的地址：服务端经 Cloudflare Tunnel 的公网入口（见 docs/changelog.md 2026-10-15「部署」）。
+    public static readonly string[] PresetServers = ["https://qq.mou.best"];
+    private static string LastServerPath => Path.Combine(Root, "last-server.txt");
+
+    // 上次登录成功的服务器地址（不含凭据）。退出登录会删 session.json，这个留着，下次登录表单直接填好。
+    public static string? LastServer
+    {
+        get
+        {
+            try { return File.Exists(LastServerPath) ? File.ReadAllText(LastServerPath).Trim() is { Length: > 0 } text ? text : null : null; }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+    }
+
     public static void Save(string server, string token)
     {
         Directory.CreateDirectory(Root);
+        try { File.WriteAllText(LastServerPath, server); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
         var settings = new SessionSettings(server, Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token), null, DataProtectionScope.CurrentUser)));
         File.WriteAllText(FilePath + ".tmp", JsonSerializer.Serialize(new { settings.Server, settings.ProtectedToken }));
         File.Move(FilePath + ".tmp", FilePath, true);

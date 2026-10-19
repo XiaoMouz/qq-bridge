@@ -35,7 +35,15 @@ public sealed partial class MainWindow
         }
         else Detail("连接与账号", "连接你自己的 QQ Bridge 服务器");
         var form = api is null ? OnboardingContent : Details;
-        var server = new TextBox { Header = "服务器地址", PlaceholderText = "https://your-server.example", Text = api?.Transport.BaseUri.AbsoluteUri ?? SessionSettings.Load()?.Server ?? "" };
+        // 可编辑的下拉：预置地址和上次用过的地址点一下就填好，也能直接输入别的地址。
+        string current = api?.Transport.BaseUri.AbsoluteUri ?? SessionSettings.Load()?.Server ?? SessionSettings.LastServer ?? SessionSettings.PresetServers[0];
+        var server = new ComboBox
+        {
+            Header = "服务器地址", IsEditable = true, PlaceholderText = "https://your-server.example", HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = SessionSettings.PresetServers.Append(current.TrimEnd('/')).Select(s => s.TrimEnd('/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            Text = current.TrimEnd('/')
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(server, "服务器地址");
         var username = new TextBox { Header = "用户名", Text = "owner", PlaceholderText = "QQ Bridge 用户名" };
         var password = new PasswordBox { Header = "密码", PlaceholderText = "QQ Bridge 账号密码" };
         form.Children.Add(server); form.Children.Add(username); form.Children.Add(password);
