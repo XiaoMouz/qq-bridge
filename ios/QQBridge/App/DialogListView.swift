@@ -36,6 +36,8 @@ struct DialogListView: View {
       .onChange(of: model.nextUnreadTick) { jumpToNextUnread(proxy) }
       }
       .navigationTitle("消息")
+      // 2026-10-19 用户反馈：标签栏上方的「正在同步…」条太占地方，改成标题下的一行小字（和 Telegram 的「更新中…」一样）。
+      .navigationSubtitle(model.connection == .connecting ? "正在同步…" : "")
       .navigationDestination(for: Route.self) { route in
         switch route {
         case .chat(let id): ChatScreen(session: session, chatId: id)

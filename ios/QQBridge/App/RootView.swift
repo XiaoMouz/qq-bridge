@@ -42,7 +42,9 @@ struct RootView: View {
       }
     }
     .tabBarMinimizeBehavior(.onScrollDown)
-    .statusAccessory(isEnabled: model.connection != .online || model.qqOnline == false) {
+    // 正在同步（连上 / 追平差量，通常一两秒）不占标签栏上方一整条：只在消息页标题下写一行小字（见 DialogListView）。
+    // 这里只留需要用户注意的：连不上服务器、要重新登录、QQ 掉线。
+    .statusAccessory(isEnabled: (model.connection != .online && model.connection != .connecting) || model.qqOnline == false) {
       if model.connection != .online {
         ConnectionBanner(state: model.connection)
       } else {
