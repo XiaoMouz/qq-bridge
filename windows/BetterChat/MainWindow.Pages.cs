@@ -409,12 +409,24 @@ public sealed partial class MainWindow
         var ct = pageTask?.Token ?? lifetime.Token;
         if (!await pager.LoadAsync(ct) || searchPager != pager || section != "search") return;
         ct.ThrowIfCancellationRequested();
+        // 会话索引只在消息分区刷新；刚启动或从联系人分区搜索时可能还没有这些会话，先从本地库补上，标题和头像才不是「会话 1234」。
+        if (runtime is { } session)
+            foreach (long chat in pager.Results.Select(m => m.ChatId).Distinct().Where(c => !dialogIndex.ContainsKey(c)).ToList())
+                if (await session.Repository.GetDialogAsync(chat, ct) is { } stored) dialogIndex[chat] = stored;
+        if (searchPager != pager || section != "search") return;
         rendering = true; entries.Clear();
         var contacts = peerIndex.Values.Where(p => pager.ChatId == 0 && (p.IsFriend || p.Kind == PeerKind.Group)
             && (DisplayName(p).Contains(pager.Query, StringComparison.OrdinalIgnoreCase)
                 || p.PeerId.ToString().Contains(pager.Query, StringComparison.Ordinal))).ToList();
         foreach (var p in contacts) entries.Add(new(DisplayName(p), p.Kind == PeerKind.Group ? "群聊" : "联系人", "", p));
-        foreach (var m in pager.Results) entries.Add(new(m.SenderName.Length > 0 ? m.SenderName : m.SenderId.ToString(), m.Text, DialogListFormat.ListTime(m.Time, DateTimeOffset.Now, TimeZoneInfo.Local), m));
+        // 和 Mac 侧栏搜索一样：全局搜索时标题是会话名、头像是会话头像，预览前写发送人；会话内查找时标题直接是发送人。
+        foreach (var m in pager.Results)
+        {
+            string sender = m.SenderName.Length > 0 ? m.SenderName : PeerName(m.SenderId, Scene.Friend);
+            string text = m.Text.Length > 0 ? m.Text : "[消息]";
+            string time = DialogListFormat.ListTime(m.Time, DateTimeOffset.Now, TimeZoneInfo.Local);
+            entries.Add(pager.ChatId == 0 ? new(PeerNameForChat(m.ChatId), text, time, m) { SenderPrefix = sender + "：" } : new(sender, text, time, m));
+        }
         rendering = false;
         Details.Children.Clear(); Details.Children.Add(Text($"找到 {contacts.Count} 个联系人或群聊，{pager.Results.Count} 条消息。选择消息可定位到原会话。"));
         MoreSearchResults.Visibility = pager.Next is not null ? Visibility.Visible : Visibility.Collapsed;

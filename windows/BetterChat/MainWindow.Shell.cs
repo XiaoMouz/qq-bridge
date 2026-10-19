@@ -157,6 +157,9 @@ public sealed partial class MainWindow
         if (debugJumpDone) return;
         debugJumpDone = true;
         var args = Environment.GetCommandLineArgs();
+        // -debugSearch <关键词>：直接做一次全局搜索（UI 自动化点不到搜索框的提交按钮，也不能按回车）。
+        int search = Array.IndexOf(args, "-debugSearch");
+        if (search >= 0 && search + 1 < args.Length) { string query = args[search + 1]; _ = Guard(() => StartSearch(query)); return; }
         int at = Array.IndexOf(args, "-debugJump");
         if (at < 0 || at + 1 >= args.Length) return;
         var parts = args[at + 1].Split(':');

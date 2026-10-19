@@ -26,15 +26,17 @@ public sealed partial class MainWindow
     {
         AvatarUnloaded(picture, new RoutedEventArgs());
         if (api is null || picture.DataContext is not ListEntry row) return;
-        var peer = row.Value switch
+        // 搜索结果的消息行显示所在会话的头像。
+        object value = row.Value is Message found && dialogIndex.GetValueOrDefault(found.ChatId) is { } foundIn ? foundIn : row.Value;
+        var peer = value switch
         {
             Peer p => p,
             Dialog d => peerIndex.GetValueOrDefault((d.PeerId, d.Scene == Scene.Group)),
             _ => null
         };
-        long id = peer?.PeerId ?? (row.Value is Dialog dialog ? dialog.PeerId : 0);
+        long id = peer?.PeerId ?? (value is Dialog dialog ? dialog.PeerId : 0);
         if (id == 0) return;
-        bool group = peer?.Kind == PeerKind.Group || row.Value is Dialog { Scene: Scene.Group };
+        bool group = peer?.Kind == PeerKind.Group || value is Dialog { Scene: Scene.Group };
         var source = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         visibleAvatars[picture] = source;
         var ct = source.Token;
