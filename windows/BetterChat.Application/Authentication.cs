@@ -8,7 +8,9 @@ public static class Authentication
     {
         string value = address.Trim();
         if (value.Length == 0) throw new ArgumentException("请输入服务器地址。");
-        if (!value.Contains("://", StringComparison.Ordinal)) value = "https://" + value;
+        // 没写协议：本机地址（127.0.0.1:8080、localhost）用 http，其他用 https（同 iOS AppModel.normalize；Windows 只允许本机走 http）。
+        if (!value.Contains("://", StringComparison.Ordinal))
+            value = (Uri.TryCreate("http://" + value, UriKind.Absolute, out var local) && local.IsLoopback ? "http://" : "https://") + value;
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Host)
             || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
             throw new ArgumentException("服务器地址格式不正确。");

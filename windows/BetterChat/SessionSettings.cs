@@ -30,8 +30,14 @@ public sealed record SessionSettings(string Server, string ProtectedToken)
     }
     [System.Text.Json.Serialization.JsonIgnore]
     public string Token => validatedToken ?? Decrypt(ProtectedToken);
-    // 登录表单的服务器地址下拉里预置的地址：服务端经 Cloudflare Tunnel 的公网入口（见 docs/changelog.md 2026-10-15「部署」）。
-    public static readonly string[] PresetServers = ["https://qq.mou.best"];
+    // 登录表单的服务器地址下拉里预置的地址，和根目录 README「访问方式」、iOS LoginView 的预置一致：
+    // 服务端只监听 Mac mini 的 127.0.0.1:8080，对外是 Cloudflare Tunnel 的公网入口和 Tailscale 内网入口。
+    public static readonly (string Address, string Note)[] PresetServers =
+    [
+        ("https://qq.mou.best", "公网入口（Cloudflare Tunnel）"),
+        ("https://xiaomouzs-huawei-mate-mini.tail7bb0fe.ts.net", "Tailscale 内网入口（这台电脑要在同一个 tailnet）"),
+        ("http://127.0.0.1:8080", "本机（服务端跑在这台电脑上时）"),
+    ];
     private static string LastServerPath => Path.Combine(Root, "last-server.txt");
 
     // 上次登录成功的服务器地址（不含凭据）。退出登录会删 session.json，这个留着，下次登录表单直接填好。

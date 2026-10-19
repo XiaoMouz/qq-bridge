@@ -349,6 +349,8 @@ await Test("登录地址规范化与无效凭据响应", async () =>
 {
     Check(Authentication.ServerUri(" bridge.test ").AbsoluteUri == "https://bridge.test/");
     Check(Authentication.ServerUri("http://localhost:8080").Port == 8080);
+    Check(Authentication.ServerUri("127.0.0.1:8080").AbsoluteUri == "http://127.0.0.1:8080/");
+    Check(Authentication.ServerUri("qq.mou.best").AbsoluteUri == "https://qq.mou.best/");
     foreach (var value in new[] { "", "http://bridge.test", "https://user:password@bridge.test", "https://bridge.test/?token=x" })
     {
         bool invalid = false; try { Authentication.ServerUri(value); } catch (ArgumentException) { invalid = true; } Check(invalid);

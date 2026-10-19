@@ -35,18 +35,46 @@ public sealed partial class MainWindow
         }
         else Detail("连接与账号", "连接你自己的 QQ Bridge 服务器");
         var form = api is null ? OnboardingContent : Details;
-        // 可编辑的下拉：预置地址和上次用过的地址点一下就填好，也能直接输入别的地址。
-        string current = api?.Transport.BaseUri.AbsoluteUri ?? SessionSettings.Load()?.Server ?? SessionSettings.LastServer ?? SessionSettings.PresetServers[0];
+        // 可编辑的下拉：预置的几个入口和上次用过的地址点一下就填好，也能直接输入别的地址。
+        string current = (api?.Transport.BaseUri.AbsoluteUri ?? SessionSettings.Load()?.Server ?? SessionSettings.LastServer ?? SessionSettings.PresetServers[0].Address).TrimEnd('/');
         var server = new ComboBox
         {
-            Header = "服务器地址", IsEditable = true, PlaceholderText = "https://your-server.example", HorizontalAlignment = HorizontalAlignment.Stretch,
-            ItemsSource = SessionSettings.PresetServers.Append(current.TrimEnd('/')).Select(s => s.TrimEnd('/')).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
-            Text = current.TrimEnd('/')
+            Header = "服务器地址", IsEditable = true, PlaceholderText = "例如 qq.mou.best", HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = SessionSettings.PresetServers.Select(p => p.Address).Append(current).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
         };
+        // 可编辑 ComboBox 在加载前设 Text 不显示（2026-10-19 截图只剩占位文字）；当前地址一定在列表里，选中它即可。
+        server.SelectedItem = ((List<string>)server.ItemsSource).First(s => string.Equals(s, current, StringComparison.OrdinalIgnoreCase));
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(server, "服务器地址");
+        // 地址下面一行（同 iOS 登录页）：实际会连的地址、是哪个入口、现在连不连得上。
+        var serverInfo = new TextBlock { Style = Res<Style>("SecondaryCaptionTextBlockStyle"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, -4, 0, 0) };
+        CancellationTokenSource? probe = null;
+        async void CheckServer(string text)
+        {
+            probe?.Cancel(); var mine = probe = new CancellationTokenSource();
+            Uri uri;
+            try { uri = Authentication.ServerUri(text); }
+            catch (ArgumentException e) { serverInfo.Text = e.Message; return; }
+            string note = SessionSettings.PresetServers.FirstOrDefault(p => string.Equals(p.Address.TrimEnd('/') + "/", uri.AbsoluteUri, StringComparison.OrdinalIgnoreCase)).Note ?? "";
+            string head = (note.Length > 0 ? note + "\n" : "") + "实际连接 " + uri.AbsoluteUri.TrimEnd('/');
+            serverInfo.Text = head + " · 正在检查…";
+            try
+            {
+                await Task.Delay(400, mine.Token);  // 输入时别每个字都发请求
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                using var response = await http.GetAsync(new Uri(uri, "healthz"), mine.Token);
+                if (mine == probe) serverInfo.Text = head + (response.IsSuccessStatusCode ? " · 可以连上" : $" · 回应异常（HTTP {(int)response.StatusCode}）");
+            }
+            catch (OperationCanceledException) when (mine.IsCancellationRequested) { }
+            catch (Exception) { if (mine == probe) serverInfo.Text = head + " · 连不上"; }
+        }
+        server.SelectionChanged += (_, _) => { if (server.SelectedItem is string chosen) CheckServer(chosen); };
+        server.TextSubmitted += (_, e) => CheckServer(e.Text);
+        string ServerText() => server.Text is { Length: > 0 } typed ? typed : server.SelectedItem as string ?? "";
+        server.LostFocus += (_, _) => CheckServer(ServerText());
+        CheckServer(current);
         var username = new TextBox { Header = "用户名", Text = "owner", PlaceholderText = "QQ Bridge 用户名" };
         var password = new PasswordBox { Header = "密码", PlaceholderText = "QQ Bridge 账号密码" };
-        form.Children.Add(server); form.Children.Add(username); form.Children.Add(password);
+        form.Children.Add(server); form.Children.Add(serverInfo); form.Children.Add(username); form.Children.Add(password);
         form.Children.Add(Text("使用 QQ Bridge 服务端账号登录。密码不会保存到本机。", 12));
         var login = new Button { Content = "登录", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"] };
         bool busy = false;
@@ -58,7 +86,7 @@ public sealed partial class MainWindow
             var ct = NewPage();
             await Guard(async () =>
             {
-                var uri = Authentication.ServerUri(server.Text);
+                var uri = Authentication.ServerUri(ServerText());
                 using var transport = new ConnectClient(uri);
                 try
                 {
