@@ -334,7 +334,7 @@ public sealed partial class MainWindow : Window
         var p = peerIndex.GetValueOrDefault((peerId, scene == Scene.Group));
         return p is null ? peerId.ToString() : DisplayName(p);
     }
-    private static string DisplayName(Peer p) => !string.IsNullOrWhiteSpace(p.Remark) ? p.Remark : !string.IsNullOrWhiteSpace(p.Name) ? p.Name : p.PeerId.ToString();
+    private static string DisplayName(Peer p) => DialogListFormat.HasVisibleText(p.Remark) ? p.Remark : DialogListFormat.HasVisibleText(p.Name) ? p.Name : p.PeerId.ToString();
     private void RefreshList()
     {
         if (!ready || section == "search") return;

@@ -36,7 +36,7 @@ public sealed partial class MainWindow
         foreach (var category in vm.Directory.Categories)
         {
             var id = category.Id;
-            Details.Children.Add(Card(category.Name, category.SpecialCare ? "特别关心" : null, category.SpecialCare ? "\uE734" : "\uE902",
+            Details.Children.Add(Card(category.Name, category.SpecialCare && category.Name != "特别关心" ? "特别关心" : null, category.SpecialCare ? "\uE734" : "\uE902",
                 CardValue(category.UserIds.Count.ToString()), () => Filter(id)));
         }
     }

@@ -8,12 +8,13 @@ namespace BetterChat;
 
 public sealed partial class MainWindow
 {
-    // 共享媒体的缩略图格子：方形裁切，视频叠播放图标，点开看图浮层，下面一个「定位」。
+    // 共享媒体的缩略图格子：方形裁切，视频叠播放图标，点开看图浮层；定位原消息放在右键菜单里，不在每格下面占一行。
     private FrameworkElement MediaTile(Message message, MediaInfo media, bool video, Func<Task> locate, CancellationToken ct)
     {
         var image = new Image { Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill };
         var frame = new Grid { Width = 140, Height = 140, CornerRadius = new CornerRadius(6), Background = Brush("SubtleFillColorSecondaryBrush") };
-        frame.Children.Add(new FontIcon { Glyph = video ? "\uE714" : "\uEB9F", FontSize = 24, Opacity = 0.4 });
+        // 视频本身叠了播放按钮，没缩略图时不再垫一个图标，免得两个图标叠在一起。
+        if (!video) frame.Children.Add(new FontIcon { Glyph = "\uEB9F", FontSize = 24, Opacity = 0.4 });
         frame.Children.Add(image);
         if (video) frame.Children.Add(new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0)),
             Child = new FontIcon { Glyph = "\uE768", FontSize = 14, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White) } });
@@ -29,10 +30,14 @@ public sealed partial class MainWindow
                 catch (OperationCanceledException) { }
                 catch (Exception) { /* 缩略图失败只显示占位图标，点开仍可看原图。 */ }
             };
-        var link = new HyperlinkButton { Content = "定位", Padding = new Thickness(0), FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center };
-        link.Click += async (_, _) => await Guard(locate);
-        var panel = new StackPanel { Spacing = 2 }; panel.Children.Add(open); panel.Children.Add(link);
-        return panel;
+        ToolTipService.SetToolTip(open, $"{PeerName(message.SenderId, Scene.Friend)} · {DateTimeOffset.FromUnixTimeSeconds(message.Time).ToLocalTime():g}");
+        var menu = new MenuFlyout();
+        var view = new MenuFlyoutItem { Text = video ? "播放" : "查看", Icon = new FontIcon { Glyph = "\uE8A7" } };
+        view.Click += async (_, _) => await Guard(() => OpenViewer(message, media));
+        var jump = new MenuFlyoutItem { Text = "定位原消息", Icon = new FontIcon { Glyph = "\uE8BD" } };
+        jump.Click += async (_, _) => await Guard(locate);
+        menu.Items.Add(view); menu.Items.Add(jump); open.ContextFlyout = menu;
+        return open;
     }
 
     private async Task ShowSharedMedia(long chat)
@@ -49,7 +54,7 @@ public sealed partial class MainWindow
         var order = new ComboBox { Header = "排序", SelectedIndex = 0, MinWidth = 110 };
         foreach (var label in new[] { "最新", "最早", "大小", "发送者" }) order.Items.Add(label);
         order.SelectedIndex = 0;
-        var sender = new TextBox { Header = "发送者 QQ", PlaceholderText = "全部", Width = 160 };
+        var sender = new TextBox { Header = "发送者 QQ", PlaceholderText = "所有人", Width = 160 };
         var status = new TextBlock { Style = Res<Style>("SecondaryCaptionTextBlockStyle") };
         // 图片、视频、表情用缩略图网格（点开进看图浮层），语音和文件用行。
         var grid = new GridView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false };
@@ -76,7 +81,7 @@ public sealed partial class MainWindow
                     string detail = $"{Bytes(item.Size)} · {PeerName(item.SenderId, Scene.Friend)} · {DateTimeOffset.FromUnixTimeSeconds(item.Time).ToLocalTime():g}";
                     var row = FileRow(item.Segment?.Record is not null ? "\uE720" : FileGlyph(name), name, detail,
                         media is not null ? () => ShowMedia(message, media, name) : Locate);
-                    var menu = new MenuFlyout(); var locate = new MenuFlyoutItem { Text = "定位原消息", Icon = new FontIcon { Glyph = "\uE8A7" } };
+                    var menu = new MenuFlyout(); var locate = new MenuFlyoutItem { Text = "定位原消息", Icon = new FontIcon { Glyph = "\uE8BD" } };
                     locate.Click += async (_, _) => await Guard(Locate); menu.Items.Add(locate); row.ContextFlyout = menu;
                     files.Children.Add(row);
                 }

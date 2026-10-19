@@ -21,6 +21,12 @@ public static class DialogListFormat
         return time.ToString("yy/MM/dd", Chinese);
     }
 
+    // 有的昵称只由不可见字符组成（2026-10-19 好友列表实测有一个只含 U+2062），显示出来是空白行，
+    // 这类名字按空处理、改用备注或号码。
+    public static bool HasVisibleText(string? text) => !string.IsNullOrEmpty(text) && text.Any(c =>
+        !char.IsWhiteSpace(c) && char.GetUnicodeCategory(c) is not (UnicodeCategory.Format or UnicodeCategory.Control)
+        && c is not ('\u3164' or '\u115F' or '\u1160' or '\uFFA0' or '\u2800'));
+
     public static string UnreadText(uint count) => count == 0 ? "" : count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
 
     public static bool IsMuted(Dialog dialog) => dialog.NotifyPolicy is "muted" or "archived";

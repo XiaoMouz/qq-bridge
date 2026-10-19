@@ -12,6 +12,8 @@ public sealed partial class MainWindow
     {
         var card = click is null ? new SettingsCard() : new ClickableSettingsCard { IsClickEnabled = true };
         card.Header = header; card.HeaderIcon = new FontIcon { Glyph = glyph }; card.Content = content;
+        // 不设的话读屏和 UI 自动化取的是右侧内容（「780.5 MB」），不是标题。
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(card, header);
         if (description is not null) card.Description = description;
         if (click is not null)
         {
@@ -88,6 +90,7 @@ public sealed partial class MainWindow
             content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 14 });
             content.Children.Add(new TextBlock { Text = label });
             var button = new Button { Content = content };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
             if (first) button.Style = Res<Style>("AccentButtonStyle");
             first = false;
             button.Click += async (_, _) => { button.IsEnabled = false; try { await Guard(action); } finally { button.IsEnabled = true; } };

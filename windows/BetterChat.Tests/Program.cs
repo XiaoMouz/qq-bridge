@@ -3143,6 +3143,8 @@ await Test("会话行时间、未读文字、免打扰切换和发送者前缀�
     // 2026-10-17（星期六）10:00 北京时间
     var now = new DateTimeOffset(2026, 10, 17, 2, 0, 0, TimeSpan.Zero);
     long At(int day, int hour) => new DateTimeOffset(2026, 10, day, hour, 30, 0, TimeSpan.FromHours(8)).ToUnixTimeSeconds();
+    Check(!DialogListFormat.HasVisibleText("\u2062") && !DialogListFormat.HasVisibleText("\u3164 \u200B") && !DialogListFormat.HasVisibleText(""));
+    Check(DialogListFormat.HasVisibleText("\u3000old blue") && DialogListFormat.HasVisibleText("-"));
     Check(DialogListFormat.ListTime(0, now, zone) == "");
     Check(DialogListFormat.ListTime(At(17, 0), now, zone) == "00:30");
     Check(DialogListFormat.ListTime(At(16, 23), now, zone) == "昨天");

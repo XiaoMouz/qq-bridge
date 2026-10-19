@@ -32,6 +32,7 @@ public sealed partial class MainWindow
             pill.Content = state is null ? null : StatusPill(state.LoggedIn ? "已登录" : "未登录", state.LoggedIn ? Health.Ok : Health.Error);
             error.Text = vm.RefreshQr.Error ?? vm.Load.Error ?? state?.Error ?? "";
             refresh!.IsEnabled = state is { LoggedIn: false } && !vm.RefreshQr.IsBusy;
+            refresh.Visibility = state?.LoggedIn == true ? Visibility.Collapsed : Visibility.Visible;
             string address = state is { LoggedIn: false } ? state.QrcodeUrl : "";
             if (address == shownUrl) return;
             shownUrl = address; picture.Children.Clear(); qrCard.Visibility = Visibility.Collapsed;
