@@ -82,3 +82,5 @@
 - **WinUI 内容「靠左、最宽 N」（2026-10-17，2 次）**：Windows 右栏给 StackPanel 设 MaxWidth + Stretch 会被居中，左边空一大块；改成 Left 又只按内容宽度排，SettingsCard 被挤窄、右侧数值掉到第二行。用星号列加 MaxWidth（`<ColumnDefinition Width="*" MaxWidth="800"/>`）。改完在宽窗口截图看一次。
 
 - **代码里创建的 C# 子类控件（2026-10-17，1 次）**：`ClickableSettingsCard` 只在代码里 new、XAML 没引用，编译器不生成类型信息，运行时按 ButtonBase 套 SettingsCard 样式直接崩溃（事件日志只有 0xc000027b）。新子类控件要在 XAML 里引用一次；崩溃先看 `%LOCALAPPDATA%\BetterChat\crash.log`。
+
+- **WinUI 代码里取主题画刷（2026-10-19，1 次）**：`Application.Current.Resources["XxxBrush"]` 只按应用级主题（浅色）取值，窗口设了深色后，代码创建的气泡还是浅色主题的颜色、次要文字变成深灰看不见。代码里要按窗口实际主题查主题字典（Windows 客户端见 `MainWindow.Bubbles.cs` 的 `Brush()`），主题变化时重建代码创建的控件；深色模式要截图看一次。
