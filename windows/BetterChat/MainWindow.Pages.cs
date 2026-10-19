@@ -93,8 +93,9 @@ public sealed partial class MainWindow
         if (name == "关于")
         {
             var icon = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppIcon.png")), Width = 72, Height = 72 };
-            string version = typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
+            string version = updater.CurrentVersion;
             Details.Children.Add(Hero(icon, "BetterChat", "QQ Bridge 的 Windows 原生客户端", "WinUI 3 · Fluent Design · ConnectRPC" + (version.Length > 0 ? " · " + version : "")));
+            AddUpdateSection();
             Details.Children.Add(SectionHeader("快捷键"));
             foreach (var (keys, what, glyph) in new[] { ("Ctrl + K", "搜索消息、联系人和群聊", "\uE721"), ("Ctrl + F", "在当前会话中查找", "\uE773"),
                 ("Enter / Shift + Enter", "发送 / 换行", "\uE724"), ("Alt + ← / 鼠标返回键", "返回上一页", "\uE72B"), ("← → / Esc", "查看器里切换图片 / 关闭", "\uEB9F") })

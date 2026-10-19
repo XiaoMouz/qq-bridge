@@ -40,6 +40,8 @@
    </NavigationView.PaneFooter>
    <NavigationView.FooterMenuItems>
     <NavigationViewItem x:Name="SettingsNavItem" Tag="settings" Content="设置" ToolTipService.ToolTip="设置">
+     <!-- 有下好的新版本且还没在「关于」里看过：一个小圆点（不是数字，免得和未读混淆）。 -->
+     <NavigationViewItem.InfoBadge><InfoBadge x:Name="UpdateBadge" Visibility="Collapsed"/></NavigationViewItem.InfoBadge>
      <NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon>
     </NavigationViewItem>
    </NavigationView.FooterMenuItems>

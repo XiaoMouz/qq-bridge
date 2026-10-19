@@ -1,0 +1,122 @@
+# Windows 版发布：dotnet publish（自包含 x64）→ Velopack 打包（安装程序 + 全量 / 增量更新包）→ 传 R2 → GitHub Release。
+# 触发：推 win-v* 标签（win-v1.2.0 → 版本 1.2.0；Velopack 要三段式），或在 Actions 页面手动运行（填版本号，只上传构建产物，不传 R2）。
+#
+# 自动更新：程序从 UPDATE_HOST/betterchat/windows/x64 读 releases.win.json（地址在发布时编进程序集）。
+#   R2 上保留最近 3 个版本：增量包要以上一版的全量包为基准，打包前先把它下载回来。
+#   Secrets：R2_ACCOUNT_ID、R2_ACCESS_KEY_ID、R2_SECRET_ACCESS_KEY、R2_BUCKET（和 macOS 共用）
+#   Variables：UPDATE_HOST（和 macOS 共用，例如 https://update.mou.best）
+#   没配这些时照常出安装程序，只是程序里没有更新源、不传 R2。
+# 包 ID 是 XiaoMouz.BetterChat：安装到 %LocalAppData%\XiaoMouz.BetterChat，和数据目录 %LocalAppData%\BetterChat 分开（卸载会删整个安装目录）。
+# 没有代码签名：第一次运行安装程序时 SmartScreen 会拦一下（「更多信息 → 仍要运行」），之后的自动更新不受影响。
+name: Windows release
+
+on:
+  push:
+    tags: ["win-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号（三段式，例如 1.0.0）
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+env:
+  VPK_VERSION: "1.2.161"
+  PACK_ID: XiaoMouz.BetterChat
+  UPDATE_PATH: betterchat/windows/x64
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 版本号
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then v="${GITHUB_REF_NAME#win-v}"; else v="$INPUT_VERSION"; fi
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "版本号要三段式（例如 1.0.0）：$v" >&2; exit 1; }
+          echo "VERSION=$v" >>"$GITHUB_ENV"
+
+      - name: 更新说明（上一个 win-v 标签之后的提交标题）
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'win-v*' HEAD^ 2>/dev/null || true)
+          range=${prev:+$prev..}HEAD
+          if [ -n "$prev" ]; then limit=40; else limit=15; fi
+          # 和 macOS 一样：只算 Windows 客户端代码的改动，去掉「类型(范围):」前缀，chore / ci / docs / test / build 不列，每条取第一句。
+          git log --no-merges --format='%s' "$range" -- windows/BetterChat windows/BetterChat.Application windows/BetterChat.Core \
+              windows/BetterChat.Domain windows/BetterChat.Infrastructure packages/protocol/proto \
+            | perl -Mutf8 -CSD -ne 'chomp; next if /^(chore|ci|docs|test|build|style)(\(.*?\))?!?:/; s/^\w+(\(.*?\))?!?:\s*//; s/[：；（].*//; print "• ", substr($_, 0, 60), "\n"' \
+            | head -n "$limit" >"$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || echo "• 问题修复和改进" >"$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: 发布（自包含 x64）
+        env:
+          UPDATE_HOST: ${{ vars.UPDATE_HOST }}
+        run: |
+          url=""
+          if [ -n "$UPDATE_HOST" ]; then url="$UPDATE_HOST/$UPDATE_PATH"; fi
+          dotnet publish windows/BetterChat -c Release -r win-x64 -p:Platform=x64 --self-contained \
+            -p:Version="$VERSION" -p:UpdateUrl="$url" -o "$RUNNER_TEMP/publish"
+          # 少了 PRI 装好的程序一启动就 XAML 解析失败（见 csproj 的 EnableMsixTooling）。
+          test -f "$RUNNER_TEMP/publish/BetterChat.pri"
+
+      - name: 装 vpk
+        run: dotnet tool install -g vpk --version "$VPK_VERSION"
+
+      - name: 取上一版（生成增量包用）
+        if: vars.UPDATE_HOST != ''
+        env:
+          UPDATE_HOST: ${{ vars.UPDATE_HOST }}
+        run: vpk download http --url "$UPDATE_HOST/$UPDATE_PATH" -o "$RUNNER_TEMP/releases" --allowEmptyChannel
+
+      - name: 打包
+        run: |
+          vpk pack -u "$PACK_ID" -v "$VERSION" -p "$RUNNER_TEMP/publish" -e BetterChat.exe --packTitle BetterChat \
+            -i windows/BetterChat/Assets/AppIcon.ico --releaseNotes "$RUNNER_TEMP/notes.md" -o "$RUNNER_TEMP/releases"
+          cp "$RUNNER_TEMP/releases/$PACK_ID-win-Setup.exe" "$RUNNER_TEMP/BetterChat-Setup-$VERSION.exe"
+          ls -la "$RUNNER_TEMP/releases"
+
+      - name: 传 R2（只在推标签时）
+        if: startsWith(github.ref, 'refs/tags/win-v')
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          if [ -z "$R2_BUCKET" ]; then echo "没配 R2，跳过上传"; exit 0; fi
+          vpk upload s3 -o "$RUNNER_TEMP/releases" --bucket "$R2_BUCKET" --endpoint "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+            --keyId "$R2_ACCESS_KEY_ID" --secret "$R2_SECRET_ACCESS_KEY" --region auto --prefix "$UPDATE_PATH/" --keepMaxReleases 3
+
+      - name: 上传安装程序
+        uses: actions/upload-artifact@v4
+        with:
+          name: BetterChat-Windows-Setup
+          path: ${{ runner.temp }}/BetterChat-Setup-${{ env.VERSION }}.exe
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/win-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/BetterChat-Setup-$VERSION.exe" \
+            --title "BetterChat for Windows $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

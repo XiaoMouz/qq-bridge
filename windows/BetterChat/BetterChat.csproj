@@ -11,9 +11,21 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- 不打 MSIX 也要开：否则 dotnet publish 不带 BetterChat.pri 和 .xbf，装好的程序一启动就 XAML 解析失败（2026-10-19 实测）。 -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 发布时 CI 用标签里的版本覆盖（win-v1.2.0 → -p:Version=1.2.0）；Velopack 要三段式 SemVer。 -->
+    <Version>1.0.0</Version>
+    <!-- exe、安装程序和快捷方式的图标（由 iOS 的 AppIcon.png 转成，含 16–256 几种尺寸）。 -->
+    <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
+    <!-- 入口在 Program.cs：先处理 Velopack 的安装 / 更新钩子再启动 WinUI。 -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
+  <!-- 更新源地址由发布流水线传入（-p:UpdateUrl=…/betterchat/windows/x64）；本机构建没有它，就不检查更新。 -->
+  <ItemGroup Condition="'$(UpdateUrl)' != ''">
+    <AssemblyMetadata Include="UpdateUrl" Value="$(UpdateUrl)" />
+  </ItemGroup>
   <ItemGroup>
     <Content Include="../../ios/QQBridge/Resources/QQFaces/s*.png" Link="Assets/QQFaces/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="Assets/FaceCatalog.json" CopyToOutputDirectory="PreserveNewest" />
@@ -22,6 +34,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
     <ProjectReference Include="../BetterChat.Core/BetterChat.Core.csproj" />
   </ItemGroup>
 </Project>

@@ -3137,6 +3137,19 @@ await Test("导航未读角标与 iOS 规则一致", () =>
     Check(new DialogRowViewModel(D("muted")).BadgeCount == 3);
     return Task.CompletedTask;
 });
+await Test("自动更新：6 小时查一次，下好才亮圆点，看过就不再亮", () =>
+{
+    var now = new DateTimeOffset(2026, 10, 19, 12, 0, 0, TimeSpan.FromHours(8));
+    Check(AppUpdateState.IsDue(null, now) && AppUpdateState.IsDue(now.AddHours(-6), now) && !AppUpdateState.IsDue(now.AddHours(-5), now));
+    var ready = new AppUpdateState(UpdatePhase.Ready, "1.1.0");
+    Check(ready.ShowsBadge(null) && ready.ShowsBadge("1.0.1") && !ready.ShowsBadge("1.1.0"));
+    Check(!new AppUpdateState(UpdatePhase.Downloading, "1.1.0", 40).ShowsBadge(null));
+    Check(new AppUpdateState(UpdatePhase.Downloading, "1.1.0", 40).Description(now) == "正在下载新版本 1.1.0（40%）");
+    Check(new AppUpdateState(UpdatePhase.Idle, LastCheck: now.AddMinutes(-5)).Description(now).StartsWith("已是最新版本 · 上次检查 ", StringComparison.Ordinal));
+    Check(new AppUpdateState(UpdatePhase.Idle).Description(now) == "已是最新版本");
+    Check(new AppUpdateState(UpdatePhase.Failed).CanCheck && !new AppUpdateState(UpdatePhase.Checking).CanCheck && !ready.CanCheck);
+    return Task.CompletedTask;
+});
 await Test("连接提示：同步只写小字，横幅只留连不上、要重新登录和 QQ 掉线", () =>
 {
     Check(ConnectionNotice.Describe("正在连接…", null) == new ConnectionNotice(true, null, false));

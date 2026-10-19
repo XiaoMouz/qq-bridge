@@ -25,6 +25,16 @@ dotnet run --project windows/BetterChat.Tests
 dotnet build windows/BetterChat -p:Platform=x64 -p:OutputPath=bin/validation/
 ```
 
+## 发布与自动更新
+
+用 [Velopack](https://velopack.io) 打包和更新，流水线见 `.github/workflows/windows-release.yml`：推 `win-v1.2.0` 这样的标签（三段式版本）就会发布、打安装程序、传 R2（`$UPDATE_HOST/betterchat/windows/x64`，保留最近 3 个版本以便生成增量包）并建 GitHub Release；在 Actions 页面手动运行只上传构建产物。R2 的 Secrets 和 `UPDATE_HOST` 变量与 macOS 共用。
+
+- 安装：运行 `BetterChat-Setup-x.y.z.exe`，装到 `%LOCALAPPDATA%/XiaoMouz.BetterChat`，不需要管理员。包 ID 故意不叫 `BetterChat`：卸载会删整个安装目录，不能和数据目录 `%LOCALAPPDATA%/BetterChat` 重名。没有代码签名，第一次运行安装程序时 SmartScreen 会提示，之后的更新不受影响。
+- 更新：启动和回到前台时（6 小时一次）后台检查、后台下载，下好后「设置」上亮一个圆点，「关于」里写明新版本和更新说明，可「重启并更新」；不点的话关闭窗口时安静地换上，下次打开就是新版。
+- 更新源地址在发布时编进程序集（`-p:UpdateUrl=…`）。本机 `dotnet build` 的版本没有它，关于页显示「本机构建不自动更新」。
+- 本机试更新：`dotnet publish` 两个版本（`-p:Version=1.0.0`、`1.0.1`，`-p:UpdateUrl=<本地目录>`），用 `vpk pack -u XiaoMouz.BetterChat … -o <本地目录>` 打进同一个目录，装第一个版本的 Setup 后启动即可；也可以用启动参数 `-debugUpdateSource <地址或目录>` 换更新源。测完用安装目录里的 `Update.exe --uninstall --silent` 卸载。
+- `dotnet publish` 依赖 csproj 里的 `EnableMsixTooling`：少了它发布目录里没有 `BetterChat.pri`，装好的程序一启动就 XAML 解析失败。
+
 ## 登录和界面
 
 登录表单输入服务器、QQ Bridge 用户名（默认 `owner`）和密码。客户端调用 `AuthService.Login` 获取设备凭据；密码不保存，返回的凭据通过 Windows 当前用户 DPAPI 加密保存在 `%LOCALAPPDATA%/BetterChat/session.json`。这不是 QQ 密码登录。

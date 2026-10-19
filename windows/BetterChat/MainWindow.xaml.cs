@@ -137,6 +137,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(Search, "搜索消息、联系人和群聊 (Ctrl+K)");
         Root.KeyboardAccelerators.Add(find);
         InitializeShell();
+        InitializeUpdates();
     }
 
     private async Task Guard(Func<Task> action)
@@ -385,7 +386,7 @@ public sealed partial class MainWindow : Window
         {
             foreach (var (title, sub, glyph) in new[] { ("连接与账号", "账号与登录状态", ""), ("外观", "主题与阅读体验", ""), ("设备", "已连接的设备", ""),
                 ("存储", "服务端空间与缓存", ""), ("服务端状态", "QQ、队列与通话桥", ""), ("存档完整性", "消息缺口与深度归档", ""),
-                ("通话记录", "最近的 QQ 通话", ""), ("关于", "BetterChat for Windows", "") })
+                ("通话记录", "最近的 QQ 通话", ""), ("关于", AboutSubtitle,"") })
                 next.Add(new(title, sub, "", title) { Glyph = glyph });
         }
         var existing = entries.ToDictionary(e => e.Key);
