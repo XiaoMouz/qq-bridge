@@ -94,6 +94,7 @@ struct ChatScreen: View {
   @State private var pasteQuietUntil = Date.distantPast
   /// 拖放提示跟随平台：Mac 先预览附件，iOS 保留松手发送。
   @State private var dropTargeted = false
+  @Environment(\.scenePhase) private var scenePhase
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
@@ -325,6 +326,7 @@ struct ChatScreen: View {
     }
     #if !targetEnvironment(macCatalyst)
     .dropDestination(for: DroppedItem.self) { items, _ in
+      dropTargeted = false
       let queue = composer.attachmentQueue
       queue.enqueueImport({ await AttachmentLoader.load(drops: items) }) { succeeded in
         // 草稿已移交或页面已离开时保留预览，不让迟到的拖放结果发出另一份草稿。
@@ -338,6 +340,10 @@ struct ChatScreen: View {
     #endif
     .overlay { if dropTargeted { DropHint().transition(.opacity) } }
     .animation(.easeOut(duration: 0.15), value: dropTargeted)
+    // 「松手发送」的毛玻璃只靠系统的「拖进 / 拖出」回调开关。2026-10-19 用户反馈：加图片、选回复后偶尔留下一层蒙层盖住聊天，
+    // 很可能是拖动被打断（长按菜单、相册拖进来又取消）时没收到「拖出」。输入框有了新内容、页面回到前台时都收掉它。
+    .modifier(DropHintReset(targeted: $dropTargeted, imports: composer.attachmentQueue.pendingImports,
+                            reply: composer.replyTo?.seq, phase: scenePhase))
     .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
     .onChange(of: inputFocused) { _, focused in
       // 弹窗、资料卡、下一级页面关掉回来时，系统会把焦点自动还给输入框：这种不算"要输入了"，不提示粘贴。
@@ -1678,4 +1684,19 @@ struct GroupVoiceBar: ViewModifier {
 extension EnvironmentValues {
   /// Mac 主窗口的聊天页：资料按钮打开 / 收起右侧检查器（由工作区协调器实现）。为 nil 时（快速回复浮层、iOS）推入页面。
   @Entry var macToggleChatInfo: (() -> Void)? = nil
+}
+
+/// 收掉卡住的「松手发送」蒙层（单独的修饰器：聊天页 body 很长，见 lessons L5）。
+struct DropHintReset: ViewModifier {
+  @Binding var targeted: Bool
+  let imports: Int
+  let reply: Int64?
+  let phase: ScenePhase
+
+  func body(content: Content) -> some View {
+    content
+      .onChange(of: imports) { _, _ in targeted = false }
+      .onChange(of: reply) { _, _ in targeted = false }
+      .onChange(of: phase) { _, _ in targeted = false }
+  }
 }
