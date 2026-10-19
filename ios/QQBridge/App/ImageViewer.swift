@@ -50,7 +50,7 @@ struct ImageViewer: View {
       TabView(selection: $current) {
         ForEach(items) { t in
           ImagePageView(page: page(for: t), onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } },
-                        onDrag: { dragProgress = $0 }, onDismiss: close, menu: imageMenu(for: t))
+                        onDrag: { dragProgress = $0 }, onDismiss: close)
             .tag(t.id)
             .ignoresSafeArea()
         }
@@ -74,6 +74,10 @@ struct ImageViewer: View {
     .onAppear {
       current = target.id
       withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true }
+      #if targetEnvironment(macCatalyst)
+      // 右键菜单挂在媒体窗口的根视图上（见 MacMediaWindows），这里告诉它当前这张图的菜单。
+      mediaWindow?.menu = { imageMenu(for: items[index])?() }
+      #endif
     }
     .onChange(of: current) { _, id in
       // 翻到哪张加载哪张，顺带预加载左右两张。
@@ -403,8 +407,6 @@ struct ZoomableImage: UIViewRepresentable {
   var onDrag: (CGFloat) -> Void = { _ in }
   /// 拖够了松手：关闭。
   var onDismiss: (() -> Void)? = nil
-  /// Mac 右键菜单（2026-10-19：滚动视图会吃掉 SwiftUI 的 .contextMenu，所以在 UIKit 这层加）。
-  var menu: (() -> UIMenu?)? = nil
 
   func makeCoordinator() -> Coordinator { Coordinator(onTap: onTap) }
 
@@ -428,9 +430,6 @@ struct ZoomableImage: UIViewRepresentable {
     let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pan(_:)))
     pan.delegate = context.coordinator
     scroll.addGestureRecognizer(pan)
-    #if targetEnvironment(macCatalyst)
-    scroll.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
-    #endif
     return scroll
   }
 
@@ -438,7 +437,6 @@ struct ZoomableImage: UIViewRepresentable {
     context.coordinator.onTap = onTap
     context.coordinator.onDrag = onDrag
     context.coordinator.onDismiss = onDismiss
-    context.coordinator.menu = menu
     if scroll.imageView.image !== image {
       let keepZoom = scroll.zoomScale > 1 && scroll.imageView.image.map { abs($0.size.width / $0.size.height - image.size.width / image.size.height) < 0.01 } == true
       scroll.imageView.image = image
@@ -448,18 +446,10 @@ struct ZoomableImage: UIViewRepresentable {
     }
   }
 
-  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate, @MainActor UIGestureRecognizerDelegate,
-                                     @MainActor UIContextMenuInteractionDelegate {
+  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate, @MainActor UIGestureRecognizerDelegate {
     var onTap: () -> Void
     var onDrag: (CGFloat) -> Void = { _ in }
     var onDismiss: (() -> Void)?
-    var menu: (() -> UIMenu?)?
-
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-      guard let menu, let built = menu() else { return nil }
-      return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
-    }
     init(onTap: @escaping () -> Void) { self.onTap = onTap }
 
     /// 下拉关闭只在没放大、明显往下拖时接手（其余交给滚动和左右翻页）。
@@ -979,12 +969,11 @@ struct ImagePageView: View {
   let onTap: () -> Void
   let onDrag: (CGFloat) -> Void
   let onDismiss: () -> Void
-  var menu: (() -> UIMenu?)? = nil
 
   var body: some View {
     ZStack {
       if let image = page.image {
-        ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss, menu: menu)
+        ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss)
       }
       if page.original == nil, !page.originalFailed {
         ProgressView().tint(.white).controlSize(.large)

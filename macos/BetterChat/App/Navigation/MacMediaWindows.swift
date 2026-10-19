@@ -88,12 +88,16 @@ final class MacMediaWindows {
 @MainActor
 final class MacMediaWindowContext {
   weak var scene: UIWindowScene?
+  /// 右键菜单：查看器给出当前这张图的菜单（2026-10-19 实机：加在缩放视图上的右键交互收不到右键，
+  /// 改加在窗口根视图上，由查看器提供内容）。
+  var menu: (() -> UIMenu?)?
   private var cleanups: [String: () -> Void] = [:]
   func registerCleanup(_ key: String, action: @escaping () -> Void) { cleanups[key] = action }
   func releaseResources() {
     let actions = cleanups.values
     cleanups.removeAll()
     for action in actions { action() }
+    menu = nil
   }
   func close() {
     guard let scene else { return }
@@ -135,7 +139,7 @@ final class MacMediaSceneDelegate: UIResponder, UIWindowSceneDelegate {
     window.tintColor = .systemBlue
     model.content = content
     window.rootViewController = MacMediaWindowHost(rootView: MacMediaWindowRoot(model: model)
-      .environment(AppModel.shared).environment(\.macMediaWindow, context))
+      .environment(AppModel.shared).environment(\.macMediaWindow, context), context: context)
     self.window = window
     window.makeKeyAndVisible()
     scene.requestGeometryUpdate(.Mac(systemFrame: CGRect(x: 160, y: 120, width: 880, height: 660)))
@@ -165,8 +169,10 @@ final class MacMediaSceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// 将共享查看器限制在原生标题栏以下，避免 iOS 的 ignoresSafeArea 把深色背景铺到浅色标题下面。
 final class MacMediaWindowHost<Content: View>: UIViewController {
   private let host: UIHostingController<Content>
-  init(rootView: Content) {
+  private let menuSource: MacMediaMenuSource
+  init(rootView: Content, context: MacMediaWindowContext) {
     host = UIHostingController(rootView: rootView)
+    menuSource = MacMediaMenuSource(context: context)
     super.init(nibName: nil, bundle: nil)
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -184,8 +190,21 @@ final class MacMediaWindowHost<Content: View>: UIViewController {
       host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
     host.didMove(toParent: self)
+    view.addInteraction(UIContextMenuInteraction(delegate: menuSource))
   }
+}
 
+/// 媒体窗口根视图上的右键菜单（委托不能放在泛型类里：Objective-C 运行时找不到泛型类型里的委托方法）。
+@MainActor
+final class MacMediaMenuSource: NSObject, UIContextMenuInteractionDelegate {
+  private weak var context: MacMediaWindowContext?
+  init(context: MacMediaWindowContext) { self.context = context }
+
+  func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                              configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+    guard let menu = context?.menu?() else { return nil }
+    return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in menu }
+  }
 }
 
 /// 媒体窗口正在显示的内容；换内容时 version 加一，整个查看器按新内容重建（翻页位置、播放器都从头来）。
