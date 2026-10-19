@@ -183,6 +183,20 @@
       "when": 1791878400000,
       "tag": "0025_call_group",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792382548000,
+      "tag": "0026_upstream_message_lookup",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792393950000,
+      "tag": "0027_upstream_status_indexes",
+      "breakpoints": true
     }
   ]
 }

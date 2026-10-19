@@ -59,6 +59,7 @@ export interface Hole {
 
 export class HoleFiller {
   private readonly running = new Map<number, Promise<void>>();
+  private readonly holeQueries = new Map<string, Promise<Hole[]>>();
   private readonly o: Required<Omit<HistoryOptions, 'logger'>> & Pick<HistoryOptions, 'logger'>;
   private timer: NodeJS.Timeout | null = null;
 
@@ -152,18 +153,34 @@ export class HoleFiller {
 
   /** 某个 QQ 号下所有会话的缺口（按会话的 [最早一条, 最新一条] 计算）。 */
   async holes(qqAccountId: number, chatId?: number): Promise<Hole[]> {
+    // 2026-10-19：状态页并发请求曾占满连接池，导致实时收件箱无法入库。
+    // 只合并尚未完成的同范围查询，不缓存结果，以免补历史后仍看到旧缺口。
+    const key = `${qqAccountId}:${chatId ?? 'all'}`;
+    let pending = this.holeQueries.get(key);
+    if (!pending) {
+      pending = this.queryHoles(qqAccountId, chatId).finally(() => this.holeQueries.delete(key));
+      this.holeQueries.set(key, pending);
+    }
+    // 补历史会按优先级原地排序，调用方不能共享可变数组或条目。
+    return (await pending).map((hole) => ({ ...hole }));
+  }
+
+  private async queryHoles(qqAccountId: number, chatId?: number): Promise<Hole[]> {
     const list = await rows<{ chat_id: number; lower: string; upper: string; deep: boolean }>(
       this.db,
-      sql`with known as (
-            select c.id, c.verified_ranges + coalesce(range_agg(int8range(m.seq, m.seq + 1)), '{}') as k,
-                   min(m.seq) as lo, max(m.seq) as hi, c.deep_archive_at is not null as deep
-              from chats c join messages m on m.chat_id = c.id
-             where c.qq_account_id = ${qqAccountId} and c.scene in ('friend', 'group')
-               ${chatId === undefined ? sql`` : sql`and c.id = ${chatId}`}
-             group by c.id)
-          select id as chat_id, lower(r) as lower, upper(r) as upper, upper(r) <= lo as deep
-            from known, unnest(int8multirange(int8range(case when deep then 1 else lo end, hi + 1)) - k) as r
-           order by id, lower(r)`,
+      // 2026-10-19 实测：先把全部消息与会话范围连接再聚合会产生约 201 MiB 临时写入。
+      // 按会话聚合只携带 seq，保留原有缺口语义，并避免宽行哈希聚合落盘。
+      sql`select c.id as chat_id, lower(r) as lower, upper(r) as upper, upper(r) <= m.lo as deep
+            from chats c cross join lateral (
+              select min(seq) as lo, max(seq) as hi, range_agg(int8range(seq, seq + 1)) as k
+                from messages where chat_id = c.id
+            ) m cross join lateral unnest(
+              int8multirange(int8range(case when c.deep_archive_at is not null then 1 else m.lo end, m.hi + 1))
+                - (c.verified_ranges + coalesce(m.k, '{}'))
+            ) r
+           where c.qq_account_id = ${qqAccountId} and c.scene in ('friend', 'group') and m.lo is not null
+             ${chatId === undefined ? sql`` : sql`and c.id = ${chatId}`}
+           order by c.id, lower(r)`,
     );
     return list.map((h) => ({ chatId: h.chat_id, lower: Number(h.lower), upper: Number(h.upper), ...(h.deep ? { deep: true } : {}) }));
   }

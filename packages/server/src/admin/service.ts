@@ -51,6 +51,7 @@ export interface ChatArchive {
 const startedAt = new Date();
 
 export class AdminService {
+  private readonly statusQueries = new Map<number, Promise<SystemStatus>>();
   constructor(
     private readonly db: Db,
     private readonly deps: {
@@ -62,6 +63,16 @@ export class AdminService {
   ) {}
 
   async status(accountId: number): Promise<SystemStatus> {
+    // 客户端重试尚未返回的状态请求时，共享本轮统计，避免挤占消息入库连接。
+    let pending = this.statusQueries.get(accountId);
+    if (!pending) {
+      pending = this.queryStatus(accountId).finally(() => this.statusQueries.delete(accountId));
+      this.statusQueries.set(accountId, pending);
+    }
+    return pending;
+  }
+
+  private async queryStatus(accountId: number): Promise<SystemStatus> {
     const accounts = await rows<{ id: number; uin: number; nickname: string | null }>(
       this.db,
       sql`select id, uin, nickname from qq_accounts where account_id = ${accountId} order by id`,
@@ -74,7 +85,13 @@ export class AdminService {
       (
         await rows<{ qq_account_id: number; at: Date | string }>(
           this.db,
-          sql`select qq_account_id, max(received_at) as at from upstream_events where qq_account_id in (${idList}) group by 1`,
+          // 按账号从时间索引取一条，避免状态页每次刷新都扫描全部历史事件。
+          sql`select q.id as qq_account_id, e.received_at as at
+                from qq_accounts q cross join lateral (
+                  select received_at from upstream_events where qq_account_id = q.id
+                   order by received_at desc limit 1
+                ) e
+               where q.account_id = ${accountId}`,
         )
       ).map((r) => [Number(r.qq_account_id), new Date(r.at)]),
     );
@@ -82,7 +99,9 @@ export class AdminService {
       this.db,
       sql`select count(*) filter (where state = 'pending')::int as pending, count(*) filter (where state = 'failed')::int as failed,
                  count(*) filter (where state = 'ignored' and received_at > now() - interval '24 hours')::int as ignored
-            from upstream_events where qq_account_id in (${idList})`,
+            from upstream_events where qq_account_id in (${idList})
+             and state in ('pending', 'failed', 'ignored')
+             and (state <> 'ignored' or received_at > now() - interval '24 hours')`,
     );
     const media = await one<{ pending: number; failed: number; expired: number }>(
       this.db,

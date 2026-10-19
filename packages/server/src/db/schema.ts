@@ -491,6 +491,13 @@ export const upstreamEvents = pgTable(
       .on(t.qqAccountId, t.id)
       .where(sql`${t.state} = 'pending'`),
     index('upstream_events_processed_idx').on(t.processedAt),
+    index('upstream_events_message_id_idx')
+      .on(t.qqAccountId, sql`(${t.payload}->>'message_id')`, t.id.desc())
+      .where(sql`${t.payload} ? 'raw'`),
+    index('upstream_events_account_received_idx').on(t.qqAccountId, t.receivedAt.desc()),
+    index('upstream_events_attention_idx')
+      .on(t.qqAccountId, t.state, t.receivedAt)
+      .where(sql`${t.state} in ('pending', 'failed', 'ignored')`),
     check('upstream_events_state_check', sql`${t.state} in ('pending', 'done', 'ignored', 'failed')`),
   ],
 );

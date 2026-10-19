@@ -3,7 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { one } from '../src/db/client.ts';
 import { NapcatWebUi } from '../src/admin/napcat-webui.ts';
 import { AdminService } from '../src/admin/service.ts';
@@ -25,6 +25,73 @@ afterAll(async () => {
 });
 
 describe('deep archive and archive status', () => {
+  it('reports the newest receive time and actionable counts without mixing accounts or old ignored events', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const other = await createTestAccount(t.db, ingest);
+    const empty = await createTestAccount(t.db, ingest);
+    const latest = new Date(Date.now() - 60_000);
+    const old = new Date(Date.now() - 3 * 24 * 3600_000);
+    for (const a of [acc, other]) {
+      await t.db.execute(sql`insert into upstream_queues (queue_id, qq_account_id) values (${`status-${a.qqAccountId}`}, ${a.qqAccountId})`);
+    }
+    const events = [
+      ['pending', old],
+      ['failed', old],
+      ['ignored', latest],
+      ['done', latest],
+      ['ignored', old],
+      ['done', old], // id 最大的事件并非接收时间最新的事件。
+    ] as const;
+    for (const [i, [state, at]] of events.entries()) {
+      await t.db.execute(sql`insert into upstream_events (queue_id, cursor, qq_account_id, kind, payload, state, received_at)
+        values (${`status-${acc.qqAccountId}`}, ${i + 1}, ${acc.qqAccountId}, 'test', '{}'::jsonb, ${state}, ${at})`);
+    }
+    await t.db.execute(sql`insert into upstream_events (queue_id, cursor, qq_account_id, kind, payload, state, received_at)
+      values (${`status-${other.qqAccountId}`}, 1, ${other.qqAccountId}, 'test', '{}'::jsonb, 'pending', now())`);
+    const admin = new AdminService(t.db, {
+      upstream: () => null,
+      history: () => null,
+      calls: () => new CallService(t.db, ingest, null, null, null),
+      media: new MediaService(t.db, new LocalFsBackend('/tmp/qqbridge-admin-unused')),
+    });
+    const status = await admin.status(acc.accountId);
+    expect(status.inbox).toEqual({ pending: 1, failed: 1, ignored24h: 1 });
+    expect(status.qq).toHaveLength(1);
+    expect(status.qq[0]!.lastEventAt).toEqual(latest);
+    const noEvents = await admin.status(empty.accountId);
+    expect(noEvents.inbox).toEqual({ pending: 0, failed: 0, ignored24h: 0 });
+    expect(noEvents.qq[0]!.lastEventAt).toBeNull();
+  });
+
+  it('shares overlapping status requests without blocking message writes and retries failed statistics', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const holes = vi.fn(async () => { await gate; return []; });
+    const admin = new AdminService(t.db, {
+      upstream: () => null,
+      history: () => ({ holes, schedule() {} }),
+      calls: () => new CallService(t.db, ingest, null, null, null),
+      media: new MediaService(t.db, new LocalFsBackend('/tmp/qqbridge-admin-unused')),
+    });
+    const requests = Array.from({ length: 12 }, () => admin.status(acc.accountId));
+    try {
+      await vi.waitFor(() => expect(holes).toHaveBeenCalledTimes(1));
+      await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 970099, 1, 20002));
+    } finally {
+      release();
+    }
+    const statuses = await Promise.all(requests);
+    expect(statuses).toHaveLength(12);
+    expect(holes).toHaveBeenCalledTimes(1);
+    holes.mockRejectedValueOnce(new Error('temporary statistics failure'));
+    await expect(admin.status(acc.accountId)).rejects.toThrow('temporary statistics failure');
+    await expect(admin.status(acc.accountId)).resolves.toMatchObject({ inbox: { pending: 0 } });
+    expect(holes).toHaveBeenCalledTimes(3);
+  });
+
   it('fills history from the very first message after ordinary holes, then reports it complete', async () => {
     const { ingest } = services(t.db);
     const acc = await createTestAccount(t.db, ingest);

@@ -1,6 +1,6 @@
 // 存档完整性：缺口检测与补齐、QQ 上本来就没有的 seq、单条失败不影响其他消息、懒回填。
 import { sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { one, rows } from '../src/db/client.ts';
 import { stripNul } from '../src/db/nul.ts';
 import { HoleFiller } from '../src/upstream/history.ts';
@@ -35,6 +35,61 @@ const range = (from: number, to: number) => Array.from({ length: to - from + 1 }
 const historyCalls = (qq: FakeQq) => qq.calls.filter((c) => c.action === 'x.history');
 
 describe('HoleFiller', () => {
+  it('keeps gaps, verified ranges, deep history and empty chats isolated per chat and account', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const other = await createTestAccount(t.db, ingest);
+    for (const [peer, seqs] of [[810090, [5, 10, 20]], [810091, [3, 7]]] as const) {
+      for (const seq of seqs) await ingest.ingestMessage(acc.qqAccountId, textMessage('group', peer, seq, 20002));
+    }
+    for (const seq of [1, 50]) await ingest.ingestMessage(other.qqAccountId, textMessage('group', 810090, seq, 20002));
+    const first = await chatId(acc, 810090);
+    const second = await chatId(acc, 810091);
+    await t.db.execute(sql`update chats set verified_ranges = '{[6,10),[12,18)}'::int8multirange where id = ${first}`);
+    await t.db.execute(sql`update chats set verified_ranges = '{[1,2),[4,6)}'::int8multirange, deep_archive_at = now() where id = ${second}`);
+    await t.db.execute(sql`insert into chats (qq_account_id, scene, peer_id, deep_archive_at, dialog_pts)
+      values (${acc.qqAccountId}, 'group', 810092, now(), 0)`);
+    const filler = new HoleFiller(t.db, new FakeQq(acc.uin), new InboxProcessor(t.db, ingest), null);
+    expect(await filler.holes(acc.qqAccountId)).toEqual([
+      { chatId: first, lower: 11, upper: 12 },
+      { chatId: first, lower: 18, upper: 20 },
+      { chatId: second, lower: 2, upper: 3, deep: true },
+      { chatId: second, lower: 6, upper: 7 },
+    ]);
+    expect(await filler.holes(acc.qqAccountId, second)).toEqual([
+      { chatId: second, lower: 2, upper: 3, deep: true },
+      { chatId: second, lower: 6, upper: 7 },
+    ]);
+    expect(await filler.holes(other.qqAccountId, first)).toEqual([]);
+  });
+
+  it('shares concurrent hole queries, isolates returned data, and refreshes after completion or failure', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    for (const seq of [1, 3]) await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810099, seq, 20002));
+    const filler = new HoleFiller(t.db, new FakeQq(acc.uin), new InboxProcessor(t.db, ingest), null);
+    const execute = vi.spyOn(t.db, 'execute');
+    try {
+      const results = await Promise.all(Array.from({ length: 12 }, () => filler.holes(acc.qqAccountId)));
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(results[0]).toHaveLength(1);
+      results[0]![0]!.lower = 999;
+      expect(results[1]![0]!.lower).toBe(2);
+      results[0]!.splice(0);
+      expect(results[1]).toHaveLength(1);
+
+      await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810099, 2, 20002));
+      expect(await filler.holes(acc.qqAccountId)).toEqual([]);
+
+      execute.mockRejectedValueOnce(new Error('temporary database failure'));
+      const failures = await Promise.allSettled([filler.holes(acc.qqAccountId), filler.holes(acc.qqAccountId)]);
+      expect(failures.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+      expect(await filler.holes(acc.qqAccountId)).toEqual([]);
+    } finally {
+      execute.mockRestore();
+    }
+  });
+
   it('finds holes between archived messages and fills them, newest first, then stays quiet', async () => {
     const { ingest } = services(t.db);
     const acc = await createTestAccount(t.db, ingest);
