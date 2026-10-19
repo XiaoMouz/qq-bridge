@@ -85,6 +85,8 @@ public sealed partial class MainWindow : Window
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
         Items.ItemsSource = entries;
+        // 会话列表重排不要动画：默认的增删 / 重排过渡会先让下面的行滑开留出空位、再淡入，群多时列表一直在晃（2026-10-19 录屏）。
+        Items.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
         Messages.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, _) => followLatest = false), true);
         Messages.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => followLatest = false), true);
         draftTimer.Tick += async (_, _) => { draftTimer.Stop(); await Guard(SaveDraft); };
@@ -394,7 +396,9 @@ public sealed partial class MainWindow : Window
             if (existing.TryGetValue(next[i].Key, out var row))
             {
                 row.Update(next[i]);
-                if (!ReferenceEquals(entries[i], row)) entries.Move(entries.IndexOf(row), i);
+                // 不用 ObservableCollection.Move：经 CsWinRT 到 WinUI 的 IObservableVector 没有「移动」，会变成 Reset，
+                // 整个列表清空重建、每行重放入场动画（2026-10-19 录屏实测，收到新消息时整页闪）。拆成删除 + 插入只动这一行。
+                if (!ReferenceEquals(entries[i], row)) { entries.RemoveAt(entries.IndexOf(row)); entries.Insert(i, row); }
             }
             else entries.Insert(i, next[i]);
         }

@@ -18,13 +18,19 @@ public sealed partial class MainWindow
     }
     private void AvatarUnloaded(object sender, RoutedEventArgs args)
     {
+        // 会话行重排时容器会被回收复用：新位置的 Loaded 可能先到、旧位置的 Unloaded 后到，
+        // 这时元素仍在树上，清掉就把刚载入的头像抹成首字母（2026-10-19 录屏）。
         var picture = (PersonPicture)sender;
+        if (!picture.IsLoaded) ResetAvatar(picture);
+    }
+    private void ResetAvatar(PersonPicture picture)
+    {
         if (visibleAvatars.Remove(picture, out var old)) { old.Cancel(); old.Dispose(); }
         picture.ProfilePicture = null;
     }
     private async void LoadVisibleAvatar(PersonPicture picture)
     {
-        AvatarUnloaded(picture, new RoutedEventArgs());
+        ResetAvatar(picture);
         if (api is null || picture.DataContext is not ListEntry row) return;
         // 搜索结果的消息行显示所在会话的头像。
         object value = row.Value is Message found && dialogIndex.GetValueOrDefault(found.ChatId) is { } foundIn ? foundIn : row.Value;
@@ -43,6 +49,11 @@ public sealed partial class MainWindow
         var sessionApi = api;
         string hash = peer?.AvatarSha256 ?? "";
         string key = $"{group}:{id}:{hash}";
+        // 已经载入过的头像直接同步设上，不经过 await，重排后的行不会先闪一下首字母。
+        if (avatarImages.TryGetValue(key, out var cached) && cached.IsCompletedSuccessfully)
+        {
+            visibleAvatars.Remove(picture); source.Dispose(); picture.ProfilePicture = cached.Result; return;
+        }
         try
         {
             // 行离开视口就取消排队，复用容器时不能把旧联系人的头像写到新行。
