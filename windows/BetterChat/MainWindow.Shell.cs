@@ -27,6 +27,7 @@ public sealed partial class MainWindow
         // 系统高对比度开关不会触发 ActualThemeChanged；AccessibilitySettings.HighContrastChanged 在桌面应用里订阅会直接失败
         // （0x80070490，依赖 CoreWindow，2026-10-19 实测启动崩溃），改成窗口每次激活时重新检查一次。
         Activated += (_, _) => ThemeChanged();
+        InitializeChatInfo();
         ApplyAdaptiveLayout();
         // 返回：Alt+←、键盘 / 鼠标的返回键，和 TitleBar 的返回按钮一致。
         foreach (var (key, modifiers) in new[] { (VirtualKey.Left, VirtualKeyModifiers.Menu), (VirtualKey.GoBack, VirtualKeyModifiers.None) })
@@ -85,6 +86,7 @@ public sealed partial class MainWindow
             ListColumn.Width = new GridLength(layout == ShellLayout.Medium ? Math.Min(listPaneWidth, MediumListWidth) : listPaneWidth);
             DetailColumn.Width = new GridLength(1, GridUnitType.Star);
         }
+        UpdateChatInfo();
         UpdateShellChrome();
     }
 

@@ -203,19 +203,26 @@ public sealed partial class MainWindow
     private static string Bytes(ulong n) => n >= 1073741824 ? $"{n / 1073741824d:F1} GB" : n >= 1048576 ? $"{n / 1048576d:F1} MB" : $"{n / 1024d:F1} KB";
     private static string Category(string key) => key switch { "image" => "图片", "video" => "视频", "record" => "语音", "file" => "文件", "group_file" => "群文件", "avatar" => "头像", "sticker" => "表情", "qq_thumb" => "缩略图", "derived" => "媒体预览", _ => "其他" };
 
-    private void ShowProfile(Peer peer, long viaGroup = 0)
+    private void ShowProfile(Peer peer, long viaGroup = 0) => ShowProfile(peer, viaGroup, null);
+    // info 为 null：右栏推入的资料页，画进 Details；否则画进聊天旁的会话资料栏（MainWindow.ChatInfo.cs），
+    // 页面状态和取消令牌用资料栏自己的一套，不和右栏当前页（聊天）互相清掉。
+    private void ShowProfile(Peer peer, long viaGroup, Panel? info)
     {
         if (runtime is not { } profileSession) return;
-        var profileToken = pageTask?.Token ?? lifetime.Token;
-        featurePage?.Dispose();
-        var vm = new ContactProfileViewModel(peer, viaGroup, profileSession.GetUserProfileAsync, profileSession.GetGroupProfileAsync, profileSession.OpenChatAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
+        bool inspector = info is not null;
+        var target = info ?? Details;
+        var profileToken = inspector ? chatInfoTask?.Token ?? lifetime.Token : pageTask?.Token ?? lifetime.Token;
+        if (inspector) chatInfoPage?.Dispose(); else featurePage?.Dispose();
+        var vm = new ContactProfileViewModel(peer, viaGroup, profileSession.GetUserProfileAsync, profileSession.GetGroupProfileAsync, profileSession.OpenChatAsync, new UiDispatcher(DispatcherQueue));
+        if (inspector) chatInfoPage = vm; else featurePage = vm;
+        bool Current() => inspector ? chatInfoPage == vm : featurePage == vm;
         bool group = peer.Kind == PeerKind.Group;
-        Detail(DisplayName(peer), group ? "群资料" : "联系人资料");
+        if (!inspector) Detail(DisplayName(peer), group ? "群资料" : "联系人资料");
         async Task Open()
         {
             if (runtime != profileSession) return;
             bool opened = await vm.Open.ExecuteAsync(new(), profileToken);
-            if (featurePage != vm || runtime != profileSession) return;
+            if (!Current() || runtime != profileSession) return;
             if (!opened) { profileToken.ThrowIfCancellationRequested(); throw new IOException(vm.Open.Error ?? "无法打开会话。"); }
             profileToken.ThrowIfCancellationRequested();
             if (runtime == profileSession) { long target = vm.Open.Result!.ChatId; await Go(ChatKey(target), () => OpenChat(target)); }
@@ -224,59 +231,64 @@ public sealed partial class MainWindow
         {
             if (runtime != profileSession) return;
             bool refreshed = await vm.Refresh.ExecuteAsync(new(), profileToken);
-            if (featurePage != vm || runtime != profileSession) return;
+            if (!Current() || runtime != profileSession) return;
             if (!refreshed) { profileToken.ThrowIfCancellationRequested(); throw new IOException(vm.Refresh.Error ?? "资料刷新失败。"); }
             profileToken.ThrowIfCancellationRequested();
-            if (runtime == profileSession) ShowProfile(vm.Refresh.Result!, viaGroup);
+            if (runtime != profileSession) return;
+            if (inspector) RenderChatInfo(vm.Refresh.Result!, chatInfoChat);
+            else ShowProfile(vm.Refresh.Result!, viaGroup);
         }
-        // 页头：大头像、名字、号码、签名 / 人数。
-        var avatar = new PersonPicture { DisplayName = DisplayName(peer), Width = 88, Height = 88, Tag = peer.PeerId };
+        // 页头：大头像、名字、号码、签名 / 人数。资料栏只有 320 宽，改成上下排。
+        var avatar = new PersonPicture { DisplayName = DisplayName(peer), Width = inspector ? 72 : 88, Height = inspector ? 72 : 88, Tag = peer.PeerId };
         avatar.Loaded += (_, _) => LoadSenderAvatar(avatar, peer.PeerId, group);
         string name = DisplayName(peer);
         string realName = peer.Remark.Length > 0 && peer.Name.Length > 0 && peer.Name != name ? "昵称 " + peer.Name : "";
-        Details.Children.Add(Hero(avatar, name, (group ? "群号 " : "QQ ") + peer.PeerId, realName, group ? $"{peer.MemberCount} 位成员" : peer.Sign));
-        Details.Children.Add(ActionRow(("发消息", "\uE8BD", Open), ("刷新资料", "\uE72C", Refresh)));
+        string[] lines = [(group ? "群号 " : "QQ ") + peer.PeerId, realName, group ? $"{peer.MemberCount} 位成员" : peer.Sign];
+        target.Children.Add(inspector ? StackedHero(avatar, name, lines) : Hero(avatar, name, lines));
+        // 资料栏就是当前会话的资料，不需要「发消息」。
+        target.Children.Add(inspector ? ActionRow(("刷新资料", "", Refresh)) : ActionRow(("发消息", "", Open), ("刷新资料", "", Refresh)));
         if (group)
         {
-            Details.Children.Add(SectionHeader("群聊"));
-            foreach (var (title, description, glyph) in new[] { ("群成员", $"{peer.MemberCount} 位成员", "\uE716"), ("群公告", "群主和管理员发布的公告", "\uE789"),
-                ("群精华", "被设为精华的消息", "\uE734"), ("群文件", "浏览、下载和管理群文件", "\uE8B7"), ("群相册", "群里共享的照片", "\uEB9F") })
-                Details.Children.Add(Card(title, description, glyph, click: () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
+            target.Children.Add(SectionHeader("群聊"));
+            foreach (var (title, description, glyph) in new[] { ("群成员", $"{peer.MemberCount} 位成员", ""), ("群公告", "群主和管理员发布的公告", ""),
+                ("群精华", "被设为精华的消息", ""), ("群文件", "浏览、下载和管理群文件", ""), ("群相册", "群里共享的照片", "") })
+                target.Children.Add(Card(title, description, glyph, click: () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
         }
         if (peer.Kind == PeerKind.User && peer.IsFriend && runtime is { } contactSession)
         {
-            Details.Children.Add(SectionHeader("好友"));
+            target.Children.Add(SectionHeader("好友"));
             var delete = new Button { Content = "删除好友" };
             delete.Click += async (_, _) => await Guard(async () =>
             {
                 var ct = profileToken;
-                if (runtime != contactSession || featurePage != vm || ct.IsCancellationRequested) return;
+                if (runtime != contactSession || !Current() || ct.IsCancellationRequested) return;
                 if (!contactSession.Contacts.Directory.Friends.Any(p => p.PeerId == peer.PeerId))
                 {
                     if (!await contactSession.Contacts.LoadAsync(ct: ct))
                         throw new IOException(contactSession.Contacts.Load.Error ?? "无法加载好友列表。");
                 }
                 ct.ThrowIfCancellationRequested();
-                if (featurePage != vm || runtime != contactSession) return;
+                if (!Current() || runtime != contactSession) return;
                 var confirm = new ContentDialog { XamlRoot = Root.XamlRoot, Title = "删除好友",
                     Content = $"确定删除 {DisplayName(peer)}（{peer.PeerId}）吗？", PrimaryButtonText = "删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
                 if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
                 ct.ThrowIfCancellationRequested();
-                if (runtime != contactSession || featurePage != vm) return;
+                if (runtime != contactSession || !Current()) return;
                 var operation = contactSession.Contacts.DeleteFriend;
                 if (!await operation.ExecuteAsync(new(peer.PeerId), ct))
                     throw new IOException((operation.Error ?? "删除未完成。") + (operation.OutcomeUncertain ? " 服务端结果待确认，请刷新列表。" : ""));
                 ct.ThrowIfCancellationRequested();
-                if (runtime != contactSession || featurePage != vm) return;
-                Detail("好友已删除", DisplayName(peer));
+                if (runtime != contactSession || !Current()) return;
+                if (inspector) { target.Children.Clear(); target.Children.Add(Card("好友已删除", DisplayName(peer), "")); }
+                else Detail("好友已删除", DisplayName(peer));
             });
-            Details.Children.Add(Card("删除好友", "双方都会从好友列表里移除", "\uE74D", delete));
+            target.Children.Add(Card("删除好友", "双方都会从好友列表里移除", "", delete));
         }
-        if (section == "contacts")
+        if (section == "contacts" && !inspector)
         {
             var all = new HyperlinkButton { Content = "所有联系人分组" };
             all.Click += (_, _) => ShowContactsOverview();
-            Details.Children.Add(all);
+            target.Children.Add(all);
         }
     }
     private async Task ShowGroup(Peer peer, string title, string folder = "")
@@ -441,7 +453,7 @@ public sealed partial class MainWindow
         Item("共享媒体与文件", () => Go("shared:" + d.ChatId, () => ShowSharedMedia(d.ChatId)));
         Item("提及和回复我的消息", () => Go("mentions:" + d.ChatId, () => ShowMentions(d.ChatId)));
         if (d.Scene == Scene.Group) Item("AI 语音", () => ShowAiVoice(d.ChatId));
-        Item("查看资料", () => peerIndex.GetValueOrDefault((d.PeerId, d.Scene == Scene.Group)) is { } p ? Go(ProfileKey(p), () => ShowProfile(p)) : Task.CompletedTask);
+        Item(ChatInfoFits && chatInfoOpen ? "隐藏资料" : "查看资料", ToggleChatInfo);
         menu.ShowAt(ChatMore); await Task.CompletedTask;
     });
 }

@@ -22,6 +22,9 @@
     <Thickness x:Key="PageHeaderPadding">24,16,16,16</Thickness>
     <Thickness x:Key="ListPanePadding">12,16,12,8</Thickness>
     <Thickness x:Key="DetailCardMargin">8,8,12,12</Thickness>
+    <!-- 会话资料栏：和聊天卡片并排，左边不再留边距（聊天卡片右边已有 12）。 -->
+    <Thickness x:Key="InfoCardMargin">0,8,12,12</Thickness>
+    <Thickness x:Key="InfoPanePadding">16,16,16,24</Thickness>
 
     <Style x:Key="PageTitleTextBlockStyle" TargetType="TextBlock" BasedOn="{StaticResource SubtitleTextBlockStyle}">
         <Setter Property="TextTrimming" Value="CharacterEllipsis"/>

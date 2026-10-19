@@ -44,7 +44,7 @@
     </NavigationViewItem>
    </NavigationView.FooterMenuItems>
   <Grid x:Name="PaneHost">
-   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition x:Name="DetailColumn" Width="*"/></Grid.ColumnDefinitions>
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition x:Name="DetailColumn" Width="*"/><ColumnDefinition x:Name="InfoColumn" Width="0"/></Grid.ColumnDefinitions>
    <Grid x:Name="ListPane" Padding="{StaticResource ListPanePadding}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <!-- 正在同步只在标题下写一行小字（同 iOS 消息页副标题），不占一整条横幅。 -->
@@ -102,11 +102,12 @@
     ToolTipService.ToolTip="拖动调整列表宽度，双击恢复默认" AutomationProperties.Name="调整列表宽度"/>
    <Grid x:Name="DetailPane" Grid.Column="1" Margin="{StaticResource DetailCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Grid Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+    <Grid x:Name="DetailHeader" Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <StackPanel Spacing="2" VerticalAlignment="Center"><TextBlock x:Name="ContentTitle" Text="欢迎使用 BetterChat" Style="{StaticResource PageTitleTextBlockStyle}"/><TextBlock x:Name="ContentSubtitle" Text="你的 QQ 消息，在 Windows 上保持同步" Style="{StaticResource SecondaryCaptionTextBlockStyle}"/></StackPanel>
      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
      <Button x:Name="ChatSearchButton" Content="&#xE721;" Style="{StaticResource IconButtonStyle}" Visibility="Collapsed" Click="ToggleChatSearch" ToolTipService.ToolTip="在会话中查找（Ctrl+F）" AutomationProperties.Name="在会话中查找"/>
+     <Button x:Name="ChatInfoButton" Content="&#xE946;" Style="{StaticResource IconButtonStyle}" Visibility="{x:Bind ChatMore.Visibility, Mode=OneWay}" Click="ChatInfoClicked" ToolTipService.ToolTip="会话资料" AutomationProperties.Name="会话资料"/>
      <Button x:Name="ChatMore" Content="&#xE712;" Style="{StaticResource IconButtonStyle}" VerticalAlignment="Center" Visibility="Collapsed" ToolTipService.ToolTip="会话选项" AutomationProperties.Name="会话选项" Click="ChatOptions"/>
      </StackPanel>
     </Grid>
@@ -203,6 +204,20 @@
      <Button x:Name="SelectionBundle" Grid.Column="2" Click="ForwardSelectedClicked" Tag="bundle" Style="{ThemeResource AccentButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8F1;" FontSize="14"/><TextBlock Text="合并转发"/></StackPanel></Button>
      <Button Grid.Column="3" Content="取消" Click="CancelSelectionClicked"/>
     </Grid>
+   </Grid>
+   <!-- 会话资料栏（同 Mac 的右侧检查器）：窗口够宽时和聊天并排，聊天让出宽度；内容跟着当前会话换。宽度和开关由 MainWindow.ChatInfo.cs 控制。 -->
+   <Grid x:Name="InfoPane" Grid.Column="2" Visibility="Collapsed" Margin="{StaticResource InfoCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}"
+    CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" AutomationProperties.Name="会话资料栏">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid x:Name="InfoHeader" Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBlock x:Name="InfoTitle" Text="资料" Style="{StaticResource PageTitleTextBlockStyle}" VerticalAlignment="Center"/>
+     <Button Grid.Column="1" Content="&#xE711;" Style="{StaticResource IconButtonStyle}" FontSize="12" VerticalAlignment="Center" Click="CloseChatInfoClicked"
+      ToolTipService.ToolTip="关闭资料栏" AutomationProperties.Name="关闭资料栏"/>
+    </Grid>
+    <ScrollViewer Grid.Row="1" Padding="{StaticResource InfoPanePadding}">
+     <StackPanel x:Name="InfoDetails" Spacing="{StaticResource SpaceS}"/>
+    </ScrollViewer>
    </Grid>
   </Grid>
   </NavigationView>
