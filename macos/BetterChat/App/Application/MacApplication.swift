@@ -27,31 +27,24 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
   }
   func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                    options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-    let media = options.userActivities.contains { $0.activityType == MacMediaWindows.activityType }
-      || session.configuration.name == MacMediaWindows.configurationName
-    let settings = options.userActivities.contains { $0.activityType == MacSettingsWindow.activityType }
-      || session.configuration.name == MacSettingsWindow.configurationName
-    if settings {
-      let configuration = UISceneConfiguration(name: MacSettingsWindow.configurationName, sessionRole: session.role)
-      configuration.delegateClass = MacSettingsSceneDelegate.self
+    // 先看打开它的请求（新开的窗口带着对应的活动），再看会话里记下的窗口类型（重启恢复的窗口没有活动）。
+    // 2026-10-19 实机：代码里新建的场景 configuration.name 读回来是 nil，以前恢复出来的媒体窗口被当成主窗口，开出两个主窗口。
+    let activityTypes = Set(options.userActivities.map(\.activityType))
+    let recorded = session.userInfo?[MacWindowKind.key] as? String
+    let kinds: [(String, String, AnyClass)] = [
+      (MacSettingsWindow.activityType, MacSettingsWindow.configurationName, MacSettingsSceneDelegate.self),
+      (MacQqLoginWindow.activityType, MacQqLoginWindow.configurationName, MacQqLoginSceneDelegate.self),
+      (MacQuickReplyWindow.activityType, MacQuickReplyWindow.configurationName, MacQuickReplySceneDelegate.self),
+      (MacMediaWindows.activityType, MacMediaWindows.configurationName, MacMediaSceneDelegate.self),
+    ]
+    for (activity, name, delegate) in kinds
+    where activityTypes.contains(activity) || recorded == name || session.configuration.name == name {
+      let configuration = UISceneConfiguration(name: name, sessionRole: session.role)
+      configuration.delegateClass = delegate
       return configuration
     }
-    let qqLogin = options.userActivities.contains { $0.activityType == MacQqLoginWindow.activityType }
-      || session.configuration.name == MacQqLoginWindow.configurationName
-    if qqLogin {
-      let configuration = UISceneConfiguration(name: MacQqLoginWindow.configurationName, sessionRole: session.role)
-      configuration.delegateClass = MacQqLoginSceneDelegate.self
-      return configuration
-    }
-    let quickReply = options.userActivities.contains { $0.activityType == MacQuickReplyWindow.activityType }
-      || session.configuration.name == MacQuickReplyWindow.configurationName
-    if quickReply {
-      let configuration = UISceneConfiguration(name: MacQuickReplyWindow.configurationName, sessionRole: session.role)
-      configuration.delegateClass = MacQuickReplySceneDelegate.self
-      return configuration
-    }
-    let configuration = UISceneConfiguration(name: media ? MacMediaWindows.configurationName : "Main", sessionRole: session.role)
-    configuration.delegateClass = media ? MacMediaSceneDelegate.self : MacSceneDelegate.self
+    let configuration = UISceneConfiguration(name: "Main", sessionRole: session.role)
+    configuration.delegateClass = MacSceneDelegate.self
     return configuration
   }
   func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
@@ -88,6 +81,17 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
     guard let scene = scene as? UIWindowScene,
           let router = (UIApplication.shared.delegate as? MacAppDelegate)?.router else { return }
+    // 2026-10-19 实机：重启恢复的媒体 / 设置 / 快速回复窗口不经过 configurationForConnecting，系统按默认配置当成主窗口，
+    // 开出两个主窗口。是别的窗口类型、或已经有一个主窗口时，这个就不要了（媒体等内容本来就不随重启恢复）。
+    let recorded = session.userInfo?[MacWindowKind.key] as? String
+    let otherMain = UIApplication.shared.openSessions.contains {
+      $0 != session && $0.scene?.delegate is MacSceneDelegate && $0.scene?.activationState != .unattached
+    }
+    if (recorded != nil && recorded != "Main") || otherMain {
+      UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
+      return
+    }
+    MacWindowKind.mark(session, "Main")
     if MacAppDelegate.runsStateTests {
       let window = UIWindow(windowScene: scene)
       window.rootViewController = UIViewController()
@@ -122,5 +126,15 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
             [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) else { return }
       UIApplication.shared.registerForRemoteNotifications()
     }
+  }
+}
+
+/// 在场景会话里记下窗口类型：会话的 userInfo 跟着窗口恢复，重启后据此找回对应的场景委托。
+enum MacWindowKind {
+  static let key = "betterchat.window"
+  static func mark(_ session: UISceneSession, _ name: String) {
+    var info = session.userInfo ?? [:]
+    info[key] = name
+    session.userInfo = info
   }
 }

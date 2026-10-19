@@ -50,7 +50,7 @@ struct ImageViewer: View {
       TabView(selection: $current) {
         ForEach(items) { t in
           ImagePageView(page: page(for: t), onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } },
-                        onDrag: { dragProgress = $0 }, onDismiss: close)
+                        onDrag: { dragProgress = $0 }, onDismiss: close, menu: imageMenu(for: t))
             .tag(t.id)
             .ignoresSafeArea()
         }
@@ -227,6 +227,35 @@ struct ImageViewer: View {
 
   // MARK: 动作
 
+  /// Mac 右键菜单：复制图片、保存、保存到相册、转发（分享在工具栏）；原图还没到时只有一条提示。iOS 没有。
+  private func imageMenu(for t: MediaTarget) -> (() -> UIMenu?)? {
+    #if targetEnvironment(macCatalyst)
+    let page = page(for: t)
+    return {
+      guard let original = page.original else {
+        return UIMenu(children: [UIAction(title: "原图还在加载", attributes: .disabled) { _ in }])
+      }
+      return UIMenu(children: [
+        UIAction(title: "复制图片", image: UIImage(systemName: "doc.on.doc")) { _ in copyImage(original) },
+        UIAction(title: "保存", image: UIImage(systemName: "square.and.arrow.down")) { _ in Task { await save(original.file) } },
+        UIAction(title: "保存到相册", image: UIImage(systemName: "photo.on.rectangle")) { _ in Task { await saveToPhotos(original.file) } },
+        UIAction(title: "转发…", image: UIImage(systemName: "arrowshape.turn.up.right")) { _ in forwarding = .sha(original.sha256) },
+      ])
+    }
+    #else
+    return nil
+    #endif
+  }
+
+  #if targetEnvironment(macCatalyst)
+
+  private func copyImage(_ original: (sha256: String, file: URL)) {
+    guard let data = try? Data(contentsOf: original.file) else { show("复制失败：读不到图片"); return }
+    MediaPasteboard.copy(data, sha256: original.sha256, sticker: false)
+    show("已复制")
+  }
+  #endif
+
   private var showsCloseButton: Bool {
     #if targetEnvironment(macCatalyst)
     mediaWindow == nil
@@ -374,6 +403,8 @@ struct ZoomableImage: UIViewRepresentable {
   var onDrag: (CGFloat) -> Void = { _ in }
   /// 拖够了松手：关闭。
   var onDismiss: (() -> Void)? = nil
+  /// Mac 右键菜单（2026-10-19：滚动视图会吃掉 SwiftUI 的 .contextMenu，所以在 UIKit 这层加）。
+  var menu: (() -> UIMenu?)? = nil
 
   func makeCoordinator() -> Coordinator { Coordinator(onTap: onTap) }
 
@@ -397,6 +428,9 @@ struct ZoomableImage: UIViewRepresentable {
     let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.pan(_:)))
     pan.delegate = context.coordinator
     scroll.addGestureRecognizer(pan)
+    #if targetEnvironment(macCatalyst)
+    scroll.addInteraction(UIContextMenuInteraction(delegate: context.coordinator))
+    #endif
     return scroll
   }
 
@@ -404,6 +438,7 @@ struct ZoomableImage: UIViewRepresentable {
     context.coordinator.onTap = onTap
     context.coordinator.onDrag = onDrag
     context.coordinator.onDismiss = onDismiss
+    context.coordinator.menu = menu
     if scroll.imageView.image !== image {
       let keepZoom = scroll.zoomScale > 1 && scroll.imageView.image.map { abs($0.size.width / $0.size.height - image.size.width / image.size.height) < 0.01 } == true
       scroll.imageView.image = image
@@ -413,10 +448,18 @@ struct ZoomableImage: UIViewRepresentable {
     }
   }
 
-  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate, @MainActor UIGestureRecognizerDelegate {
+  @MainActor final class Coordinator: NSObject, @MainActor UIScrollViewDelegate, @MainActor UIGestureRecognizerDelegate,
+                                     @MainActor UIContextMenuInteractionDelegate {
     var onTap: () -> Void
     var onDrag: (CGFloat) -> Void = { _ in }
     var onDismiss: (() -> Void)?
+    var menu: (() -> UIMenu?)?
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+      guard let menu, let built = menu() else { return nil }
+      return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in built }
+    }
     init(onTap: @escaping () -> Void) { self.onTap = onTap }
 
     /// 下拉关闭只在没放大、明显往下拖时接手（其余交给滚动和左右翻页）。
@@ -936,11 +979,12 @@ struct ImagePageView: View {
   let onTap: () -> Void
   let onDrag: (CGFloat) -> Void
   let onDismiss: () -> Void
+  var menu: (() -> UIMenu?)? = nil
 
   var body: some View {
     ZStack {
       if let image = page.image {
-        ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss)
+        ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss, menu: menu)
       }
       if page.original == nil, !page.originalFailed {
         ProgressView().tint(.white).controlSize(.large)

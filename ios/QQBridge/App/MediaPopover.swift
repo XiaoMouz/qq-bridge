@@ -306,17 +306,6 @@ final class VideoPlayback: NSObject, AVPlayerViewControllerDelegate {
     return vc
   }
 
-  #if targetEnvironment(macCatalyst)
-  /// 内嵌控制器已有父节点，不能直接拿去 present；新呈现仍由同一管理器接收画中画事件。
-  func fullScreenController(for player: AVPlayer) -> AVPlayerViewController {
-    if current?.player === player {
-      current = nil
-      pictureInPictureController = nil
-    }
-    return controller(for: player)
-  }
-  #endif
-
   /// 关掉预览：没在画中画里就停掉。
   func previewClosed(_ player: AVPlayer?) {
     guard let player else { return }

@@ -45,6 +45,7 @@ final class MacQuickReplySceneDelegate: UIResponder, UIWindowSceneDelegate {
   private var router: MacCommandRouter? { (UIApplication.shared.delegate as? MacAppDelegate)?.router }
 
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+    MacWindowKind.mark(session, MacQuickReplyWindow.configurationName)
     guard let scene = scene as? UIWindowScene,
           let id = (options.userActivities.first { $0.activityType == MacQuickReplyWindow.activityType }?
             .userInfo?["chatId"] as? NSNumber)?.int64Value,

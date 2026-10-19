@@ -13,6 +13,15 @@ final class MacMediaWindows {
     case message(MediaTarget, Session, Int64)
     case gallery(URLGallery)
 
+    /// 图片和视频各用一个窗口（2026-10-19 用户要求）：再点同类媒体就换掉窗口里正在看的。
+    enum Kind { case image, video }
+    var kind: Kind {
+      switch self {
+      case .message(let target, _, _): target.kind == .video ? .video : .image
+      case .gallery(let gallery): gallery.items.contains { if case .video = $0 { true } else { false } } ? .video : .image
+      }
+    }
+
     var title: String {
       switch self {
       case .message(let target, _, _): target.kind == .video ? "视频 · BetterChat" : "图片 · BetterChat"
@@ -39,6 +48,13 @@ final class MacMediaWindows {
   }
 
   func open(_ content: Content) {
+    // 同类窗口已开着：换内容并拉到前面，不再新开（按场景委托找：代码里新建的场景 configuration.name 是 nil）。
+    if let session = UIApplication.shared.openSessions.first(where: { ($0.scene?.delegate as? MacMediaSceneDelegate)?.kind == content.kind }),
+       let delegate = session.scene?.delegate as? MacMediaSceneDelegate {
+      delegate.show(content)
+      UIApplication.shared.activateSceneSession(for: UISceneSessionActivationRequest(session: session))
+      return
+    }
     let id = UUID().uuidString
     pending[id] = content
     let activity = NSUserActivity(activityType: Self.activityType)
@@ -95,9 +111,11 @@ extension EnvironmentValues {
 final class MacMediaSceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
   private let context = MacMediaWindowContext()
+  private let model = MacMediaWindowModel()
 
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
     guard let scene = scene as? UIWindowScene else { return }
+    MacWindowKind.mark(session, MacMediaWindows.configurationName)
     // 媒体是临时窗口，不持久化账号对象或临时签名 URL；重启后不恢复失效的媒体场景。
     guard let content = MacMediaWindows.shared.take(options.userActivities) else {
       UIApplication.shared.requestSceneSessionDestruction(session, options: nil)
@@ -115,7 +133,8 @@ final class MacMediaSceneDelegate: UIResponder, UIWindowSceneDelegate {
     context.scene = scene
     let window = UIWindow(windowScene: scene)
     window.tintColor = .systemBlue
-    window.rootViewController = MacMediaWindowHost(rootView: MacMediaWindowRoot(content: content)
+    model.content = content
+    window.rootViewController = MacMediaWindowHost(rootView: MacMediaWindowRoot(model: model)
       .environment(AppModel.shared).environment(\.macMediaWindow, context))
     self.window = window
     window.makeKeyAndVisible()
@@ -124,6 +143,16 @@ final class MacMediaSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
   func sceneDidDisconnect(_ scene: UIScene) {
     invalidate()
+  }
+
+  var kind: MacMediaWindows.Content.Kind? { model.content?.kind }
+
+  /// 换成另一张图 / 另一个视频：先停掉旧的（视频播放器等），再换内容和标题。
+  func show(_ content: MacMediaWindows.Content) {
+    context.releaseResources()
+    model.content = content
+    model.version += 1
+    context.scene?.title = content.title
   }
 
   func invalidate() {
@@ -159,15 +188,26 @@ final class MacMediaWindowHost<Content: View>: UIViewController {
 
 }
 
+/// 媒体窗口正在显示的内容；换内容时 version 加一，整个查看器按新内容重建（翻页位置、播放器都从头来）。
+@MainActor
+@Observable
+final class MacMediaWindowModel {
+  var content: MacMediaWindows.Content?
+  var version = 0
+}
+
 private struct MacMediaWindowRoot: View {
-  let content: MacMediaWindows.Content
+  let model: MacMediaWindowModel
   var body: some View {
     Group {
-      switch content {
+      switch model.content {
       case .message(let target, let session, let chatID):
         MediaViewer(target: target, session: session, chatId: chatID).environment(\.session, session)
       case .gallery(let gallery): URLGalleryView(gallery: gallery)
+      case nil: Color.black
       }
     }
+    .id(model.version)
   }
 }
+

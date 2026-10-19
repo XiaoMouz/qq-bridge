@@ -4,6 +4,7 @@ import Observation
 import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 输入框：文字里插入的 "@名字 " 和 "[表情名]" 按插入顺序记下来，发送时拆成 @ 段、表情段。
 @MainActor
@@ -601,6 +602,18 @@ struct Attachment: Identifiable {
 /// 复制消息里的图片 / 表情时放进剪贴板的自定义类型：粘贴到本 App 时直接用服务端已有的内容。
 enum MediaPasteboard {
   static let type = "com.xiaomouz.betterchat.media"
+
+  /// 剪贴板里放图片本身（别的 App 能粘贴；GIF 保持会动）+ 服务端的 sha256（粘到本 App 的会话不用重新上传）。
+  /// 聊天里的「复制」和图片查看器的右键「复制图片」共用。
+  @MainActor static func copy(_ data: Data, sha256: String, sticker: Bool) {
+    var item: [String: Any] = [type: (try? JSONEncoder().encode(Payload(sha256: sha256, sticker: sticker))) ?? Data()]
+    if data.starts(with: [0x47, 0x49, 0x46]) {
+      item[UTType.gif.identifier] = data
+    } else if let image = UIImage(data: data), let png = image.pngData() {
+      item[UTType.png.identifier] = png
+    }
+    UIPasteboard.general.setItems([item])
+  }
 
   struct Payload: Codable {
     let sha256: String

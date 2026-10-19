@@ -89,13 +89,9 @@ struct MediaViewer: View {
         ZStack {
           if let player = playback.player {
             // 系统播放器：自带全屏、画中画、隔空播放、静音、进度。
+            // 2026-10-19 实机：Catalyst 里内嵌播放器悬停时已有全屏、画中画、进度条，
+            // 以前补的「打开播放器」按钮和自带的全屏重复，还压着进度条右端，去掉。
             InlineVideoPlayer(player: player, onDrag: { dragProgress = $0 }, onDismiss: close, playback: playback.videoPlayback)
-              #if targetEnvironment(macCatalyst)
-              .overlay(alignment: .bottomTrailing) {
-                MacVideoControlsButton(player: player, controllerProvider: { playback.videoPlayback.fullScreenController(for: $0) })
-                  .frame(width: 40, height: 40).padding(16)
-              }
-              #endif
           } else if let videoMessage {
             Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
           } else {

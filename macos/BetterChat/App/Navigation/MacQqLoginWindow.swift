@@ -42,6 +42,7 @@ final class MacQqLoginSceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
 
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+    MacWindowKind.mark(session, MacQqLoginWindow.configurationName)
     guard let scene = scene as? UIWindowScene, let account = AppModel.shared.session,
           options.userActivities.contains(where: { $0.activityType == MacQqLoginWindow.activityType })
     else {

@@ -1010,13 +1010,6 @@ struct URLGalleryView: View {
           // 播放器从工具栏下方开始，系统播放器自带的顶部按钮（静音、画中画等）不会被画廊工具栏压住。
           case .video:
             VideoPlayer(player: i == current ? playback.player : nil)
-              #if targetEnvironment(macCatalyst)
-              .overlay(alignment: .bottomTrailing) {
-                if i == current, let player = playback.player {
-                  MacVideoControlsButton(player: player).frame(width: 40, height: 40).padding(16)
-                }
-              }
-              #endif
               .padding(.top, toolbarHeight)
           }
         }

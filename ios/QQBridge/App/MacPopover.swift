@@ -62,9 +62,11 @@ struct MacPointerPopover<Item: Identifiable, Popover: View>: ViewModifier {
 
   func body(content base: Content) -> some View {
     base
+      // 探针放在后面：放在覆盖层里时，即使 allowsHitTesting(false)，UIKit 视图仍会挡住聊天里的点击
+      // （2026-10-19 实机：点图片打不开查看器）。
+      .background { MacPointProbe(holder: probe) }
       .overlay(alignment: .topLeading) {
         ZStack(alignment: .topLeading) {
-          MacPointProbe(holder: probe)
           // 用 padding 定位而不是 offset：offset 只改画的位置，弹出框跟的是布局位置（2026-10-18 实机一直弹在左上角）；
           // .popover 要挂在 1×1 上、padding 在它外面，不然弹出框对着整块留白的边。
           Color.clear

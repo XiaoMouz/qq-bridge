@@ -47,6 +47,7 @@ final class MacSettingsSceneDelegate: UIResponder, UIWindowSceneDelegate, NSTool
 
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
     guard let scene = scene as? UIWindowScene else { return }
+    MacWindowKind.mark(session, MacSettingsWindow.configurationName)
     self.scene = scene
     // 设置窗口不随主窗口恢复：重启后由 ⌘, 重新打开，避免恢复出一个没有账号会话的空窗口。
     scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == 'settings'")

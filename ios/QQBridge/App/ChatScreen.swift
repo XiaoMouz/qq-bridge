@@ -1021,13 +1021,7 @@ struct ChatScreen: View {
       show("图片还没下载好")
       return
     }
-    var item: [String: Any] = [MediaPasteboard.type: (try? JSONEncoder().encode(MediaPasteboard.Payload(sha256: sha, sticker: sticker))) ?? Data()]
-    if data.starts(with: [0x47, 0x49, 0x46]) {
-      item[UTType.gif.identifier] = data
-    } else if let image = UIImage(data: data), let png = image.pngData() {
-      item[UTType.png.identifier] = png
-    }
-    UIPasteboard.general.setItems([item])
+    MediaPasteboard.copy(data, sha256: sha, sticker: sticker)
     show("已复制")
   }
 
