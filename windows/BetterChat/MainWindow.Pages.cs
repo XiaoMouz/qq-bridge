@@ -287,10 +287,12 @@ public sealed partial class MainWindow
             where TRequest : class where TResponse : class
         {
             var operation = new RpcOperationViewModel<TRequest, TResponse>(read, new UiDispatcher(DispatcherQueue), false); featurePage = operation;
-            bool success = await operation.ExecuteAsync(request, ct);
+            var loaded = PageLoading("正在从 QQ 读取" + title + "…");
+            bool success;
+            try { success = await operation.ExecuteAsync(request, ct); } finally { loaded(); }
             ct.ThrowIfCancellationRequested();
             if (featurePage != operation || runtime != session) return null;
-            if (!success) throw new IOException(operation.Error ?? "群资料加载失败。");
+            if (!success) { PageError(title + "加载失败", operation.Error, () => ShowGroup(peer, title, folder)); return null; }
             return operation.Result;
         }
         if (title == "群成员")
@@ -306,8 +308,8 @@ public sealed partial class MainWindow
         else if (title == "群精华")
         {
             var vm = new GroupEssenceViewModel(session.ListGroupEssenceAsync, session.GetHistoryAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-            Details.Children.Add(ActionButton("刷新精华", () => ShowGroup(peer, title)));
-            var status = Text("", 12); Details.Children.Add(status);
+            Details.Children.Add(ActionRow(("刷新", "\uE72C", () => ShowGroup(peer, title))));
+            var status = new TextBlock { Style = Res<Style>("SecondaryCaptionTextBlockStyle") }; Details.Children.Add(status);
             var content = new StackPanel { Spacing = 12 }; Details.Children.Add(content);
             var rendered = new List<GroupEssence>();
             vm.Changed += () =>
@@ -326,7 +328,10 @@ public sealed partial class MainWindow
                     else { content.Children.Add(GroupEssenceView(item, ct)); rendered.Add(item.Clone()); }
                 }
             };
-            if (!await vm.LoadAsync(peer.PeerId, ct))
+            var loadedEssence = PageLoading("正在从 QQ 读取群精华…");
+            bool essenceLoaded;
+            try { essenceLoaded = await vm.LoadAsync(peer.PeerId, ct); } finally { loadedEssence(); }
+            if (!essenceLoaded)
             { ct.ThrowIfCancellationRequested(); if (featurePage == vm && runtime == session) throw new IOException(vm.Load.Error ?? "精华加载失败。"); }
         }
         else if (title == "群文件")
@@ -334,20 +339,24 @@ public sealed partial class MainWindow
             var vm = new GroupFilesViewModel(peer.PeerId, folder, session.ListGroupFilesAsync, session.DeleteGroupFolderAsync,
                 session.DeleteGroupFilesAsync, session.RenameGroupFileAsync, session.MoveGroupFilesAsync, session.CreateGroupFolderAsync, new UiDispatcher(DispatcherQueue));
             featurePage = vm;
-            if (!await vm.LoadAsync(ct))
+            var loadedFiles = PageLoading("正在从 QQ 读取群文件…");
+            bool listed;
+            try { listed = await vm.LoadAsync(ct); } finally { loadedFiles(); }
+            if (!listed)
             {
                 ct.ThrowIfCancellationRequested();
-                Details.Children.Add(Text(vm.Load.Error ?? "目录加载失败"));
-                Details.Children.Add(ActionButton("重试", () => ShowGroup(peer, title, folder)));
+                Details.Children.Add(Card("目录加载失败", vm.Load.Error == "QQ is offline" ? "服务端的 QQ 当前离线，恢复后再试" : vm.Load.Error, "\uE783"));
+                Details.Children.Add(ActionRow(("重试", "\uE72C", () => ShowGroup(peer, title, folder))));
                 return;
             }
             ct.ThrowIfCancellationRequested();
-            if (folder.Length > 0) Details.Children.Add(ActionButton("根目录", () => Go(GroupKey(peer, title), () => ShowGroup(peer, title))));
-            else Details.Children.Add(ActionButton("新建文件夹", () => CreateGroupFolder(peer, vm, ct)));
-            Details.Children.Add(Text("点击文件下载，右键打开重命名、移动和删除菜单。管理权限由 QQ 校验。", 12));
+            if (folder.Length > 0) Details.Children.Add(ActionRow(("返回根目录", "\uE72B", () => Go(GroupKey(peer, title), () => ShowGroup(peer, title)))));
+            else Details.Children.Add(ActionRow(("新建文件夹", "\uE8F4", () => CreateGroupFolder(peer, vm, ct))));
+            Details.Children.Add(new TextBlock { Text = "点击文件下载并打开；右键可以重命名、移动和删除（权限由 QQ 校验）。", Style = Res<Style>("SecondaryCaptionTextBlockStyle"), TextWrapping = TextWrapping.Wrap });
+            if (vm.Folders.Count == 0 && vm.Files.Count == 0) Details.Children.Add(Card("这里还没有文件", null, "\uE8B7"));
             foreach (var f in vm.Folders)
             {
-                var button = ActionButton("文件夹 · " + f.Name, () => Go(GroupKey(peer, title, f.Id), () => ShowGroup(peer, title, f.Id)));
+                var button = FileRow("\uE8B7", f.Name, $"{f.FileCount} 个文件" + (f.CreatorName.Length > 0 ? " · " + f.CreatorName : ""), () => Go(GroupKey(peer, title, f.Id), () => ShowGroup(peer, title, f.Id)));
                 var menu = new MenuFlyout(); var remove = new MenuFlyoutItem { Text = "删除文件夹" };
                 remove.Click += async (_, _) => await Guard(async () =>
                 {
@@ -364,7 +373,10 @@ public sealed partial class MainWindow
         {
             var r = await Load(new ListGroupAlbumsRequest { GroupId = peer.PeerId }, session.ListGroupAlbumsAsync);
             if (r is null) return;
-            foreach (var a in r.Albums) Details.Children.Add(ActionButton($"{a.Name} · {a.Count} 项", () => Go($"album:{peer.PeerId}:{a.Id}", () => OpenGroupAlbum(peer, a))));
+            foreach (var a in r.Albums)
+                Details.Children.Add(Card(a.Name, $"{a.Count} 张" + (a.CreatorName.Length > 0 ? " · " + a.CreatorName + " 创建" : "") + (a.Desc.Length > 0 ? " · " + a.Desc : ""), "\uEB9F",
+                    click: () => Go($"album:{peer.PeerId}:{a.Id}", () => OpenGroupAlbum(peer, a))));
+            if (r.Albums.Count == 0) Details.Children.Add(Card("还没有相册", null, "\uEB9F"));
         }
         if (Details.Children.Count == 1) Details.Children.Add(Text("暂无内容"));
     }

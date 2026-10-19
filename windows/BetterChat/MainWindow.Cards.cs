@@ -22,6 +22,31 @@ public sealed partial class MainWindow
         return card;
     }
 
+    // 慢接口（服务端状态在 QQ 离线时要等 20 多秒，2026-10-19 实测）先显示加载行，避免整页空白像是坏了。
+    // 返回的委托在加载结束后调用，移除这一行。
+    private Action PageLoading(string text)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Margin = new Thickness(2, 8, 0, 8) };
+        row.Children.Add(new ProgressRing { IsActive = true, Width = 20, Height = 20 });
+        row.Children.Add(new TextBlock { Text = text, Style = Res<Style>("SecondaryCaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
+        Details.Children.Add(row);
+        return () => Details.Children.Remove(row);
+    }
+
+    // 页面加载失败：在页面里显示原因和重试，而不是整页空白、只在窗口底部弹一条错误。
+    private void PageError(string title, string? error, Func<Task> retry)
+    {
+        string reason = error switch
+        {
+            null or "" => "请稍后重试。",
+            "QQ is offline" => "服务端的 QQ 当前离线，恢复后再试。",
+            var e when e.Contains("sending the request", StringComparison.OrdinalIgnoreCase) => "连不上服务器，请检查网络后重试。",
+            var e => e
+        };
+        Details.Children.Add(Card(title, reason, "\uE783"));
+        Details.Children.Add(ActionRow(("重试", "\uE72C", retry)));
+    }
+
     private static TextBlock SectionHeader(string text) => new()
     {
         Text = text, Style = Res<Style>("BodyStrongTextBlockStyle"), Margin = new Thickness(1, 12, 0, 0)

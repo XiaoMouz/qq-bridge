@@ -7,11 +7,44 @@ namespace BetterChat;
 
 public sealed partial class MainWindow
 {
+    // 群文件 / 文件夹的一行：图标、名称、说明，整行可点，右键出操作菜单。
+    private Button FileRow(string glyph, string title, string detail, Func<Task> open)
+    {
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Children.Add(new FontIcon { Glyph = glyph, FontSize = 20, VerticalAlignment = VerticalAlignment.Center });
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis });
+        text.Children.Add(new TextBlock { Text = detail, Style = Res<Style>("SecondaryCaptionTextBlockStyle") });
+        Grid.SetColumn(text, 1); grid.Children.Add(text);
+        var button = new Button
+        {
+            Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(12, 8, 12, 8), BorderThickness = new Thickness(0), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent)
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
+        button.Click += async (_, _) => { button.IsEnabled = false; try { await Guard(open); } finally { button.IsEnabled = true; } };
+        return button;
+    }
+    private static string FileGlyph(string name) => Path.GetExtension(name).ToLowerInvariant() switch
+    {
+        ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" => "\uEB9F",
+        ".mp4" or ".mov" or ".mkv" or ".avi" or ".webm" => "\uE714",
+        ".mp3" or ".wav" or ".flac" or ".m4a" or ".ogg" => "\uE8D6",
+        ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "\uF012",
+        ".txt" or ".md" or ".log" or ".json" => "\uE8A5",
+        ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" => "\uE8A5",
+        ".exe" or ".msi" or ".apk" => "\uECAA",
+        _ => "\uE7C3"
+    };
+
     private Button GroupFileButton(Peer group, string folder, GroupFile file, GroupFilesViewModel vm, CancellationToken ct)
     {
         var session = runtime ?? throw new InvalidOperationException("账号已断开。");
         var currentApi = session.Api;
-        var button = ActionButton(file.Name + " · " + Bytes(file.Size), async () =>
+        string detail = Bytes(file.Size) + (file.UploaderName.Length > 0 ? " · " + file.UploaderName : "") + (file.ModifyTime > 0 ? " · " + Time(file.ModifyTime) : "");
+        var button = FileRow(FileGlyph(file.Name), file.Name, detail, async () =>
         {
             var result = await session.FetchGroupFileAsync(new() { GroupId = group.PeerId, FileId = file.Id, Busid = file.Busid, Name = file.Name, Size = file.Size }, ct);
             ct.ThrowIfCancellationRequested();
