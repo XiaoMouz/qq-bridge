@@ -16,6 +16,7 @@
 | [docs/changelog.md](docs/changelog.md) | 修改记录（按时间和功能分组，带 commit 和发布版本） |
 | [docs/lessons.md](docs/lessons.md) | 犯过三次的错误和对策 |
 | [docs/calls.md](docs/calls.md) | 通话桥实测：引擎指令表、内核回调含义、调试方法 |
+| [docs/migration-ext1.md](docs/migration-ext1.md) | 迁移到 Ext1：当前路径、运行数据、备份和回退说明 |
 | [ios/README.md](ios/README.md) | iOS 核心库 QQBridgeKit 说明、命令行验收 |
 
 ## 当前状态（2026-10-16）
@@ -25,7 +26,7 @@ iOS App 1.16 (24) 已上 TestFlight 日常使用；macOS 版 1.1 (2)。
 | 部分 | 状态 |
 |---|---|
 | 存档：实时消息、断线续传、对账补齐、按 seq 补缺口、往上翻页懒回填、深度归档 | 已上线 |
-| 媒体：三道去重、缩略图 / 预览 / 语音转码 / 视频封面、按会话类型的下载规则、冷热分层（冷存储在外接硬盘 HDD-1）、按会话的占用与清理 | 已上线 |
+| 媒体：三道去重、缩略图 / 预览 / 语音转码 / 视频封面、按会话类型的下载规则、冷热分层（当前未启用冷存储）、按会话的占用与清理 | 已上线 |
 | 同步：GetDifference / GetChatDifference、Subscribe 推送（含正在输入、`mediaReady`、来电等临时事件） | 已上线 |
 | 发送：文字、图片、视频、文件、语音、相机拍摄、粘贴媒体、转发 / 合并转发；秒传与断点续传；发件箱幂等 | 已上线 |
 | 消息类型：回复、@、小黄脸 / 超级表情、商城表情、卡片、合并转发、机器人 markdown 与按钮、表情回应、撤回（保留原内容） | 已上线 |
@@ -82,6 +83,12 @@ QQ 容器里的插件会主动连服务端（`ws://host.internal:8080/upstream/n
 - 通话（G5）：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env --profile calls up -d livekit call-gateway` 启动 LiveKit 和常驻网关；`deploy/.env` 里配好 `LIVEKIT_PUBLIC_URL`、`CALL_GATEWAY_TOKEN`、`CALL_LAB=1` 后，手机经 Tailscale HTTPS 打开 `/lab/call` 即可接听 QQ 来电。需要先在 Tailscale 后台打开 HTTPS 证书，再运行 `tailscale serve --bg --https=443 http://127.0.0.1:8080` 和 `tailscale serve --bg --https=7443 http://127.0.0.1:7880`。
 
 本机运行服务端：
+
+绑定挂载不再自动创建缺失目录。仅首次部署时创建数据库目录；迁移或恢复已有实例时应先恢复数据，不能用空目录替代。外接盘上的项目须先确认磁盘已挂载。
+
+```bash
+mkdir -p deploy/data/postgres
+```
 
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d postgres
@@ -169,7 +176,13 @@ pnpm -r build
 cp deploy/.env.example deploy/.env
 ```
 
-然后编辑 `deploy/.env`：把 `NAPCAT_UID` 和 `NAPCAT_GID` 填成 `id -u` 和 `id -g` 的结果，`QQ_ACCOUNT` 填**小号**，再设置 `NAPCAT_WEBUI_TOKEN`。
+然后编辑 `deploy/.env`：把 `NAPCAT_UID` 和 `NAPCAT_GID` 填成 `id -u` 和 `id -g` 的结果，`QQ_ACCOUNT` 按根目录 `AGENTS.md` 的账号约定填写，再设置 `NAPCAT_WEBUI_TOKEN`。
+
+仅全新部署时创建运行目录；恢复已有实例时先还原对应数据。`qq-user` 保存 QQ 登录态，不能只备份外层的 `qq` 目录。
+
+```bash
+mkdir -p deploy/data/napcat-config deploy/data/qq deploy/data/qq-user deploy/data/postgres
+```
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build
@@ -177,7 +190,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 ### 2. 扫码登录
 
-打开 http://127.0.0.1:6099/webui ，用 `NAPCAT_WEBUI_TOKEN` 登录，然后用小号所在的手机 QQ 扫码。
+打开 http://127.0.0.1:6099/webui ，用 `NAPCAT_WEBUI_TOKEN` 登录，然后用同一账号的手机 QQ 扫码。本机使用主号，不要使用 `qq-bot` 的机器人账号。
 
 ### 3. 确认各部分已就绪
 

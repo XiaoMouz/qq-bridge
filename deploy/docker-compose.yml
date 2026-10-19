@@ -9,7 +9,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/qq/Dockerfile
-    image: qqbridge/qq:dev
+    image: ${QQBRIDGE_QQ_IMAGE:-qqbridge/qq:dev}
     container_name: qqbridge-qq
     restart: unless-stopped
     # 与官方 compose 一致：固定 MAC 地址，避免每次重建容器都像换了一台设备。
@@ -31,8 +31,22 @@ services:
     ports:
       - "127.0.0.1:6099:6099" # NapCat WebUI：扫码登录、查看日志
     volumes:
-      - ./data/napcat-config:/app/napcat/config # NapCat 配置 + 插件数据（采样文件在 plugins/napcat-plugin-qqbridge/capture）
-      - ./data/qq:/app/.config # QQ 登录态与数据（含 AV Host 的独立 profile）
+      - type: bind
+        source: ./data/napcat-config
+        target: /app/napcat/config
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/qq
+        target: /app/.config
+        bind:
+          create_host_path: false
+      # 2026-10-19 迁移实测：镜像给 QQ 声明了匿名卷，必须显式挂载才能让登录态随目录备份。
+      - type: bind
+        source: ./data/qq-user
+        target: /app/.config/QQ
+        bind:
+          create_host_path: false
       - qqbridge-run:/run/qqbridge # PulseAudio socket 与控制 token，以后与 call-gateway 共享
       # 开发插件时取消注释，并设置 QQBRIDGE_PLUGIN_DEV=1：
       # - ../packages/napcat-plugin-qqbridge/dist:/app/napcat/plugins/napcat-plugin-qqbridge:ro
@@ -49,7 +63,11 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - ./data/postgres:/var/lib/postgresql/data
+      - type: bind
+        source: ./data/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qqbridge -d qqbridge"]
       interval: 5s
@@ -72,7 +90,12 @@ services:
       - "${LIVEKIT_BIND_IP:-127.0.0.1}:7881:7881"
       - "${LIVEKIT_BIND_IP:-127.0.0.1}:7882:7882/udp"
     volumes:
-      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+      - type: bind
+        source: ./livekit/livekit.yaml
+        target: /etc/livekit.yaml
+        read_only: true
+        bind:
+          create_host_path: false
 
   # 通话网关：QQ 容器里的虚拟声卡 ⇄ LiveKit。以与 napcat 相同的 uid 运行，才能访问共享的 PulseAudio socket。
   # 常驻（serve）：服务端的 CallService 经控制接口（127.0.0.1:6120，CALL_GATEWAY_TOKEN）让它进出通话房间。
