@@ -3137,6 +3137,18 @@ await Test("导航未读角标与 iOS 规则一致", () =>
     Check(new DialogRowViewModel(D("muted")).BadgeCount == 3);
     return Task.CompletedTask;
 });
+await Test("连接提示：同步只写小字，横幅只留连不上、要重新登录和 QQ 掉线", () =>
+{
+    Check(ConnectionNotice.Describe("正在连接…", null) == new ConnectionNotice(true, null, false));
+    Check(ConnectionNotice.Describe("首屏预取失败，打开会话时重试", null).Syncing);
+    Check(ConnectionNotice.Describe("已连接", null) == ConnectionNotice.None);
+    Check(ConnectionNotice.Describe("已连接", true) == ConnectionNotice.None);
+    Check(ConnectionNotice.Describe("已连接", false) is { OffersQqLogin: true, Syncing: false, Message.Length: > 0 });
+    Check(ConnectionNotice.Describe("连接中断，8 秒后重试", false) == new ConnectionNotice(false, "连不上服务器，8 秒后重试", false));
+    Check(ConnectionNotice.Describe("设备令牌已失效，请重新连接", null).Message == "需要重新登录");
+    Check(ConnectionNotice.Describe("尚未连接", null) == ConnectionNotice.None);
+    return Task.CompletedTask;
+});
 await Test("会话行时间、未读文字、免打扰切换和发送者前缀与 iOS 一致", () =>
 {
     var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+8", TimeSpan.FromHours(8), "UTC+8", "UTC+8");

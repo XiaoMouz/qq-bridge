@@ -202,7 +202,7 @@ public sealed partial class MainWindow : Window
         runtime.ConnectionStatus += status => DispatcherQueue.TryEnqueue(async () =>
         {
             if (runtime != currentRuntime) return;
-            connectionStatus = status;
+            connectionStatus = status; UpdateConnectionNotice();
             if (status == "设备令牌已失效，请重新连接")
             {
                 SessionSettings.Clear();
@@ -232,11 +232,12 @@ public sealed partial class MainWindow : Window
         runtime.Contacts.PropertyChanged += ContactsChanged;
         runtime.Contacts.Load.PropertyChanged += ContactsChanged;
         runtime.Start();
+        qqOnline = null; UpdateConnectionNotice(); _ = WatchQqStatus(currentRuntime, sessionToken);
         Onboarding.Visibility = Visibility.Collapsed; Workspace.Visibility = Visibility.Visible; Search.Visibility = Visibility.Visible;
         Notice.IsOpen = false;
         activeTimer.Start(); Nav.SelectedItem = MessagesNavItem; RefreshList();
         navigator.Clear();
-        Detail("选择一个会话", "消息和联系人正在同步，断线时仍可浏览已缓存的消息。");
+        Detail("选择一个会话", "从左侧列表选一个会话；断线时仍可浏览已缓存的消息。");
         var account = accountState.QqAccounts.FirstOrDefault();
         if (account is not null)
         {
@@ -297,6 +298,7 @@ public sealed partial class MainWindow : Window
         {
             // 运行时释放资源后仍可能抛出在途错误；窗口必须清除已关闭账号的全部投影。
             store = null; api = null; selectedChat = 0; drafts.Clear(); replies.Clear(); replySeq = 0;
+            qqOnline = null; UpdateConnectionNotice();
             AccountAvatar.ProfilePicture = null; AccountAvatar.DisplayName = ""; AccountButton.Visibility = Visibility.Collapsed;
             ClearAvatars(); requestedPreviews.Clear(); signedMedia.Clear(); peerIndex = new Dictionary<(long, bool), Peer>(); dialogIndex.Clear(); listSignature = ""; dirtyDrafts.Clear(); refreshTimer.Stop(); Interlocked.Exchange(ref refreshQueued, 0);
             searchPager = null; searchQuery = ""; historyWindow = null; historyError = "";
@@ -406,6 +408,7 @@ public sealed partial class MainWindow : Window
         if (!ready || args.SelectedItemContainer is not NavigationViewItem item) return;
         _ = Guard(SaveDraft); NewPage(); selectedChat = 0;
         section = (string)item.Tag; SectionTitle.Text = section == "messages" ? "消息" : section == "contacts" ? "联系人" : "设置";
+        UpdateConnectionNotice();
         MoreSearchResults.Visibility = Visibility.Collapsed;
         rendering = true; Filter.Items.Clear();
         foreach (string s in section == "messages" ? new[] { "全部", "未读", "群助手" } : section == "contacts" ? new[] { "好友", "群聊" } : Array.Empty<string>()) Filter.Items.Add(new SelectorBarItem { Text = s });

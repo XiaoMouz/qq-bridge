@@ -47,8 +47,21 @@
    <Grid.ColumnDefinitions><ColumnDefinition x:Name="ListColumn" Width="320" MinWidth="{StaticResource ListPaneMinWidth}" MaxWidth="{StaticResource ListPaneMaxWidth}"/><ColumnDefinition x:Name="DetailColumn" Width="*"/></Grid.ColumnDefinitions>
    <Grid x:Name="ListPane" Padding="{StaticResource ListPanePadding}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <TextBlock x:Name="SectionTitle" Text="消息" Style="{StaticResource PageTitleTextBlockStyle}" Margin="8,0,0,8"/>
-    <SelectorBar x:Name="Filter" Grid.Row="1" SelectionChanged="FilterChanged" Margin="0,0,0,8" AutomationProperties.Name="列表筛选"/>
+    <!-- 正在同步只在标题下写一行小字（同 iOS 消息页副标题），不占一整条横幅。 -->
+    <StackPanel Margin="8,0,0,8">
+     <TextBlock x:Name="SectionTitle" Text="消息" Style="{StaticResource PageTitleTextBlockStyle}"/>
+     <StackPanel x:Name="SyncCaption" Orientation="Horizontal" Spacing="{StaticResource SpaceS}" Visibility="Collapsed" Margin="1,2,0,0">
+      <ProgressRing x:Name="SyncRing" IsActive="False" Width="12" Height="12" MinWidth="12" MinHeight="12"/>
+      <TextBlock Text="正在同步…" Style="{StaticResource SecondaryCaptionTextBlockStyle}" VerticalAlignment="Center"/>
+     </StackPanel>
+    </StackPanel>
+    <StackPanel Grid.Row="1">
+     <SelectorBar x:Name="Filter" SelectionChanged="FilterChanged" Margin="0,0,0,8" AutomationProperties.Name="列表筛选"/>
+     <!-- 只留需要用户处理的：连不上服务器、要重新登录、QQ 掉线（可直接去扫码）。 -->
+     <InfoBar x:Name="ConnectionBanner" IsOpen="False" IsClosable="False" Severity="Warning" Margin="0,0,0,8" AutomationProperties.Name="连接提示">
+      <InfoBar.ActionButton><Button x:Name="QqLoginAction" Content="扫码登录" Click="QqLoginActionClicked"/></InfoBar.ActionButton>
+     </InfoBar>
+    </StackPanel>
     <ListView x:Name="Items" Grid.Row="2" SelectionChanged="ItemSelected" IsItemClickEnabled="False" SelectionMode="Single" HorizontalContentAlignment="Stretch" AutomationProperties.Name="项目列表">
      <ListView.ItemTemplate><DataTemplate x:DataType="local:ListEntry">
       <!-- 会话行和 iOS DialogRow 对齐：头像｜名称 + 置顶 / 免打扰 + 时间｜[草稿] 发送者：预览 + @ / 回复 / 全体 + 未读数。 -->

@@ -29,6 +29,7 @@ public sealed partial class MainWindow
             if (ct.IsCancellationRequested || runtime != session || featurePage != vm) return;
             var state = vm.State;
             statusCard.Description = state is null ? "尚未取得 QQ 状态" : state.LoggedIn ? "已登录，可以收发消息" : "未登录 · " + state.Phase;
+            if (state?.LoggedIn == true) QqLoggedIn();
             pill.Content = state is null ? null : StatusPill(state.LoggedIn ? "已登录" : "未登录", state.LoggedIn ? Health.Ok : Health.Error);
             error.Text = vm.RefreshQr.Error ?? vm.Load.Error ?? state?.Error ?? "";
             refresh!.IsEnabled = state is { LoggedIn: false } && !vm.RefreshQr.IsBusy;
