@@ -84,6 +84,9 @@ public sealed partial class MainWindow : Window
         Root.RequestedTheme = AppearanceSettings.Load().Theme;
         SystemBackdrop = new MicaBackdrop();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1380, 900));
+        // 任务栏、Alt+Tab 的图标：不设的话 WinUI 窗口用默认的空白图标。
+        string icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+        if (File.Exists(icon)) AppWindow.SetIcon(icon);
         Items.ItemsSource = entries;
         // 会话列表重排不要动画：默认的增删 / 重排过渡会先让下面的行滑开留出空位、再淡入，群多时列表一直在晃（2026-10-19 录屏）。
         Items.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();

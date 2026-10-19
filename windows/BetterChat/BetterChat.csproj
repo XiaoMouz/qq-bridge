@@ -17,7 +17,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 发布时 CI 用标签里的版本覆盖（win-v1.2.0 → -p:Version=1.2.0）；Velopack 要三段式 SemVer。 -->
     <Version>1.0.0</Version>
-    <!-- exe、安装程序和快捷方式的图标（由 iOS 的 AppIcon.png 转成，含 16–256 几种尺寸）。 -->
+    <!-- exe、安装程序和快捷方式的图标：Assets/make-icon.ps1 按矢量逐个尺寸画（16–256），改样子改脚本再跑一遍。 -->
     <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
     <!-- 入口在 Program.cs：先处理 Velopack 的安装 / 更新钩子再启动 WinUI。 -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
@@ -29,7 +29,10 @@
   <ItemGroup>
     <Content Include="../../ios/QQBridge/Resources/QQFaces/s*.png" Link="Assets/QQFaces/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="Assets/FaceCatalog.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="../../ios/QQBridge/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png" Link="Assets/AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 标题栏、引导页、关于页用 AppLogo.png；任务栏和 Alt+Tab 用 AppIcon.ico（AppWindow.SetIcon）。 -->
+    <Content Update="Assets/AppLogo.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Assets/AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Remove="Assets/make-icon.ps1" />
     <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.251219" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />

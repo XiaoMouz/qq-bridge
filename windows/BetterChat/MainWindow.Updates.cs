@@ -22,6 +22,7 @@ public sealed partial class MainWindow
         // 启动和每次回到前台都看一眼是否到了检查时间（6 小时一次）；后台查，不挡界面。
         Activated += (_, e) => { if (e.WindowActivationState != WindowActivationState.Deactivated) _ = updater.CheckIfDueAsync(); };
         Closed += (_, _) => updater.ApplyOnExit();
+        OnboardingUpdate.Closed += (_, e) => { if (e.Reason == InfoBarCloseReason.CloseButton) dismissedOnboardingVersion = updater.State.Version; };
         UpdateChanged();
     }
 
@@ -33,7 +34,17 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(SettingsNavItem, updater.ShowsBadge ? $"设置（新版本 {updater.State.Version}）" : "设置");
         if (section == "settings") { listSignature = ""; RefreshList(); }
         RefreshUpdateCard();
+        // 引导 / 登录页上的提示：只在下好之后出现；用户关掉后同一个版本不再弹。
+        var state = updater.State;
+        bool ready = state.Phase == UpdatePhase.Ready && state.Version != dismissedOnboardingVersion;
+        OnboardingUpdate.Title = ready ? $"新版本 {state.Version} 已下载" : "";
+        OnboardingUpdate.Message = ready ? "重启后生效；不重启的话，下次关闭窗口时也会自动换上。" : "";
+        OnboardingUpdate.IsOpen = ready;
     }
+
+    private string? dismissedOnboardingVersion;
+
+    private void OnboardingUpdateClicked(object sender, RoutedEventArgs e) => updater.RestartNow();
 
     private string AboutSubtitle => updater.State.Phase == UpdatePhase.Ready ? $"新版本 {updater.State.Version}" : "BetterChat for Windows";
 

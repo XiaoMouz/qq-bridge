@@ -227,9 +227,13 @@
   <ScrollViewer x:Name="Onboarding" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
    <Grid MinHeight="600" Padding="32,48">
     <StackPanel MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20">
-     <Image Source="ms-appx:///Assets/AppIcon.png" Width="80" Height="80" HorizontalAlignment="Left"/>
+     <Image Source="ms-appx:///Assets/AppLogo.png" Width="80" Height="80" HorizontalAlignment="Left"/>
      <TextBlock Text="BetterChat" FontSize="36" FontWeight="SemiBold"/>
      <TextBlock x:Name="OnboardingSubtitle" Text="在 Windows 上，继续你的 QQ 聊天。" TextWrapping="Wrap" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+     <!-- 没登录时进不了设置和关于页：下好的新版本在这里提示，可以直接重启更新。 -->
+     <InfoBar x:Name="OnboardingUpdate" IsOpen="False" IsClosable="True" Severity="Informational" AutomationProperties.Name="新版本提示">
+      <InfoBar.ActionButton><Button Content="重启并更新" Click="OnboardingUpdateClicked"/></InfoBar.ActionButton>
+     </InfoBar>
      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="{ThemeResource OverlayCornerRadius}" Padding="24">
       <StackPanel x:Name="OnboardingContent" Spacing="{StaticResource SpaceL}"/>
      </Border>
@@ -243,7 +247,7 @@
     <x:Double x:Key="TitleBarLeftPaddingWidth">24</x:Double>
     <Thickness x:Key="TitleBarIconMargin">0,0,24,0</Thickness>
    </TitleBar.Resources>
-   <TitleBar.IconSource><BitmapIconSource UriSource="ms-appx:///Assets/AppIcon.png" ShowAsMonochrome="False"/></TitleBar.IconSource>
+   <TitleBar.IconSource><BitmapIconSource UriSource="ms-appx:///Assets/AppLogo.png" ShowAsMonochrome="False"/></TitleBar.IconSource>
    <TitleBar.Content>
     <AutoSuggestBox x:Name="Search" Visibility="Collapsed" MinWidth="180" MaxWidth="580" HorizontalAlignment="Stretch" PlaceholderText="搜索消息、联系人和群聊" QueryIcon="Find" QuerySubmitted="SearchSubmitted" VerticalAlignment="Center" AutomationProperties.Name="全局搜索"/>
    </TitleBar.Content>

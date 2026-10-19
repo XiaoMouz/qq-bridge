@@ -128,7 +128,7 @@ public sealed partial class MainWindow
         }
         if (name == "关于")
         {
-            var icon = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppIcon.png")), Width = 72, Height = 72 };
+            var icon = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppLogo.png")), Width = 72, Height = 72 };
             string version = updater.CurrentVersion;
             Details.Children.Add(Hero(icon, "BetterChat", "QQ Bridge 的 Windows 原生客户端", "WinUI 3 · Fluent Design · ConnectRPC" + (version.Length > 0 ? " · " + version : "")));
             AddUpdateSection();
