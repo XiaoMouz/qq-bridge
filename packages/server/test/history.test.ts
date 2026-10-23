@@ -71,6 +71,11 @@ describe('HoleFiller', () => {
     const execute = vi.spyOn(t.db, 'execute');
     try {
       const results = await Promise.all(Array.from({ length: 12 }, () => filler.holes(acc.qqAccountId)));
+      // 会话指纹一次 + 算缺口一次。
+      expect(execute).toHaveBeenCalledTimes(2);
+      // 没有新消息、核对区间没变：只查指纹，不再扫消息。
+      execute.mockClear();
+      expect(await filler.holes(acc.qqAccountId)).toHaveLength(1);
       expect(execute).toHaveBeenCalledTimes(1);
       expect(results[0]).toHaveLength(1);
       results[0]![0]!.lower = 999;

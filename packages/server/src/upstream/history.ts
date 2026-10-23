@@ -9,6 +9,7 @@
 import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { maybeOne, rows, type Db } from '../db/client.ts';
+import { sqlList } from '../sync/rows.ts';
 import type { ActiveChats } from '../sync/active-chats.ts';
 import { SourceUnavailableError } from '../media/source.ts';
 import type { UpstreamHub } from './hub.ts';
@@ -60,6 +61,12 @@ export interface Hole {
 export class HoleFiller {
   private readonly running = new Map<number, Promise<void>>();
   private readonly holeQueries = new Map<string, Promise<Hole[]>>();
+  /**
+   * 每个会话上次算出的缺口，按会话指纹（chat_pts、已核对区间、深度存档）复用。
+   * 2026-10-24 实测：状态页每分钟三次重算全部会话的缺口，每次约 0.5–14 秒（冷缓存时读 5 万个块），是数据库最耗时的查询；
+   * 消息的任何写入都会推进 chat_pts，指纹没变的会话缺口不可能变，只重算变了的会话。
+   */
+  private readonly holeCache = new Map<number, { fingerprint: string; holes: Hole[] }>();
   private readonly o: Required<Omit<HistoryOptions, 'logger'>> & Pick<HistoryOptions, 'logger'>;
   private timer: NodeJS.Timeout | null = null;
 
@@ -166,6 +173,29 @@ export class HoleFiller {
   }
 
   private async queryHoles(qqAccountId: number, chatId?: number): Promise<Hole[]> {
+    const chats = await rows<{ id: number; fingerprint: string }>(
+      this.db,
+      sql`select id, chat_pts || '|' || verified_ranges::text || '|' || coalesce(deep_archive_at::text, '') as fingerprint
+            from chats where qq_account_id = ${qqAccountId} and scene in ('friend', 'group')
+             ${chatId === undefined ? sql`` : sql`and id = ${chatId}`}`,
+    );
+    const stale = chats.filter((c) => this.holeCache.get(c.id)?.fingerprint !== c.fingerprint);
+    if (stale.length > 0) {
+      const fresh = await this.computeHoles(qqAccountId, stale.map((c) => c.id));
+      for (const c of stale) this.holeCache.set(c.id, { fingerprint: c.fingerprint, holes: fresh.get(c.id) ?? [] });
+    }
+    if (chatId === undefined) {
+      // 已经不在列表里的会话（删掉、换了账号）不再占着缓存。
+      const live = new Set(chats.map((c) => c.id));
+      for (const id of this.holeCache.keys()) if (!live.has(id)) this.holeCache.delete(id);
+    }
+    return chats
+      .map((c) => c.id)
+      .sort((x, y) => x - y)
+      .flatMap((id) => this.holeCache.get(id)?.holes ?? []);
+  }
+
+  private async computeHoles(qqAccountId: number, chatIds: number[]): Promise<Map<number, Hole[]>> {
     const list = await rows<{ chat_id: number; lower: string; upper: string; deep: boolean }>(
       this.db,
       // 2026-10-19 实测：先把全部消息与会话范围连接再聚合会产生约 201 MiB 临时写入。
@@ -179,10 +209,17 @@ export class HoleFiller {
                 - (c.verified_ranges + coalesce(m.k, '{}'))
             ) r
            where c.qq_account_id = ${qqAccountId} and c.scene in ('friend', 'group') and m.lo is not null
-             ${chatId === undefined ? sql`` : sql`and c.id = ${chatId}`}
+             and c.id in ${sqlList(chatIds)}
            order by c.id, lower(r)`,
     );
-    return list.map((h) => ({ chatId: h.chat_id, lower: Number(h.lower), upper: Number(h.upper), ...(h.deep ? { deep: true } : {}) }));
+    const out = new Map<number, Hole[]>();
+    for (const h of list) {
+      const hole: Hole = { chatId: h.chat_id, lower: Number(h.lower), upper: Number(h.upper), ...(h.deep ? { deep: true } : {}) };
+      const group = out.get(h.chat_id);
+      if (group) group.push(hole);
+      else out.set(h.chat_id, [hole]);
+    }
+    return out;
   }
 
   /** 懒回填：拉 belowSeq 之前的一页。QQ 那边已经到头（或之前确认过到头）时返回 0。 */
