@@ -742,7 +742,17 @@ struct BlockView: View {
         })
     case .file(let f):
       HStack(spacing: 10) {
-        Image(systemName: fileIcon(f)).font(.title2)
+        // 进度由图标位置的圆环表示，不再另写「下载中 N%」：在下到本机的按百分比，服务端还在从 QQ 拉的转圈。
+        Group {
+          if let progress = fileProgress(f) {
+            TransferRing(progress: progress)
+          } else if f.media.state == .pending {
+            TransferRing(progress: nil)
+          } else {
+            Image(systemName: fileIcon(f)).font(.title2)
+          }
+        }
+        .frame(width: 28, height: 28)
         VStack(alignment: .leading) {
           Text(f.name).lineLimit(2)
           Text(fileStatus(f)).font(.caption).opacity(0.7)
@@ -793,13 +803,18 @@ struct BlockView: View {
     context.requester.want(chatId: context.chatId, seq: message.seq, ord: media.ord, session: context.session)
   }
 
-  private func fileIcon(_ f: Qqbridge_V1_FileSegment) -> String {
+  /// 正在下到本机的进度：Mac 下到下载目录（MacDownloads），iOS 进媒体缓存。
+  private func fileProgress(_ f: Qqbridge_V1_FileSegment) -> Double? {
     #if targetEnvironment(macCatalyst)
-    if MacDownloads.shared.progress[f.media.sha256] != nil { return "arrow.down.circle" }
+    MacDownloads.shared.progress[f.media.sha256]
+    #else
+    context.session.media.transfers.downloads[f.media.sha256]
     #endif
-    return switch f.media.state {
+  }
+
+  private func fileIcon(_ f: Qqbridge_V1_FileSegment) -> String {
+    switch f.media.state {
     case .onDemand: "arrow.down.doc.fill"
-    case .pending: "hourglass"
     case .expired, .failed: "doc.badge.ellipsis"
     default: "doc.fill"
     }
@@ -809,13 +824,8 @@ struct BlockView: View {
     // 发件箱里的文件不知道大小（真实消息到了才有）。
     guard f.size > 0 else { return "文件" }
     let size = ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)
-    #if targetEnvironment(macCatalyst)
-    // 服务端已有、正在下到本机（MacDownloads）。
-    if let p = MacDownloads.shared.progress[f.media.sha256] { return "\(size) · 下载中 \(Int(p * 100))%" }
-    #endif
+    // 能下、正在下的状态看图标就知道；只有拿不到的要写出来。
     switch f.media.state {
-    case .onDemand: return "\(size) · 点击下载"
-    case .pending: return "\(size) · 下载中"
     case .expired: return "\(size) · 已过期"
     case .failed: return "\(size) · 下载失败"
     default: return size

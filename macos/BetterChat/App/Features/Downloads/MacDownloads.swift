@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import QQBridgeKit
-import Synchronization
 
 @MainActor
 @Observable
@@ -95,9 +94,11 @@ final class MacDownloads {
       else {
         guard let signed = try await session.api.sign([sha])[sha] else { throw DownloadError.invalidFile }
         // 进度是异步送回来的，下载结束后才到的不再记（否则会一直显示「下载中」）。
-        source = try await Self.download(signed.url) { [weak self] p in
-          guard let self, self.inFlight[sha] != nil else { return }
-          self.progress[sha] = p
+        source = try await URLSessionDownloader().download(signed.url) { p in
+          Task { @MainActor [weak self] in
+            guard let self, self.inFlight[sha] != nil else { return }
+            self.progress[sha] = p
+          }
         }
       }
       defer { if cached == nil { try? FileManager.default.removeItem(at: source) } }
@@ -116,39 +117,6 @@ final class MacDownloads {
       progress[sha] = nil
     }
     return try await work.value
-  }
-
-  /// 下到临时文件，边下边报进度（每过 1% 报一次，主线程上）。
-  /// 2026-10-23 实测：传给 async 版 download(from:delegate:) 的任务代理收不到 didWriteData，进度一直是 0；
-  /// 改用 downloadTask 并观察它的 progress。
-  private static func download(_ url: URL, progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
-    let running = Mutex<(task: URLSessionDownloadTask, observation: NSKeyValueObservation)?>(nil)
-    return try await withTaskCancellationHandler {
-      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-        let task = URLSession.shared.downloadTask(with: url) { file, response, error in
-          running.withLock { $0?.observation.invalidate() }
-          if let error { continuation.resume(throwing: error); return }
-          guard let file, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            continuation.resume(throwing: MediaCacheError.http((response as? HTTPURLResponse)?.statusCode ?? 0))
-            return
-          }
-          // 系统给的临时文件在回调返回后会被删，先挪走。
-          let kept = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-          do {
-            try FileManager.default.moveItem(at: file, to: kept)
-            continuation.resume(returning: kept)
-          } catch {
-            continuation.resume(throwing: error)
-          }
-        }
-        let reporter = ProgressReporter(progress)
-        let observation = task.progress.observe(\.fractionCompleted) { p, _ in reporter.update(p.fractionCompleted) }
-        running.withLock { $0 = (task, observation) }
-        task.resume()
-      }
-    } onCancel: {
-      running.withLock { $0?.task.cancel() }
-    }
   }
 
   /// 在访达里选中这个文件。Catalyst 没有 NSWorkspace 的 Swift 接口，从运行时取。
@@ -175,20 +143,5 @@ final class MacDownloads {
       case .invalidFile: "暂时无法下载这个文件，请稍后重试。"
       }
     }
-  }
-}
-
-/// 下载进度可能从任意线程来，只把整百分比的变化送回主线程。
-private final class ProgressReporter: Sendable {
-  private let report: @MainActor (Double) -> Void
-  private let last = Mutex(-1)
-
-  init(_ report: @escaping @MainActor (Double) -> Void) { self.report = report }
-
-  func update(_ fraction: Double) {
-    let percent = Int(fraction * 100)
-    guard last.withLock({ old in defer { old = percent }; return old != percent }) else { return }
-    let report = report
-    Task { @MainActor in report(Double(percent) / 100) }
   }
 }

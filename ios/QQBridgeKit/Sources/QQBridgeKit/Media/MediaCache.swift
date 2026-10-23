@@ -6,7 +6,9 @@
 import CryptoKit
 import Foundation
 import GRDB
+import Observation
 import QQBridgeProto
+import Synchronization
 
 /// 换签名下载链接（服务端 MediaService.SignMediaUrls）。
 public protocol MediaURLSigner: Sendable {
@@ -16,20 +18,83 @@ public protocol MediaURLSigner: Sendable {
 /// 下载到临时文件。
 public protocol MediaDownloader: Sendable {
   func download(_ url: URL) async throws -> URL
+  /// 边下边报进度（0...1）；不支持的实现退回不带进度的下载。
+  func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL
+}
+
+extension MediaDownloader {
+  public func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    try await download(url)
+  }
 }
 
 public struct URLSessionDownloader: MediaDownloader {
   let session: URLSession
   public init(session: URLSession = .shared) { self.session = session }
+
   public func download(_ url: URL) async throws -> URL {
-    let (file, response) = try await session.download(from: url)
-    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-      throw MediaCacheError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+    try await download(url) { _ in }
+  }
+
+  /// 2026-10-24 实测：传给 async 版 download(from:delegate:) 的任务代理收不到 didWriteData，
+  /// 所以用 downloadTask 并观察它的 progress；每过 1% 报一次。
+  public func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    let running = Mutex<(task: URLSessionDownloadTask, observation: NSKeyValueObservation)?>(nil)
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+        let task = session.downloadTask(with: url) { file, response, error in
+          running.withLock { $0?.observation.invalidate() }
+          if let error { continuation.resume(throwing: error); return }
+          guard let file, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            continuation.resume(throwing: MediaCacheError.http((response as? HTTPURLResponse)?.statusCode ?? 0))
+            return
+          }
+          // 系统给的临时文件在回调返回后会被删，先挪走。
+          let kept = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+          do {
+            try FileManager.default.moveItem(at: file, to: kept)
+            continuation.resume(returning: kept)
+          } catch {
+            continuation.resume(throwing: error)
+          }
+        }
+        let last = Mutex(-1)
+        let observation = task.progress.observe(\.fractionCompleted) { p, _ in
+          let percent = Int(p.fractionCompleted * 100)
+          if last.withLock({ old in defer { old = percent }; return old != percent }) { progress(Double(percent) / 100) }
+        }
+        running.withLock { $0 = (task, observation) }
+        task.resume()
+      }
+    } onCancel: {
+      running.withLock { $0?.task.cancel() }
     }
-    // 系统给的临时文件在回调返回后会被删，先挪走。
-    let kept = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try FileManager.default.moveItem(at: file, to: kept)
-    return kept
+  }
+}
+
+/// 正在下载的媒体（按 sha256，0...1），界面直接观察：文件、原图按它画进度环。
+@MainActor @Observable
+public final class MediaTransfers {
+  public private(set) var downloads: [String: Double] = [:]
+  @ObservationIgnored private var active: [String: UUID] = [:]
+
+  nonisolated public init() {}
+
+  func begin(_ sha256: String, _ token: UUID) {
+    active[sha256] = token
+    downloads[sha256] = 0
+  }
+
+  /// 进度是从别的线程排队送来的：已经结束（或被新的一次下载替换）的不再记，免得停在「下载中」。
+  func report(_ sha256: String, _ token: UUID, _ fraction: Double) {
+    guard active[sha256] == token else { return }
+    downloads[sha256] = fraction
+  }
+
+  func end(_ sha256: String, _ token: UUID) {
+    guard active[sha256] == token else { return }
+    active[sha256] = nil
+    downloads[sha256] = nil
   }
 }
 
@@ -73,6 +138,8 @@ public struct MediaCacheUsage: Sendable, Equatable {
 }
 
 public actor MediaCache {
+  /// 下载进度（界面观察）。
+  public nonisolated let transfers = MediaTransfers()
   private let directory: URL
   private let store: LocalStore
   private let signer: any MediaURLSigner
@@ -229,7 +296,13 @@ public actor MediaCache {
 
   private func fetch(_ sha256: String, chatId: Int64?) async throws -> URL {
     let url = try await signedURL(sha256)
-    let tmp = try await downloader.download(url)
+    let transfers = self.transfers
+    let token = UUID()
+    await transfers.begin(sha256, token)
+    defer { Task { @MainActor in transfers.end(sha256, token) } }
+    let tmp = try await downloader.download(url) { fraction in
+      Task { @MainActor in transfers.report(sha256, token, fraction) }
+    }
     defer { try? FileManager.default.removeItem(at: tmp) }
     guard try Self.sha256(of: tmp) == sha256 else { throw MediaCacheError.hashMismatch(sha256) }
     let dest = path(for: sha256)

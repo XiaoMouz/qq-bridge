@@ -220,3 +220,29 @@ struct AnimatedImageView: UIViewRepresentable {
     return CGSize(width: size.width * scale, height: size.height * scale)
   }
 }
+
+/// 上传 / 下载的进度环：progress 为 nil 时转圈（还不知道进度，例如服务端在从 QQ 拉）。
+/// 2026-10-24 用户要求：各阶段用版面表示，不加「下载中 N%」这类说明文字。
+struct TransferRing: View {
+  let progress: Double?
+  var lineWidth: CGFloat = 3
+
+  var body: some View {
+    ZStack {
+      Circle().stroke(.secondary.opacity(0.25), lineWidth: lineWidth)
+      if let progress {
+        Circle()
+          .trim(from: 0, to: max(0.02, min(1, progress)))
+          .stroke(.tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+          .rotationEffect(.degrees(-90))
+          .animation(.linear(duration: 0.2), value: progress)
+      } else {
+        ProgressView().controlSize(.small)
+      }
+    }
+    .padding(lineWidth / 2)
+    .accessibilityElement()
+    .accessibilityLabel("传输进度")
+    .accessibilityValue(progress.map { "\(Int($0 * 100))%" } ?? "进行中")
+  }
+}
