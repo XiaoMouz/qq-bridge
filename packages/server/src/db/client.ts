@@ -17,8 +17,16 @@ export type Db = NodePgDatabase<typeof schema> & { $client: pg.Pool };
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 export type Queryable = Db | Tx;
 
-export function createDb(connectionString: string, poolSize = 10): Db {
+export function createDb(
+  connectionString: string,
+  poolSize = 10,
+  onError: (error: Error) => void = (error) => console.error('[db] connection error:', error.message),
+): Db {
   const pool = new pg.Pool({ connectionString, max: poolSize });
+  // 2026-10-24 实测：数据库重启时，借出未在查询中的连接（例如事务两条语句之间）发出 error 事件，
+  // 没人监听就让整个进程退出，launchd 再拉起要约 40 秒。正在跑的查询照样经自己的回调失败，坏连接由连接池丢弃。
+  pool.on('error', onError);
+  pool.on('connect', (client) => client.on('error', onError));
   return drizzle(pool, { schema }) as Db;
 }
 
