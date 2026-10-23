@@ -56,6 +56,34 @@ services:
     image: groonga/pgroonga:4.0.9-debian-17
     container_name: qqbridge-postgres
     restart: unless-stopped
+    # 2026-10-24 实测：库 5.4 GB、默认 shared_buffers 128 MB，堆命中率 58.7%、索引 49.8%；
+    # 数据目录在 USB 2.0 外接盘（480 Mbps）上经 OrbStack 共享，读不中缓存就要等盘，会话加载、媒体认领常卡几秒到几十秒。
+    # 虚拟机 8 GB、空闲约 5.8 GB：给 1.5 GB 缓冲；pg_stat_statements 和慢查询日志用来继续找慢查询。
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1536MB
+      - -c
+      - effective_cache_size=4GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_min_duration_statement=500
+      # 查询都很短，JIT 编译反而每次多花几十毫秒（缺口查询一次编译 13 个函数）。
+      - -c
+      - jit=off
+    # 并行查询的动态共享内存在 /dev/shm；Docker 默认 64 MB，work_mem 调大后不够用会报 could not resize shared memory。
+    shm_size: 512mb
     environment:
       POSTGRES_DB: qqbridge
       POSTGRES_USER: qqbridge
