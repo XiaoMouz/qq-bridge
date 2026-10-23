@@ -109,7 +109,9 @@ struct MessageRow: View {
           MessageBubbleRow(message: m, context: context, showsSender: showsSender(m))
         }
       case .outgoing(let o):
-        OutgoingRow(entry: o, session: context.session)
+        // 发送中 / 失败：和发出去的消息用同一个气泡，对上真实消息后直接换掉，不跳。
+        MessageBubbleRow(message: OutgoingPreview.message(o, selfUin: context.selfUin), context: context,
+                         showsSender: false, outbox: o)
       }
     }
     .frame(maxWidth: .infinity)
@@ -192,6 +194,8 @@ struct MessageBubbleRow: View {
   let context: MessageContext
 
   let showsSender: Bool
+  /// 还在发件箱里（发送中 / 失败）：message 是按它拼出来的，没有 seq。
+  var outbox: Qqbridge_V1_OutboxEntry? = nil
 
   private var outgoing: Bool { message.senderID == context.selfUin }
   private var recalled: Bool { message.state == .recalled }
@@ -226,14 +230,24 @@ struct MessageBubbleRow: View {
         // 撤回的消息照样显示，旁边标"已撤回"（服务端保留了原内容）。
         HStack(alignment: .bottom, spacing: 6) {
           if recalled, outgoing { RecalledTag(text: recalledText) }
+          if let outbox { OutboxStatus(entry: outbox, session: context.session) }
           MessageContent(message: message, context: context, outgoing: outgoing)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MessageRow.space)) } action: { context.bubbleFrames.set(message.seq, $0) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MessageRow.space)) } action: { frame in
+              if outbox == nil { context.bubbleFrames.set(message.seq, frame) }
+            }
             // 动图表情是 UIKit 视图、透明的地方不算点中：整块都算，长按才弹得出菜单。
             .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 18))
             .contentShape(Rectangle())
             // 按在 @ 徽章上的长按归徽章（打开资料卡），这时气泡不弹菜单。
-            .contextMenu { if MentionPress.shared.seq != message.seq { menu } }
+            .contextMenu {
+              if let outbox { OutboxMenu(entry: outbox, text: message.text, session: context.session) }
+              else if MentionPress.shared.seq != message.seq { menu }
+            }
           if recalled, !outgoing { RecalledTag(text: recalledText) }
+        }
+        if let outbox, outbox.state == .failed {
+          Text(outbox.error.isEmpty ? "发送失败，点 ! 重新发送" : "发送失败：\(outbox.error)")
+            .font(.caption2).foregroundStyle(.red).lineLimit(2).multilineTextAlignment(.trailing)
         }
         if !message.reactions.isEmpty { Reactions(message: message, context: context) }
       }
@@ -453,7 +467,7 @@ struct MessageContent: View {
     VStack(alignment: .leading, spacing: 6) {
       ForEach(blocks.indices, id: \.self) { i in
         // 发送时间放在气泡右下角：最后是文字时在最后一行末尾留出时间的位置（和 Telegram 一样，放得下就同一行）。
-        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message, timeReserve: place == .inline && i == blocks.count - 1 ? time : nil, blockIndex: i)
+        BlockView(block: blocks[i], context: context, outgoing: outgoing, message: message.seq == 0 ? nil : message, timeReserve: place == .inline && i == blocks.count - 1 ? time : nil, blockIndex: i)
       }
     }
     // 单独一行时：底下留出一行的高度（不占宽度，气泡不会因此被撑宽），时间画在右下角。
@@ -792,6 +806,8 @@ struct BlockView: View {
   }
 
   private func fileStatus(_ f: Qqbridge_V1_FileSegment) -> String {
+    // 发件箱里的文件不知道大小（真实消息到了才有）。
+    guard f.size > 0 else { return "文件" }
     let size = ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)
     #if targetEnvironment(macCatalyst)
     // 服务端已有、正在下到本机（MacDownloads）。
@@ -1256,72 +1272,102 @@ struct ReactionUsersSheet: View {
   }
 }
 
-/// 还在发件箱里的消息（发送中 / 失败）。
-struct OutgoingRow: View {
+/// 发件箱条目拼成的消息：和真实消息用同一套排版（@ 显示名字、表情、引用、图片和动画表情都一样）。
+enum OutgoingPreview {
+  static func message(_ entry: Qqbridge_V1_OutboxEntry, selfUin: Int64) -> Qqbridge_V1_Message {
+    var m = Qqbridge_V1_Message()
+    m.chatID = entry.chatID
+    m.senderID = selfUin
+    m.time = entry.createdAt
+    m.kind = .normal
+    m.state = .normal
+    m.replyToSeq = entry.replyToSeq
+    var segments: [Qqbridge_V1_Segment] = []
+    if entry.replyToSeq > 0 {
+      var reply = Qqbridge_V1_Segment()
+      reply.reply.seq = entry.replyToSeq
+      segments.append(reply)
+    }
+    for (ord, seg) in entry.segments.enumerated() {
+      var out = Qqbridge_V1_Segment()
+      switch seg.kind {
+      case .text(let t): out.text.text = t
+      case .mentionUserID(let u): out.mention.userID = u
+      case .mentionAll: out.mentionAll = .init()
+      case .faceID(let f): out.face.faceID = f
+      case .image(let i):
+        out.image.media = media(i.sha256, ord: ord)
+        out.image.sticker = i.sticker
+        out.image.summary = i.summary
+      case .record(let r):
+        out.record.media = media(r.sha256, ord: ord)
+        out.record.durationSec = r.durationSec
+      case .video(let v): out.video.media = media(v.sha256, ord: ord)
+      case .file(let f):
+        out.file.media = media(f.sha256, ord: ord)
+        out.file.name = f.name
+      case .forward(let f): out.text.text = "[聊天记录] \(f.nodes.count) 条"
+      case .none: continue
+      }
+      segments.append(out)
+    }
+    m.segments = segments
+    m.text = segments.compactMap { if case .text(let t) = $0.kind { t.text } else { nil } }.joined()
+    return m
+  }
+
+  /// 发件箱里的媒体都已经上传到服务端了。
+  private static func media(_ sha: String, ord: Int) -> Qqbridge_V1_MediaInfo {
+    var media = Qqbridge_V1_MediaInfo()
+    media.ord = UInt32(ord)
+    media.state = .stored
+    media.sha256 = sha
+    return media
+  }
+}
+
+/// 气泡左边的发送状态：转圈（发送中）、红色 !（失败，点了重发）；已发送、等消息同步过来时什么都不显示。
+struct OutboxStatus: View {
   let entry: Qqbridge_V1_OutboxEntry
   let session: Session
 
-  /// 发送中的语音：只有时长，波形先画成平的。
-  static func pendingRecord(_ m: Qqbridge_V1_OutgoingMedia) -> Qqbridge_V1_RecordSegment {
-    var r = Qqbridge_V1_RecordSegment()
-    r.durationSec = m.durationSec
-    r.media.sha256 = m.sha256
-    return r
+  var body: some View {
+    switch entry.state {
+    case .failed:
+      Button {
+        Task { try? await session.sender.resend(entry) }
+      } label: {
+        Image(systemName: "exclamationmark.circle.fill").font(.title3).foregroundStyle(.red)
+      }
+      .buttonStyle(.plain)
+      .help("重新发送")
+      .accessibilityLabel("发送失败，重新发送")
+    case .sent:
+      EmptyView()
+    default:
+      ProgressView().controlSize(.small)
+        .help(entry.error.isEmpty ? "发送中" : "发送中（上次没成功，正在重试）")
+        .accessibilityLabel("发送中")
+    }
   }
+}
+
+/// 发件箱里的消息的右键 / 长按菜单：失败的可以重发、删掉。
+struct OutboxMenu: View {
+  let entry: Qqbridge_V1_OutboxEntry
+  let text: String
+  let session: Session
 
   var body: some View {
-    HStack(alignment: .bottom, spacing: 6) {
-      Spacer(minLength: 48)
-      switch entry.state {
-      case .failed:
-        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
-      default:
-        Image(systemName: "clock").font(.caption).foregroundStyle(.secondary)
-      }
-      if let image = entry.segments.compactMap({ seg -> Qqbridge_V1_OutgoingMedia? in if case .image(let i) = seg.kind { i } else { nil } }).first {
-        // 图片、表情：直接显示（已经在服务端了）。
-        CachedImage(sha256: image.sha256, maxPixel: 420, animated: image.sticker) {
-          RoundedRectangle(cornerRadius: 12).fill(.quaternary).frame(width: 140, height: 140)
-        }
-        .aspectRatio(contentMode: .fit)
-        .frame(maxWidth: image.sticker ? 140 : 220, maxHeight: image.sticker ? 140 : 280)
-        .clipShape(RoundedRectangle(cornerRadius: image.sticker ? 0 : 14, style: .continuous))
-        .opacity(0.8)
-      } else if let voice = entry.segments.compactMap({ seg -> Qqbridge_V1_OutgoingMedia? in if case .record(let r) = seg.kind { r } else { nil } }).first {
-        // 语音：发送中也显示成语音气泡（时长，波形等发出去后由服务端给）。
-        VoiceBubble(record: Self.pendingRecord(voice))
-          .padding(10)
-          .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-          .foregroundStyle(.white)
-      } else {
-      Text(entry.segments.map { seg in
-        switch seg.kind {
-        case .text(let t): t
-        case .image: "[图片]"
-        case .video: "[视频]"
-        case .record: "[语音]"
-        case .file: "[文件]"
-        case .faceID(let f): QQFace.text(f)
-        case .mentionUserID(let u): "@\(u) "
-        case .mentionAll: "@全体成员 "
-        case .forward(let f): "[聊天记录] \(f.nodes.count) 条"
-        case .none: ""
-        }
-      }.joined())
-      .padding(10)
-      .background(Color.accentColor.opacity(0.6), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-      .foregroundStyle(.white)
-      }
+    if entry.state == .failed {
+      Button("重新发送", systemImage: "arrow.clockwise") { Task { try? await session.sender.resend(entry) } }
     }
-    .contextMenu {
-      if entry.state == .failed {
-        if !entry.error.isEmpty { Text(entry.error) }
-        Button("重新发送", systemImage: "arrow.clockwise") {
-          Task { try? await session.sender.resend(entry) }
-        }
-        Button("删除", systemImage: "trash", role: .destructive) {
-          try? session.store.deleteLocalOutbox(clientRandomId: entry.clientRandomID)
-        }
+    if !text.isEmpty {
+      Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
+    }
+    if entry.state == .failed {
+      Button("删除", systemImage: "trash", role: .destructive) {
+        try? session.store.deleteLocalOutbox(clientRandomId: entry.clientRandomID)
       }
     }
   }

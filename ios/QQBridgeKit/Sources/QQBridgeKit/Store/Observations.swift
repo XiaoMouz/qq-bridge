@@ -129,19 +129,60 @@ extension LocalStore {
         sql: "select data from chatEvent where chatId = ? and time >= ? order by time, id",
         arguments: [chatId, from]
       ).map { try Qqbridge_V1_ChatEvent(serializedBytes: $0) }
-      // 已发出的不再单独显示：QQ 那边的消息会经同步进来。
+      // 已发出的也要取：「已发送」和 QQ 那边的消息分两路到，消息没到之前还得占着位置（见 pairOutbox）。
+      let recent = Int64(Date().timeIntervalSince1970) - 3600
       let outbox = try Data.fetchAll(
         db,
-        sql: "select data from outbox where chatId = ? and state <> ? order by createdAt",
-        arguments: [chatId, Qqbridge_V1_OutboxState.sent.rawValue]
+        sql: "select data from outbox where chatId = ? and (state <> ? or createdAt >= ?) order by createdAt",
+        arguments: [chatId, Qqbridge_V1_OutboxState.sent.rawValue, recent]
       ).map { try Qqbridge_V1_OutboxEntry(serializedBytes: $0) }
+      let sentSeqs = outbox.filter { $0.state == .sent && $0.seq > 0 }.map(\.seq)
+      let present = sentSeqs.isEmpty ? Set<Int64>() : Set(try Int64.fetchAll(
+        db,
+        sql: "select seq from message where chatId = ? and seq in (\(Array(repeating: "?", count: sentSeqs.count).joined(separator: ",")))",
+        arguments: StatementArguments([chatId] + sentSeqs)
+      ))
+      let selfUin = try Int64.fetchOne(
+        db,
+        sql: "select k.value from dialog d join kv k on k.key = 'self:' || d.qqAccountId where d.chatId = ?",
+        arguments: [chatId]
+      ) ?? 0
 
       var items: [ChatItem] = messages.map { .message($0) } + events.map { .event($0) }
       items.sort { a, b in a.time == b.time ? a.id < b.id : a.time < b.time }
-      return items + outbox.map { .outgoing($0) }
+      let pending = Self.pairOutbox(outbox, messages: messages, presentSeqs: present, selfUin: selfUin)
+      return items + pending.map { .outgoing($0) }
     }
     .removeDuplicates()
     .values(in: db)
+  }
+
+  /// 发件箱里哪些还要显示成「发送中 / 失败」。2026-10-23 用户反馈同一条消息同时出现实心（已到）和发送中两份，
+  /// 或者发出后消失一阵：发件箱的「已发送」（带 seq）和 QQ 那边的消息经两路同步，先后不定。
+  /// - 已发送且知道 seq：本地有了这条消息才收起，之前继续占位；
+  /// - 其余（发送中、失败、已发送但没拿到 seq）：自己发的、时间不早于创建时间、内容一样的消息到了就收起，
+  ///   一条消息只对应一条发件箱条目（连发两条一样的也一一对上）；已发送但没拿到 seq 又对不上的照旧不显示。
+  static func pairOutbox(_ outbox: [Qqbridge_V1_OutboxEntry], messages: [Qqbridge_V1_Message],
+                         presentSeqs: Set<Int64>, selfUin: Int64) -> [Qqbridge_V1_OutboxEntry] {
+    var claimed = Set(outbox.filter { $0.state == .sent && $0.seq > 0 }.map(\.seq))
+    let mine = messages.filter { $0.senderID == selfUin && selfUin != 0 && $0.kind != .service }
+    var shown: [Qqbridge_V1_OutboxEntry] = []
+    for entry in outbox.sorted(by: { $0.createdAt < $1.createdAt }) {
+      if entry.state == .sent, entry.seq > 0 {
+        if !presentSeqs.contains(entry.seq) { shown.append(entry) }
+        continue
+      }
+      let signature = OutboxSignature.of(entry.segments)
+      // 服务端记的创建时间和 QQ 的消息时间来自不同的钟，留 10 秒余量。
+      if let match = mine.first(where: { m in
+        !claimed.contains(m.seq) && m.time >= entry.createdAt - 10 && OutboxSignature.of(m.segments) == signature
+      }) {
+        claimed.insert(match.seq)
+        continue
+      }
+      if entry.state != .sent { shown.append(entry) }
+    }
+    return shown
   }
 
   /// 一条消息：本地库里这条有变化（例如缩略图、视频封面下好了）就推一次新的。本地还没有时推 nil。
@@ -173,5 +214,60 @@ extension LocalStore {
     try peer(qqAccountId: qqAccountId, kind: .user, peerId: userId).map { p in
       !p.remark.isEmpty ? p.remark : (!p.name.isEmpty ? p.name : String(userId))
     }
+  }
+}
+
+/// 比较发件箱条目和收到的消息是不是同一条：只看内容的骨架（文字去掉空白，@ 看 QQ 号，表情看 id，媒体只看种类）。
+/// 回复引用不算在内：QQ 回来的消息把引用放成单独一段，发件箱是 reply_to_seq。
+enum OutboxSignature {
+  static func of(_ segments: [Qqbridge_V1_OutgoingSegment]) -> [String] {
+    join(segments.map { seg -> String? in
+      switch seg.kind {
+      case .text(let t): "t:" + t
+      case .mentionUserID(let u): "@\(u)"
+      case .mentionAll: "@all"
+      case .faceID(let f): "f:\(f)"
+      case .image: "image"
+      case .record: "record"
+      case .video: "video"
+      case .file(let f): "file:" + f.name
+      case .forward: "forward"
+      case .none: nil
+      }
+    })
+  }
+
+  static func of(_ segments: [Qqbridge_V1_Segment]) -> [String] {
+    join(segments.map { seg -> String? in
+      switch seg.kind {
+      case .text(let t): "t:" + t.text
+      case .mention(let m): "@\(m.userID)"
+      case .mentionAll: "@all"
+      case .face(let f): "f:" + f.faceID
+      case .reply: nil
+      case .image, .marketFace: "image"
+      case .record: "record"
+      case .video: "video"
+      case .file(let f): "file:" + f.name
+      case .forward: "forward"
+      default: "other"
+      }
+    })
+  }
+
+  /// 相邻的文字合成一段再去掉空白（@ 后面跟的空格、QQ 拆开的文字段都不影响）。
+  private static func join(_ tokens: [String?]) -> [String] {
+    var out: [String] = []
+    var text = ""
+    func flush() {
+      let compact = text.filter { !$0.isWhitespace }
+      if !compact.isEmpty { out.append("t:" + compact) }
+      text = ""
+    }
+    for token in tokens.compactMap({ $0 }) {
+      if token.hasPrefix("t:") { text += token.dropFirst(2) } else { flush(); out.append(token) }
+    }
+    flush()
+    return out
   }
 }

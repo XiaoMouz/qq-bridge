@@ -69,7 +69,6 @@ struct ChatScreen: View {
   @State private var showCamera = false
   @State private var showFiles = false
   /// 正在上传的附件：名字和进度（0…1）。
-  @State private var uploading: (name: String, progress: Double)?
   @State private var atBottom = true
   @State private var lastMarked: Int64 = 0
   /// 右下角"有人@我"：未读的 @我 / 回复我 / @全体成员，由近到远（最新的在最前），点一次跳一条。
@@ -704,14 +703,6 @@ struct ChatScreen: View {
         ProgressView("正在添加附件…").font(.caption).controlSize(.small)
           .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
       }
-      if let up = uploading {
-        HStack(spacing: 8) {
-          ProgressView(value: up.progress).frame(width: 80)
-          Text("正在上传 \(up.name)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-          Spacer()
-        }
-        .padding(.horizontal, 16)
-      }
       if !composer.attachments.isEmpty {
         AttachmentTray(composer: composer)
       }
@@ -1344,13 +1335,8 @@ struct ChatScreen: View {
     let sentText = composer.text
     composer.reset()
     clearCommittedText(sentText, in: composer)
-    Task {
-      do {
-        try await session.sender.send(chatId: chatId, segments: segments, replyToSeq: reply)
-      } catch {
-        sendError = "\(error)"
-      }
-    }
+    // 失败显示在消息上（红色 ! 和原因，点了重发），不再另外弹窗。
+    Task { try? await session.sender.send(chatId: chatId, segments: segments, replyToSeq: reply) }
   }
 
   private func clearCommittedText(_ sentText: String, in composer: Composer) {
@@ -1360,44 +1346,6 @@ struct ChatScreen: View {
         try? await Task.sleep(for: .milliseconds(delay))
         if !sentText.isEmpty, composer.text == sentText || sentText.hasPrefix(composer.text) && !composer.text.isEmpty { composer.text = "" }
       }
-    }
-  }
-
-  /// 发文件：按块上传（任意大小），再作为 QQ 文件发出（语音、视频、文件都要单独成条，不能带回复）。
-  private func sendFile(_ url: URL) async {
-    let scoped = url.startAccessingSecurityScopedResource()
-    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-    let name = url.lastPathComponent
-    uploading = (name, 0)
-    defer { uploading = nil }
-    do {
-      let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-      let uploaded = try await session.api.uploadFile(at: url, mime: mime, name: name) { p in
-        Task { @MainActor in uploading = (name, p) }
-      }
-      var seg = Qqbridge_V1_OutgoingSegment()
-      seg.file.sha256 = uploaded.sha256
-      seg.file.name = name
-      try await session.sender.send(chatId: chatId, segments: [seg])
-    } catch {
-      sendError = "文件发送失败：\(error)"
-    }
-  }
-
-  private func sendVideo(_ item: PhotosPickerItem) async {
-    uploading = ("视频", 0)
-    defer { uploading = nil }
-    do {
-      guard let movie = try await item.loadTransferable(type: MovieFile.self) else { return }
-      defer { try? FileManager.default.removeItem(at: movie.url) }
-      let uploaded = try await session.api.uploadFile(at: movie.url, mime: "video/mp4", name: movie.url.lastPathComponent) { p in
-        Task { @MainActor in uploading = ("视频", p) }
-      }
-      var seg = Qqbridge_V1_OutgoingSegment()
-      seg.video.sha256 = uploaded.sha256
-      try await session.sender.send(chatId: chatId, segments: [seg])
-    } catch {
-      sendError = "视频发送失败：\(error)"
     }
   }
 
@@ -1414,25 +1362,6 @@ struct ChatScreen: View {
     }
   }
 
-  private func sendPhoto(_ item: PhotosPickerItem) async {
-    if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-      await sendVideo(item)
-      return
-    }
-    do {
-      guard let raw = try await item.loadTransferable(type: Data.self), let image = UIImage(data: raw) else { return }
-      // 统一转成 JPEG（HEIC 等 QQ 未必认），长边不超过 2560。
-      let data = Self.jpeg(image) ?? raw
-      let uploaded = try await session.api.upload(data, mime: "image/jpeg", name: "photo.jpg")
-      var seg = Qqbridge_V1_OutgoingSegment()
-      seg.image.sha256 = uploaded.sha256
-      try await session.sender.send(chatId: chatId, segments: [seg], replyToSeq: composer.replyTo?.seq)
-      composer.replyTo = nil
-    } catch {
-      sendError = "图片发送失败：\(error)"
-    }
-  }
-
   private func sendSticker(_ sticker: Qqbridge_V1_Sticker) {
     guard !sticker.sha256.isEmpty else { return }
     var seg = Qqbridge_V1_OutgoingSegment()
@@ -1441,7 +1370,7 @@ struct ChatScreen: View {
     seg.image.summary = sticker.desc.isEmpty ? "[动画表情]" : sticker.desc
     scrollToBottomAfterSend()
     Task {
-      do { try await session.sender.send(chatId: chatId, segments: [seg]) } catch { sendError = "\(error)" }
+      try? await session.sender.send(chatId: chatId, segments: [seg])
     }
   }
 
@@ -1498,18 +1427,6 @@ struct PendingForward: Identifiable {
   let seqs: [Int64]
   let bundle: Bool
   var id: String { "\(bundle):\(seqs)" }
-}
-
-/// 相册里的视频：拷到临时目录再传（系统给的文件在回调结束后会被删）。
-struct MovieFile: Transferable {
-  let url: URL
-  static var transferRepresentation: some TransferRepresentation {
-    FileRepresentation(contentType: .movie) { movie in SentTransferredFile(movie.url) } importing: { received in
-      let dest = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).\(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)")
-      try FileManager.default.copyItem(at: received.file, to: dest)
-      return MovieFile(url: dest)
-    }
-  }
 }
 
 /// 聊天页右下角的圆形玻璃按钮，右上角带个蓝色数字。
