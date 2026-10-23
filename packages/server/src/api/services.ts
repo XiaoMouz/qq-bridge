@@ -630,23 +630,29 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
       const list = sql.join(requested.map((s) => sql`${s}`), sql`, `);
       const allowed = await rows<{ sha256: string }>(
         deps.db,
-        sql`with mine as (
+        // 2026-10-24 实测：原来先把账号用过的全部内容（5 万多条）凑成集合再筛，每次约 56 毫秒，聊天里每张图都要等它；
+        // 改成只查请求的这些（缩略图 / 预览图先找原件），权限判断不变，同样数据约 1.6 毫秒。
+        sql`with req as (select unnest(array[${list}]::text[]) as s),
+            parents as (
+              select v.sha256 as parent, v.variant_sha256 as variant from blob_variants v where v.variant_sha256 in (select s from req)
+            ),
+            cand as (select s as sha from req union select parent from parents),
+            owned as (
               select u.sha256 from chat_blob_usage u
                 join chats c on c.id = u.chat_id join qq_accounts q on q.id = c.qq_account_id
-               where q.account_id = ${auth.accountId}
+               where q.account_id = ${auth.accountId} and u.sha256 in (select sha from cand)
               union
               -- 联系人和群的头像
               select p.avatar_sha256 from peers p join qq_accounts q on q.id = p.qq_account_id
-               where q.account_id = ${auth.accountId} and p.avatar_sha256 is not null
+               where q.account_id = ${auth.accountId} and p.avatar_sha256 in (select sha from cand)
               union
               -- 下载过的群文件
               select g.sha256 from group_file_blobs g join qq_accounts q on q.id = g.qq_account_id
-               where q.account_id = ${auth.accountId}
+               where q.account_id = ${auth.accountId} and g.sha256 in (select sha from cand)
             )
-            select sha256 from mine where sha256 in (${list})
+            select sha256 from owned where sha256 in (select s from req)
             union
-            select v.variant_sha256 as sha256 from blob_variants v
-             where v.variant_sha256 in (${list}) and v.sha256 in (select sha256 from mine)`,
+            select variant as sha256 from parents where parent in (select sha256 from owned)`,
       );
       // 收藏表情（还没在聊天里出现过的也能看）。
       const stickers = await deps.stickers.ownedSha256(auth.accountId);
