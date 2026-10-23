@@ -4,6 +4,7 @@ import { authInterceptor, errorInterceptor, type ApiDeps } from './context.ts';
 import { parseRange } from './media-urls.ts';
 import { registerServices } from './services.ts';
 import { registerUploadRoutes } from './upload-routes.ts';
+import { RpcTiming } from './rpc-timing.ts';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 
@@ -11,11 +12,18 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
   // forceCloseConnections：关闭时直接断开长连接（订阅流的客户端会自动重连并用差量追平），避免关停被流挂住。
   const app = Fastify({ logger: false, bodyLimit: 4 * 1024 * 1024, forceCloseConnections: true });
 
+  const timing = new RpcTiming(deps.logger.child({ component: 'rpc' }));
   await app.register(fastifyConnectPlugin, {
     routes: (router) => registerServices(router, deps),
-    // 第一个拦截器在最外层：先映射错误，再做认证。
-    interceptors: [errorInterceptor(deps.logger), authInterceptor(deps.auth)],
+    // 第一个拦截器在最外层：先计时（含认证和错误映射），再映射错误，再做认证。
+    interceptors: [timing.interceptor(), errorInterceptor(deps.logger), authInterceptor(deps.auth)],
   });
+  const timingLog = setInterval(() => {
+    const summary = timing.drain();
+    if (Object.keys(summary).length > 0) deps.logger.info({ rpc: summary }, 'rpc latency (ms)');
+  }, 60_000);
+  timingLog.unref();
+  app.addHook('onClose', async () => clearInterval(timingLog));
 
   app.get('/healthz', async () => ({ ok: true }));
   registerUploadRoutes(app, deps);
