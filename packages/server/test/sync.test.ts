@@ -152,6 +152,51 @@ describe('batched chat differences (prefetch)', () => {
     expect(byId.get(behind)).toMatchObject(await getChatDifference(t.db, acc.accountId, behind, behindPts, 5, 5));
     expect(await getChatDifferences(t.db, acc.accountId, [], 5)).toEqual([]);
   });
+
+  // 2026-10-24 批量查询合并后：每个会话的结果都要和逐个调用 GetChatDifference（limit = 阈值 = 一屏）完全一样，
+  // 包括带服务事件、变化数恰好等于一屏（final = false）和超过一屏（tooLong）。
+  it('matches per-chat differences exactly, with events and at the page boundary', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const base = 1_700_100_000;
+    const event = (peerId: number, time: number, actorId: number) =>
+      ingest.addChatEvent(acc.qqAccountId, { scene: 'group', peerId, kind: 'member_join', time, actorId, targetId: actorId + 1, data: {} });
+    // mixed：消息和事件交错，共 4 个变化（少于一屏）
+    const mixed = (await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 811, 1, 5, { time: base + 1 }))).chatId;
+    await event(811, base + 2, 301);
+    await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 811, 2, 5, { time: base + 3 }));
+    await event(811, base + 4, 302);
+    // exact：恰好 5 个变化（等于一屏）
+    const exact = (await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 812, 1, 5, { time: base + 1 }))).chatId;
+    for (let seq = 2; seq <= 4; seq++) await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 812, seq, 5, { time: base + seq }));
+    await event(812, base + 5, 303);
+    // flood：远超一屏，最新一屏的时间范围里夹着事件
+    const flood = (await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 813, 1, 5, { time: base + 1 }))).chatId;
+    for (let seq = 2; seq <= 12; seq++) {
+      await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 813, seq, 5, { time: base + seq * 10 }));
+      if (seq === 10) await event(813, base + seq * 10 + 1, 304);
+    }
+    await event(813, base + 1, 305); // 比最新一屏早：不应出现
+
+    const wanted = [
+      { chatId: flood, chatPts: 0 },
+      { chatId: mixed, chatPts: 0 },
+      { chatId: exact, chatPts: 0 },
+      { chatId: mixed, chatPts: 2 },
+    ];
+    const batch = await getChatDifferences(t.db, acc.accountId, wanted, 5);
+    // 重复的会话只按第一次给的 chat_pts 算。
+    expect(batch.map((r) => r.chatId)).toEqual([flood, mixed, exact]);
+    for (const r of batch) {
+      const from = wanted.find((w) => w.chatId === r.chatId)!.chatPts;
+      const { chatId: _id, ...one } = r;
+      expect(one).toEqual(await getChatDifference(t.db, acc.accountId, r.chatId, from, 5, 5));
+    }
+    const byId = new Map(batch.map((r) => [r.chatId, r]));
+    expect(byId.get(exact)).toMatchObject({ final: false, tooLong: false });
+    expect(byId.get(flood)).toMatchObject({ tooLong: true });
+    expect(byId.get(flood)!.events.map((e) => e.actorId)).toEqual([304]);
+  });
 });
 
 describe('subscribe', () => {

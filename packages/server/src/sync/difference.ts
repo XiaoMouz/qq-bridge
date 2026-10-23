@@ -6,6 +6,7 @@ import {
   DIALOG_COLUMNS,
   CHAT_EVENT_COLUMNS,
   MESSAGE_COLUMNS,
+  chatEventColumns,
   messageColumns,
   OUTBOX_COLUMNS,
   PEER_COLUMNS,
@@ -188,13 +189,105 @@ export async function getChatDifferences(
            where q.account_id = ${accountId} and c.id in ${sqlList([...wanted.keys()])}`,
     );
     const currentById = new Map(owned.map((c) => [c.id, c.chat_pts]));
+    // 2026-10-24：原来逐个会话各查 2–3 次，预取 50 个会话就是一两百次往返；改成不论多少会话最多 6 次查询，
+    // 每个会话的结果与 chatDifferenceAt(limit = threshold = perChatLimit) 一致（含变化数恰好等于一屏时 final = false）。
+    const behind = [...wanted].filter(([chatId, from]) => {
+      const current = currentById.get(chatId);
+      return current !== undefined && from < current;
+    });
+    const values = (list: [number, number][]) => sql.join(list.map(([chatId, from]) => sql`(${chatId}::bigint, ${from}::bigint)`), sql`, `);
+    const counts = new Map<number, number>();
+    if (behind.length > 0) {
+      for (const r of await rows<{ chat_id: number; n: number }>(
+        tx,
+        sql`select w.chat_id, (select count(*)::int from (
+                  (select 1 from messages m where m.chat_id = w.chat_id and m.version > w.from_pts limit ${perChatLimit + 1})
+                  union all
+                  (select 1 from chat_events e where e.chat_id = w.chat_id and e.version > w.from_pts limit ${perChatLimit + 1})
+                ) s) as n
+              from (values ${values(behind)}) as w(chat_id, from_pts)`,
+      )) {
+        counts.set(Number(r.chat_id), r.n);
+      }
+    }
+    const tooLong = behind.filter(([chatId]) => (counts.get(chatId) ?? 0) > perChatLimit);
+    const normal = behind.filter(([chatId]) => (counts.get(chatId) ?? 0) <= perChatLimit);
+
+    const messagesByChat = new Map<number, MessageRow[]>();
+    const eventsByChat = new Map<number, ChatEventRow[]>();
+    const push = <T>(map: Map<number, T[]>, chatId: number, item: T) => {
+      const list = map.get(chatId);
+      if (list) list.push(item);
+      else map.set(chatId, [item]);
+    };
+    if (normal.length > 0) {
+      // 变化不超过一屏：全部变化都在这里，按版本排好。
+      for (const r of await rows(
+        tx,
+        sql`select ${messageColumns('m')} from (values ${values(normal)}) as w(chat_id, from_pts)
+              join messages m on m.chat_id = w.chat_id and m.version > w.from_pts
+             order by m.chat_id, m.version`,
+      )) {
+        push(messagesByChat, Number(r.chat_id), toMessage(r));
+      }
+      for (const r of await rows(
+        tx,
+        sql`select ${chatEventColumns('e')} from (values ${values(normal)}) as w(chat_id, from_pts)
+              join chat_events e on e.chat_id = w.chat_id and e.version > w.from_pts
+             order by e.chat_id, e.version`,
+      )) {
+        push(eventsByChat, Number(r.chat_id), toChatEvent(r));
+      }
+    }
+    if (tooLong.length > 0) {
+      // 变化超过一屏：最新一屏消息，以及这一屏时间范围内的服务事件。
+      const ids = sql.join(tooLong.map(([chatId]) => sql`${chatId}`), sql`, `);
+      for (const r of await rows(
+        tx,
+        sql`select ${messageColumns('m')} from unnest(array[${ids}]::bigint[]) as w(chat_id)
+              cross join lateral (select * from messages where chat_id = w.chat_id order by seq desc limit ${perChatLimit}) m
+             order by m.chat_id, m.seq`,
+      )) {
+        push(messagesByChat, Number(r.chat_id), toMessage(r));
+      }
+      for (const r of await rows(
+        tx,
+        sql`select ${chatEventColumns('e')} from unnest(array[${ids}]::bigint[]) as w(chat_id)
+              cross join lateral (
+                select * from chat_events
+                 where chat_id = w.chat_id
+                   and time >= coalesce((select min(time) from (
+                         select time from messages where chat_id = w.chat_id order by seq desc limit ${perChatLimit}
+                       ) latest), '-infinity'::timestamptz)
+                 order by time desc limit ${perChatLimit}
+              ) e
+             order by e.chat_id, e.time`,
+      )) {
+        push(eventsByChat, Number(r.chat_id), toChatEvent(r));
+      }
+    }
+
+    const tooLongIds = new Set(tooLong.map(([chatId]) => chatId));
     const result: (ChatDifference & { chatId: number })[] = [];
     // 按客户端给的顺序返回（客户端已按优先级排好）。
     for (const [chatId, fromChatPts] of wanted) {
       const current = currentById.get(chatId);
       if (current === undefined) continue;
-      const diff = await chatDifferenceAt(tx, chatId, current, fromChatPts, perChatLimit, perChatLimit);
-      result.push({ chatId, ...diff });
+      if (fromChatPts >= current) {
+        result.push({ chatId, chatPts: current, final: true, tooLong: false, messages: [], events: [] });
+        continue;
+      }
+      const messages = messagesByChat.get(chatId) ?? [];
+      const events = eventsByChat.get(chatId) ?? [];
+      if (tooLongIds.has(chatId)) {
+        result.push({ chatId, chatPts: current, final: true, tooLong: true, messages, events });
+        continue;
+      }
+      // 与逐个查询时的分页规则一致：变化数恰好等于一屏时当作「可能还有」，chat_pts 停在最后一条的版本。
+      const total = messages.length + events.length;
+      const partial = total === perChatLimit;
+      const lastVersion = Math.max(0, ...messages.map((m) => m.version), ...events.map((e) => e.version));
+      result.push({ chatId, chatPts: partial ? lastVersion : current, final: !partial, tooLong: false, messages, events });
     }
     return result;
   }, SNAPSHOT);

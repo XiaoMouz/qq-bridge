@@ -189,7 +189,13 @@ export interface ChatEventRow {
   version: number;
 }
 
-export const CHAT_EVENT_COLUMNS = sql.raw('id, chat_id, kind, time, actor_id, target_id, ref_seq, data, version');
+const CHAT_EVENT_COLUMN_NAMES = ['id', 'chat_id', 'kind', 'time', 'actor_id', 'target_id', 'ref_seq', 'data', 'version'] as const;
+export const CHAT_EVENT_COLUMNS = sql.raw(CHAT_EVENT_COLUMN_NAMES.join(', '));
+
+/** 带表别名的服务事件列（联表查询用）。 */
+export function chatEventColumns(alias: string): SQL {
+  return sql.raw(CHAT_EVENT_COLUMN_NAMES.map((c) => `${alias}.${c}`).join(', '));
+}
 
 export function toChatEvent(r: DbRow): ChatEventRow {
   return {
