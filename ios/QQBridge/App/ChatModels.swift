@@ -149,6 +149,8 @@ final class ChatActions {
   var recall: (Qqbridge_V1_Message) -> Void = { _ in }
   var openMedia: (MediaTarget) -> Void = { _ in }
   var openFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
+  /// Mac：下到下载目录并在访达里选中。
+  var revealFile: (Qqbridge_V1_FileSegment) -> Void = { _ in }
   /// 转发这一条（选会话）。
   var forward: (Qqbridge_V1_Message) -> Void = { _ in }
   var playVoice: (Qqbridge_V1_RecordSegment, VoicePlaybackID) -> Void = { _, _ in }

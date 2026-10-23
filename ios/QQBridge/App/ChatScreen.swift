@@ -1178,6 +1178,14 @@ struct ChatScreen: View {
         }
       }
     }
+    #if targetEnvironment(macCatalyst)
+    actions.revealFile = { file in
+      Task {
+        do { MacDownloads.reveal(try await MacDownloads.shared.file(sha: file.media.sha256, name: file.name, session: session)) }
+        catch { sendError = "文件打不开：\(error.localizedDescription)" }
+      }
+    }
+    #endif
     actions.playVoice = { record, id in
       guard !callUsesAudio else { show("通话期间暂停语音播放"); return }
       guard !VoiceRecorder.isBusy, recordingStartTask == nil else { show("录音期间暂停语音播放"); return }

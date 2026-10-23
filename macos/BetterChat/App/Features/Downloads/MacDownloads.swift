@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import QQBridgeKit
+import Synchronization
 
 @MainActor
 @Observable
@@ -11,6 +12,9 @@ final class MacDownloads {
   private var bookmark: Data?
   private var files: [String: SavedFile]
   private var inFlight: [String: Task<URL, Error>] = [:]
+  /// 正在下载的进度（0...1），按 sha256。聊天里的文件气泡显示百分比：
+  /// 2026-10-23 实测服务端那台 Mac 内存吃紧（大量换页）时 59 MB 的文件只有约 100 KB/s，没有进度看起来像点了没反应。
+  private(set) var progress: [String: Double] = [:]
   // Quick Look 和分享面板会在调用返回后继续读取文件，目录授权保持到进程结束。
   // 按目录去重，避免每打开一份文件就增加一个安全作用域。
   private var accessedDirectories: [String: URL] = [:]
@@ -90,7 +94,11 @@ final class MacDownloads {
       if let cached { source = cached }
       else {
         guard let signed = try await session.api.sign([sha])[sha] else { throw DownloadError.invalidFile }
-        source = try await URLSessionDownloader().download(signed.url)
+        // 进度是异步送回来的，下载结束后才到的不再记（否则会一直显示「下载中」）。
+        source = try await Self.download(signed.url) { [weak self] p in
+          guard let self, self.inFlight[sha] != nil else { return }
+          self.progress[sha] = p
+        }
       }
       defer { if cached == nil { try? FileManager.default.removeItem(at: source) } }
       let saved = try await Task.detached(priority: .utility) {
@@ -102,8 +110,52 @@ final class MacDownloads {
       return saved
     }
     inFlight[sha] = work
-    defer { inFlight[sha] = nil }
+    progress[sha] = 0
+    defer {
+      inFlight[sha] = nil
+      progress[sha] = nil
+    }
     return try await work.value
+  }
+
+  /// 下到临时文件，边下边报进度（每过 1% 报一次，主线程上）。
+  /// 2026-10-23 实测：传给 async 版 download(from:delegate:) 的任务代理收不到 didWriteData，进度一直是 0；
+  /// 改用 downloadTask 并观察它的 progress。
+  private static func download(_ url: URL, progress: @escaping @MainActor (Double) -> Void) async throws -> URL {
+    let running = Mutex<(task: URLSessionDownloadTask, observation: NSKeyValueObservation)?>(nil)
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+        let task = URLSession.shared.downloadTask(with: url) { file, response, error in
+          running.withLock { $0?.observation.invalidate() }
+          if let error { continuation.resume(throwing: error); return }
+          guard let file, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            continuation.resume(throwing: MediaCacheError.http((response as? HTTPURLResponse)?.statusCode ?? 0))
+            return
+          }
+          // 系统给的临时文件在回调返回后会被删，先挪走。
+          let kept = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+          do {
+            try FileManager.default.moveItem(at: file, to: kept)
+            continuation.resume(returning: kept)
+          } catch {
+            continuation.resume(throwing: error)
+          }
+        }
+        let reporter = ProgressReporter(progress)
+        let observation = task.progress.observe(\.fractionCompleted) { p, _ in reporter.update(p.fractionCompleted) }
+        running.withLock { $0 = (task, observation) }
+        task.resume()
+      }
+    } onCancel: {
+      running.withLock { $0?.task.cancel() }
+    }
+  }
+
+  /// 在访达里选中这个文件。Catalyst 没有 NSWorkspace 的 Swift 接口，从运行时取。
+  static func reveal(_ url: URL) {
+    guard let workspace = (NSClassFromString("NSWorkspace") as AnyObject?)?
+      .perform(NSSelectorFromString("sharedWorkspace"))?.takeUnretainedValue() as? NSObject else { return }
+    workspace.perform(NSSelectorFromString("activateFileViewerSelectingURLs:"), with: [url])
   }
 
   func trash(_ shas: [String]) throws {
@@ -123,5 +175,20 @@ final class MacDownloads {
       case .invalidFile: "暂时无法下载这个文件，请稍后重试。"
       }
     }
+  }
+}
+
+/// 下载进度可能从任意线程来，只把整百分比的变化送回主线程。
+private final class ProgressReporter: Sendable {
+  private let report: @MainActor (Double) -> Void
+  private let last = Mutex(-1)
+
+  init(_ report: @escaping @MainActor (Double) -> Void) { self.report = report }
+
+  func update(_ fraction: Double) {
+    let percent = Int(fraction * 100)
+    guard last.withLock({ old in defer { old = percent }; return old != percent }) else { return }
+    let report = report
+    Task { @MainActor in report(Double(percent) / 100) }
   }
 }

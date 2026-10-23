@@ -251,6 +251,29 @@ struct MessageBubbleRow: View {
     }
   }
 
+  /// 消息里的文件（QQ 的文件消息只有一个文件段）。
+  static func file(_ m: Qqbridge_V1_Message) -> Qqbridge_V1_FileSegment? {
+    for seg in m.segments { if case .file(let f) = seg.kind { return f } }
+    return nil
+  }
+
+  /// 文件消息右键：和点气泡一样按状态打开或让服务端下载；Mac 上还能在访达里找到下好的文件。
+  @ViewBuilder private func fileActions(_ f: Qqbridge_V1_FileSegment) -> some View {
+    switch f.media.state {
+    case .stored, .purged:
+      Button("打开", systemImage: "doc.text.magnifyingglass") { context.actions.openFile(f) }
+      #if targetEnvironment(macCatalyst)
+      Button("在访达中显示", systemImage: "folder") { context.actions.revealFile(f) }
+      #endif
+    case .onDemand:
+      Button("下载", systemImage: "arrow.down.circle") {
+        context.requester.want(chatId: context.chatId, seq: message.seq, ord: f.media.ord, session: context.session)
+      }
+    default:
+      EmptyView()
+    }
+  }
+
   /// 能加到"我的表情"的图片 / 表情（一条消息里的第一个）。
   static func stickerable(_ m: Qqbridge_V1_Message) -> Qqbridge_V1_MediaInfo? {
     for seg in m.segments {
@@ -285,12 +308,19 @@ struct MessageBubbleRow: View {
       .controlGroupStyle(.palette)
     }
     #endif
+    if !recalled, let file = Self.file(message) {
+      fileActions(file)
+      Divider()
+    }
     if !recalled {
       Button("回复", systemImage: "arrowshape.turn.up.left") { context.actions.reply(message) }
       Button("转发", systemImage: "arrowshape.turn.up.right") { context.actions.forward(message) }
     }
     Button("多选", systemImage: "checkmark.circle") { context.selection.start(with: message.seq) }
-    if let image = Self.stickerable(message) {
+    if let file = Self.file(message) {
+      // 文件消息的 text 是「[文件] 名字」，只复制名字。
+      Button("复制文件名", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.name }
+    } else if let image = Self.stickerable(message) {
       // 复制图片 / 表情：剪贴板里放图片本身（别的 App 也能粘贴）+ 服务端的 sha256（粘到本 App 别的会话不用重新上传）。
       Button("复制", systemImage: "doc.on.doc") { context.actions.copyMedia(image, Self.isSticker(message)) }
     } else if !message.text.isEmpty, !message.segments.contains(where: { if case .record = $0.kind { true } else { false } }) {
@@ -698,7 +728,7 @@ struct BlockView: View {
         })
     case .file(let f):
       HStack(spacing: 10) {
-        Image(systemName: fileIcon(f.media.state)).font(.title2)
+        Image(systemName: fileIcon(f)).font(.title2)
         VStack(alignment: .leading) {
           Text(f.name).lineLimit(2)
           Text(fileStatus(f)).font(.caption).opacity(0.7)
@@ -749,8 +779,11 @@ struct BlockView: View {
     context.requester.want(chatId: context.chatId, seq: message.seq, ord: media.ord, session: context.session)
   }
 
-  private func fileIcon(_ state: Qqbridge_V1_MediaState) -> String {
-    switch state {
+  private func fileIcon(_ f: Qqbridge_V1_FileSegment) -> String {
+    #if targetEnvironment(macCatalyst)
+    if MacDownloads.shared.progress[f.media.sha256] != nil { return "arrow.down.circle" }
+    #endif
+    return switch f.media.state {
     case .onDemand: "arrow.down.doc.fill"
     case .pending: "hourglass"
     case .expired, .failed: "doc.badge.ellipsis"
@@ -760,6 +793,10 @@ struct BlockView: View {
 
   private func fileStatus(_ f: Qqbridge_V1_FileSegment) -> String {
     let size = ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)
+    #if targetEnvironment(macCatalyst)
+    // 服务端已有、正在下到本机（MacDownloads）。
+    if let p = MacDownloads.shared.progress[f.media.sha256] { return "\(size) · 下载中 \(Int(p * 100))%" }
+    #endif
     switch f.media.state {
     case .onDemand: return "\(size) · 点击下载"
     case .pending: return "\(size) · 下载中"
