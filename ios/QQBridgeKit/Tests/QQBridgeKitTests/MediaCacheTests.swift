@@ -10,6 +10,7 @@ final class FakeMedia: MediaURLSigner, MediaDownloader, @unchecked Sendable {
   var contents: [String: Data] = [:]
   var corrupt: Set<String> = []
   private(set) var downloads: [String] = []
+  private(set) var signCalls = 0
 
   func add(_ data: Data) -> String {
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -18,6 +19,7 @@ final class FakeMedia: MediaURLSigner, MediaDownloader, @unchecked Sendable {
   }
 
   func sign(_ sha256: [String]) async throws -> [String: (url: URL, expiresAt: Date)] {
+    lock.withLock { signCalls += 1 }
     var out: [String: (url: URL, expiresAt: Date)] = [:]
     for s in sha256 where lock.withLock({ contents[s] != nil }) {
       out[s] = (URL(string: "https://server.example/media/\(s)?sig=x")!, Date().addingTimeInterval(3600))
@@ -70,6 +72,22 @@ final class Clock: @unchecked Sendable {
     media.corrupt.insert(bad)
     await #expect(throws: MediaCacheError.hashMismatch(bad)) { try await cache.file(for: bad) }
     await #expect(throws: MediaCacheError.notAvailable("0000")) { try await cache.file(for: "0000") }
+  }
+
+  /// 一屏图片同时请求：只换一次签名链接（2026-10-24 合并签名），没有的照样报不可用。
+  @Test func concurrentRequestsShareOneSigningRoundTrip() async throws {
+    let media = FakeMedia()
+    let shas = (0..<8).map { media.add(Data(repeating: UInt8($0), count: 100 + $0)) }
+    let (cache, dir) = try makeCache(media, limits: MediaCacheLimits())
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for sha in shas { group.addTask { _ = try await cache.file(for: sha) } }
+      group.addTask { await #expect(throws: MediaCacheError.notAvailable("ffff")) { try await cache.file(for: "ffff") } }
+      try await group.waitForAll()
+    }
+    #expect(media.signCalls == 1)
+    #expect(Set(media.downloads) == Set(shas))
   }
 
   @Test func evictsExpiredThenLeastRecentlyUsedToStayUnderTheCap() async throws {

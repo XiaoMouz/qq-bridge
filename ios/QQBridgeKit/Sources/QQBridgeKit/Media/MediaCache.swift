@@ -81,6 +81,14 @@ public actor MediaCache {
   private var inFlight: [String: Task<URL, any Error>] = [:]
   private var signed: [String: (url: URL, expiresAt: Date)] = [:]
   private let now: @Sendable () -> Date
+  /// 缓存总量的内存估计（nil = 还没统计）；下载后只在可能超上限时才真正清理。
+  /// 2026-10-24：原来每下一个文件就把整张缓存表按访问时间排一遍，缓存越多越慢，还挡着同一 actor 里的其他图片请求。
+  private var knownTotal: Int64?
+  private var lastRetentionSweep = Date.distantPast
+  /// 等着换签名链接的请求：短时间内的合成一次 SignMediaUrls。
+  /// 2026-10-24：聊天页一屏的图片原来各自先换一次链接再下载，弱网下每张图都多等一个往返。
+  private var pendingSigns: [String: [CheckedContinuation<(url: URL, expiresAt: Date)?, any Error>]] = [:]
+  private var signFlush: Task<Void, Never>?
 
   public init(
     directory: URL,
@@ -116,10 +124,16 @@ public actor MediaCache {
   /// 已缓存的文件（不触发下载），顺带记一次访问。
   public func cachedFile(_ sha256: String) throws -> URL? {
     let url = path(for: sha256)
-    let known = try store.db.read { db in try Bool.fetchOne(db, sql: "select 1 from mediaCache where sha256 = ?", arguments: [sha256]) } ?? false
-    guard known, FileManager.default.fileExists(atPath: url.path) else { return nil }
-    try store.db.write { db in
-      try db.execute(sql: "update mediaCache set lastAccessAt = ? where sha256 = ?", arguments: [Int64(now().timeIntervalSince1970), sha256])
+    let lastAccess = try store.db.read { db in
+      try Int64.fetchOne(db, sql: "select lastAccessAt from mediaCache where sha256 = ?", arguments: [sha256])
+    }
+    guard let lastAccess, FileManager.default.fileExists(atPath: url.path) else { return nil }
+    // 访问时间只用来按天清理和 LRU：一小时内记过就不再写，滚动聊天时每张图不再各写一次库。
+    let ts = Int64(now().timeIntervalSince1970)
+    if ts - lastAccess > 3600 {
+      try store.db.write { db in
+        try db.execute(sql: "update mediaCache set lastAccessAt = ? where sha256 = ?", arguments: [ts, sha256])
+      }
     }
     return url
   }
@@ -186,7 +200,9 @@ public actor MediaCache {
   @discardableResult
   public func evict() throws -> Int64 {
     var freed: Int64 = 0
+    defer { knownTotal = try? totalBytes() }
     if let days = limits.retentionDays {
+      lastRetentionSweep = now()
       let cutoff = Int64(now().timeIntervalSince1970) - Int64(days) * 86400
       let old = try store.db.read { db in
         try Row.fetchAll(db, sql: "select sha256, size from mediaCache where lastAccessAt < ?", arguments: [cutoff])
@@ -235,16 +251,51 @@ public actor MediaCache {
         arguments: [sha256, size, ts, ts, chatId]
       )
     }
-    try evict()
+    if let total = knownTotal { knownTotal = total + size } else { knownTotal = try totalBytes() }
+    let retentionDue = limits.retentionDays != nil && now().timeIntervalSince(lastRetentionSweep) > 3600
+    let overCap = limits.capBytes.map { (knownTotal ?? 0) > $0 } ?? false
+    if retentionDue || overCap { try evict() }
     return dest
+  }
+
+  private func totalBytes() throws -> Int64 {
+    try store.db.read { db in try Int64.fetchOne(db, sql: "select coalesce(sum(size), 0) from mediaCache") ?? 0 }
   }
 
   private func signedURL(_ sha256: String) async throws -> URL {
     if let s = signed[sha256], s.expiresAt.timeIntervalSince(now()) > 60 { return s.url }
-    let result = try await signer.sign([sha256])
-    guard let s = result[sha256] else { throw MediaCacheError.notAvailable(sha256) }
-    signed[sha256] = s
+    let result = try await withCheckedThrowingContinuation { continuation in
+      pendingSigns[sha256, default: []].append(continuation)
+      if signFlush == nil {
+        signFlush = Task {
+          // 等一小会儿，让同一屏里其他图片的请求一起进来。
+          try? await Task.sleep(for: .milliseconds(15))
+          await self.flushSigns()
+        }
+      }
+    }
+    guard let s = result else { throw MediaCacheError.notAvailable(sha256) }
     return s.url
+  }
+
+  private func flushSigns() async {
+    let batch = pendingSigns
+    pendingSigns = [:]
+    signFlush = nil
+    let shas = Array(batch.keys)
+    // 服务端一次最多签 200 个。
+    for start in stride(from: 0, to: shas.count, by: 200) {
+      let chunk = Array(shas[start..<min(start + 200, shas.count)])
+      do {
+        let result = try await signer.sign(chunk)
+        for sha in chunk {
+          if let value = result[sha] { signed[sha] = value }
+          for waiter in batch[sha] ?? [] { waiter.resume(returning: result[sha]) }
+        }
+      } catch {
+        for sha in chunk { for waiter in batch[sha] ?? [] { waiter.resume(throwing: error) } }
+      }
+    }
   }
 
   private func remove(_ items: [(String, Int64)]) throws -> Int64 {
