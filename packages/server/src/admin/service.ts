@@ -52,6 +52,8 @@ const startedAt = new Date();
 
 export class AdminService {
   private readonly statusQueries = new Map<number, Promise<SystemStatus>>();
+  /** 状态页的冷热存储总量：变化很慢，按账号缓存一分钟（统计一次约 170 毫秒）。 */
+  private readonly storageTotals = new Map<number, { at: number; value: Promise<{ hotBytes: number; coldBytes: number }> }>();
   constructor(
     private readonly db: Db,
     private readonly deps: {
@@ -81,6 +83,18 @@ export class AdminService {
     const idList = ids.length ? sql.join(ids.map((i) => sql`${i}`), sql`, `) : sql`null`;
     const hub = this.deps.upstream();
     const conns = new Map((hub?.connections() ?? []).map((c) => [c.qqAccountId, c]));
+    // 问插件（通话桥）、问网关、存储总量和下面的数据库统计互不依赖：先一起发出去。
+    // 2026-10-24 实测：原来逐个等，状态页每次 0.5–2.4 秒。
+    const calls = this.deps.calls();
+    const first = ids.find((id) => hub?.isConnected(id));
+    const bridgeQuery: Promise<Record<string, unknown>> =
+      hub && first !== undefined ? hub.call<Record<string, unknown>>(first, 'x.call.status', {}, 5000).catch(() => ({})) : Promise.resolve({});
+    const gatewayQuery = calls.gatewayStatus();
+    const activeCallQuery = calls.active(accountId);
+    const storageQuery = this.storage(accountId);
+    // 下面的统计先失败时这两个还没人等：先挂上处理，免得成了未处理的拒绝让进程退出（结果仍在 Promise.all 里取）。
+    activeCallQuery.catch(() => undefined);
+    storageQuery.catch(() => undefined);
     const lastEvents = new Map(
       (
         await rows<{ qq_account_id: number; at: Date | string }>(
@@ -125,15 +139,8 @@ export class AdminService {
     const deep = await one<{ n: number }>(this.db, sql`select count(*)::int as n from chats where qq_account_id in (${idList}) and deep_archive_at is not null`);
 
     // 通话桥：插件里的状态要问插件（QQ 离线时拿不到）。
-    const calls = this.deps.calls();
-    let bridge: Record<string, unknown> = {};
-    const first = ids.find((id) => hub?.isConnected(id));
-    if (hub && first !== undefined) {
-      bridge = await hub.call<Record<string, unknown>>(first, 'x.call.status', {}, 5000).catch(() => ({}));
-    }
+    const [bridge, gateway, activeCall, overview] = await Promise.all([bridgeQuery, gatewayQuery, activeCallQuery, storageQuery]);
     const stats = (bridge.stats ?? {}) as { lastError?: string | null };
-    const gateway = await calls.gatewayStatus();
-    const overview = await this.deps.media.storageOverview(accountId, 0);
 
     return {
       qq: accounts.map((a) => {
@@ -160,11 +167,21 @@ export class AdminService {
         lastError: typeof stats.lastError === 'string' ? stats.lastError : '',
         gatewayReachable: gateway.reachable,
         gatewayRoom: gateway.room ?? '',
-        activeCall: await calls.active(accountId),
+        activeCall,
       },
       storage: { hotBytes: overview.hotBytes, coldBytes: overview.coldBytes, coldTierEnabled: this.deps.media.hasColdTier },
       serverStartedAt: startedAt,
     };
+  }
+
+  private storage(accountId: number): Promise<{ hotBytes: number; coldBytes: number }> {
+    const cached = this.storageTotals.get(accountId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.value;
+    const value = this.deps.media.storageOverview(accountId, 0).then((o) => ({ hotBytes: o.hotBytes, coldBytes: o.coldBytes }));
+    // 失败的不留在缓存里，下次重新统计。
+    value.catch(() => this.storageTotals.delete(accountId));
+    this.storageTotals.set(accountId, { at: Date.now(), value });
+    return value;
   }
 
   /** 各会话的存档完整性，缺口多的在前。 */
