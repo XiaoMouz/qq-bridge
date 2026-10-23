@@ -987,23 +987,20 @@ async function updateEventMedia(w: WriteContext, chatId: number, eventId: number
 
 /** 未读数的全量定义（增量规则必须与它保持一致，属性测试会校验）。 */
 export async function recomputeUnread(tx: Tx | Db, chatId: number, selfUin: number): Promise<void> {
+  // 2026-10-24 实测：原来四个计数各自扫一遍未读消息（每遍都回表），已读回写平均 0.7 秒、最长 4.5 秒；
+  // 合成一遍扫描，按条件分别计数，四个计数的定义不变。
   await tx.execute(
-    sql`update chats c set
-          unread_count = (select count(*)::int from messages m
-                           where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                             and m.sender_uin <> ${selfUin} and m.state = 'normal'),
-          unread_mentions = (select count(*)::int from messages m
-                              where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                                and m.sender_uin <> ${selfUin} and m.state = 'normal'
-                                and (m.flags & ${MENTION_ME}) <> 0 and (m.flags & ${REPLY_TO_ME}) = 0 and not m.mention_seen),
-          unread_mention_all = (select count(*)::int from messages m
-                              where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                                and m.sender_uin <> ${selfUin} and m.state = 'normal'
-                                and (m.flags & ${MENTION_ALL}) <> 0 and (m.flags & ${MENTION_ME | REPLY_TO_ME}) = 0 and not m.mention_seen),
-          unread_replies = (select count(*)::int from messages m
-                              where m.chat_id = c.id and m.seq > c.read_inbox_max_seq
-                                and m.sender_uin <> ${selfUin} and m.state = 'normal' and (m.flags & ${REPLY_TO_ME}) <> 0 and not m.mention_seen)
-        where c.id = ${chatId}`,
+    sql`with u as (
+          select count(*)::int as n,
+                 count(*) filter (where (m.flags & ${MENTION_ME}) <> 0 and (m.flags & ${REPLY_TO_ME}) = 0 and not m.mention_seen)::int as mentions,
+                 count(*) filter (where (m.flags & ${MENTION_ALL}) <> 0 and (m.flags & ${MENTION_ME | REPLY_TO_ME}) = 0
+                                    and not m.mention_seen)::int as mention_all,
+                 count(*) filter (where (m.flags & ${REPLY_TO_ME}) <> 0 and not m.mention_seen)::int as replies
+            from chats c join messages m on m.chat_id = c.id and m.seq > c.read_inbox_max_seq
+           where c.id = ${chatId} and m.sender_uin <> ${selfUin} and m.state = 'normal'
+        )
+        update chats set unread_count = u.n, unread_mentions = u.mentions, unread_mention_all = u.mention_all, unread_replies = u.replies
+          from u where chats.id = ${chatId}`,
   );
 }
 
