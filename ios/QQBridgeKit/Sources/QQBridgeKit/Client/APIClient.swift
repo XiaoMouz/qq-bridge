@@ -56,14 +56,21 @@ public final class APIClient: SyncAPI {
   public init(config: ServerConfig, token: String, session: URLSessionConfiguration = .default) {
     self.config = config
     self.token = token
-    // Subscribe 是长连接：不设整体超时，心跳由服务端每 25 秒发一次。
-    let client = ProtocolClient(
-      httpClient: URLSessionHTTPClient(configuration: session),
-      config: ProtocolClientConfig(host: config.baseURL.absoluteString, networkProtocol: .connect, codec: ProtoCodec())
-    )
+    // 超时都用 URLSession 的空闲超时（有数据到就重新计时）：弱网下慢但在走的响应不会被掐断，卡住的才失败重试。
+    // 2026-10-24：原来用默认 60 秒，弱网时一个卡住的请求要等一分钟才重试。
+    // 普通请求 20 秒；同步服务带 Subscribe 长连接，服务端每 25 秒发一次心跳，给 40 秒，断了的流也比原来早 20 秒发现。
+    func protocolClient(idleTimeout: TimeInterval) -> ProtocolClient {
+      let configuration = session.copy() as! URLSessionConfiguration
+      configuration.timeoutIntervalForRequest = idleTimeout
+      return ProtocolClient(
+        httpClient: URLSessionHTTPClient(configuration: configuration),
+        config: ProtocolClientConfig(host: config.baseURL.absoluteString, networkProtocol: .connect, codec: ProtoCodec())
+      )
+    }
+    let client = protocolClient(idleTimeout: 20)
     self.client = client
     auth = .init(client: client)
-    sync = .init(client: client)
+    sync = .init(client: protocolClient(idleTimeout: 40))
     dialogs = .init(client: client)
     messages = .init(client: client)
     media = .init(client: client)
