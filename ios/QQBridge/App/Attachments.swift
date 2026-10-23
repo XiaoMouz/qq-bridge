@@ -253,26 +253,3 @@ struct AttachmentTray: View {
   }
 }
 
-/// 拖进会话时盖在聊天页上的提示。
-struct DropHint: View {
-  var body: some View {
-    #if targetEnvironment(macCatalyst)
-    MacFileDropHint()
-    #else
-    ZStack {
-      Rectangle().fill(.ultraThinMaterial)
-      VStack(spacing: 10) {
-        Image(systemName: "arrow.down.doc.fill").font(.system(size: 44)).foregroundStyle(.tint)
-        Text("松手发送").font(.title3.bold())
-      }
-    }
-    .overlay {
-      RoundedRectangle(cornerRadius: 24, style: .continuous)
-        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
-        .padding(12)
-    }
-    .ignoresSafeArea()
-    .allowsHitTesting(false)
-    #endif
-  }
-}

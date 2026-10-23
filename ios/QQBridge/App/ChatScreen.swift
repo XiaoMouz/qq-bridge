@@ -92,8 +92,6 @@ struct ChatScreen: View {
   @State private var pasteHintTimer: Task<Void, Never>?
   /// 在这之前获得的焦点是关掉弹窗后系统自动还回来的：不提示粘贴。
   @State private var pasteQuietUntil = Date.distantPast
-  /// 拖放提示跟随平台：Mac 先预览附件，iOS 保留松手发送。
-  @State private var dropTargeted = false
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
@@ -234,8 +232,7 @@ struct ChatScreen: View {
         #if targetEnvironment(macCatalyst)
         MacDroppedProviders.enqueue(providers, into: composer.attachmentQueue)
         #endif
-      },
-      onDropTargeted: { dropTargeted = $0 }
+      }
     )
     // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
@@ -334,12 +331,8 @@ struct ChatScreen: View {
       return !items.isEmpty
     }
     #endif
-    // 拖入提示只在 Mac 上有（iPhone 拖入少见，系统会在拖动的东西上显示绿色加号）。
-    // 2026-10-21 用户反馈：iOS 上加图片、@、回复后偶尔留下一整层毛玻璃盖住聊天，就是这个提示卡住了，iOS 上直接去掉。
-    #if targetEnvironment(macCatalyst)
-    .overlay { if dropTargeted { DropHint().transition(.opacity) } }
-    .animation(.easeOut(duration: 0.15), value: dropTargeted)
-    #endif
+    // 不再显示拖入提示（盖住聊天的毛玻璃）：2026-10-21 起 iOS、2026-10-23 起 Mac 都去掉了。
+    // 用户反馈 @、加图片、回复后偶尔留下一整层毛玻璃，就是这个提示卡住；拖入附件照常能用，Mac 拖进来后进附件条预览。
     .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
     .onChange(of: inputFocused) { _, focused in
       // 弹窗、资料卡、下一级页面关掉回来时，系统会把焦点自动还给输入框：这种不算"要输入了"，不提示粘贴。

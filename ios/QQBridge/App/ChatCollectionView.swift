@@ -37,7 +37,6 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   var onScrollDate: (Int64?) -> Void = { _ in }
   var scrollRequest: ChatScrollRequest?
   var onFileDrop: (([NSItemProvider]) -> Void)?
-  var onDropTargeted: ((Bool) -> Void)?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
     ChatCollectionController()
@@ -52,7 +51,6 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.onScrollDate = onScrollDate
     #if targetEnvironment(macCatalyst)
     controller.fileDropReceiver.onDrop = onFileDrop
-    controller.fileDropReceiver.onTargeted = onDropTargeted
     #endif
     controller.request(scrollRequest)
     controller.apply(items, version: version)
