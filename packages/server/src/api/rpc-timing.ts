@@ -7,12 +7,20 @@ export interface RpcTimingSummary {
   [method: string]: { count: number; p50: number; p95: number; max: number };
 }
 
+export interface PoolStats {
+  total: number;
+  idle: number;
+  waiting: number;
+}
+
 export class RpcTiming {
   private samples = new Map<string, number[]>();
 
   constructor(
     private readonly logger: Logger,
     private readonly slowMs = 1000,
+    /** 数据库连接池状态：慢请求时一起记下，判断是不是在排队等连接（2026-10-24 启动后 GetStatus 27 秒，库里查不到慢查询）。 */
+    readonly poolStats: () => PoolStats | null = () => null,
   ) {}
 
   interceptor(): Interceptor {
@@ -28,7 +36,7 @@ export class RpcTiming {
         let list = this.samples.get(method);
         if (!list) this.samples.set(method, (list = []));
         list.push(ms);
-        if (ms >= this.slowMs) this.logger.warn({ method, ms }, 'slow rpc');
+        if (ms >= this.slowMs) this.logger.warn({ method, ms, pool: this.poolStats() }, 'slow rpc');
       }
     };
   }

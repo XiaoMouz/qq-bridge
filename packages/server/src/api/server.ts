@@ -12,7 +12,12 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
   // forceCloseConnections：关闭时直接断开长连接（订阅流的客户端会自动重连并用差量追平），避免关停被流挂住。
   const app = Fastify({ logger: false, bodyLimit: 4 * 1024 * 1024, forceCloseConnections: true });
 
-  const timing = new RpcTiming(deps.logger.child({ component: 'rpc' }));
+  const pool = deps.db.$client;
+  const timing = new RpcTiming(deps.logger.child({ component: 'rpc' }), 1000, () => ({
+    total: pool.totalCount,
+    idle: pool.idleCount,
+    waiting: pool.waitingCount,
+  }));
   await app.register(fastifyConnectPlugin, {
     routes: (router) => registerServices(router, deps),
     // 第一个拦截器在最外层：先计时（含认证和错误映射），再映射错误，再做认证。
@@ -20,7 +25,7 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
   });
   const timingLog = setInterval(() => {
     const summary = timing.drain();
-    if (Object.keys(summary).length > 0) deps.logger.info({ rpc: summary }, 'rpc latency (ms)');
+    if (Object.keys(summary).length > 0) deps.logger.info({ rpc: summary, pool: timing.poolStats() }, 'rpc latency (ms)');
   }, 60_000);
   timingLog.unref();
   app.addHook('onClose', async () => clearInterval(timingLog));

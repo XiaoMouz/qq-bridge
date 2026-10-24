@@ -114,7 +114,9 @@ export function createDeps(
  * 没有上游时只用入库时记下的链接，过期的媒体记为 expired。
  */
 export async function startServer(config: Config, opts: { mediaSource?: MediaSource } = {}) {
-  const db = createDb(config.DATABASE_URL);
+  // 收件箱、媒体下载、联系人同步、补缺口、存储预热和客户端请求共用一个连接池：原来 10 个，后台任务一忙请求就排队等连接。
+  // Postgres max_connections 100，给 20 个。
+  const db = createDb(config.DATABASE_URL, 20);
   await runMigrations(db);
   const deps = createDeps(db, {
     mediaRoot: config.MEDIA_ROOT,
