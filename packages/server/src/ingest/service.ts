@@ -680,61 +680,74 @@ export class IngestService {
   ): Promise<number[]> {
     if (refs.length === 0) return [];
     return this.writers.forAccount(accountId).run(async (w) => {
+      // 2026-10-24 实测：这里在账号单写者里，原来每张图串行查 2–3 次，滚动群聊一次要 200 张缩略图时
+      // 把消息入库挡在后面，入库忙时它也排队，RequestMedia 常 1–2 秒。改成不论多少张最多 5 次查询；规则不变。
+      const wanted = sql.join(refs.map((r) => sql`(${r.chatId}::bigint, ${r.seq}::bigint, ${r.ord}::int)`), sql`, `);
+      const originals = await rows<MediaRefTarget & { id: number; kind: string; role: string; fetch_state: string; locator: unknown }>(
+        w.tx,
+        sql`select distinct on (m.chat_id, m.message_seq, m.ordinal)
+                   m.id, m.kind, m.role, m.fetch_state, m.locator, m.chat_id, m.message_seq, m.chat_event_id, m.forward_bundle_id, m.node_path, m.ordinal
+              from (values ${wanted}) as r(chat_id, seq, ord)
+              join media_refs m on m.chat_id = r.chat_id and m.message_seq = r.seq and m.ordinal = r.ord
+              join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
+             where q.account_id = ${accountId} and m.role <> ${QQ_THUMB_ROLE}
+             order by m.chat_id, m.message_seq, m.ordinal, m.id`,
+      );
       const queued: number[] = [];
-      for (const r of refs) {
-        const original = await maybeOne<MediaRefTarget & { id: number; kind: string; role: string; fetch_state: string; locator: unknown }>(
+      // 缩略图：图片是 QQ 的 spec=720 缩略图；视频是 QQ 自带的封面（首帧，几十 KB，只下封面、不碰视频本身）。
+      const thumbTargets =
+        what === 'thumb' ? originals.filter((o) => (o.kind === 'image' && o.role !== 'sticker') || o.kind === 'video') : [];
+      if (thumbTargets.length > 0) {
+        const keys = sql.join(thumbTargets.map((o) => sql`(${o.chat_id}::bigint, ${o.message_seq}::bigint, ${o.ordinal}::int)`), sql`, `);
+        // 按需的、以前失败或过期的都重新要（链接换新后多半能拿到）。
+        const requeued = await rows<{ id: number }>(
           w.tx,
-          sql`select m.id, m.kind, m.role, m.fetch_state, m.locator, m.chat_id, m.message_seq, m.chat_event_id, m.forward_bundle_id, m.node_path, m.ordinal
-                from media_refs m join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
-               where q.account_id = ${accountId} and m.chat_id = ${r.chatId} and m.message_seq = ${r.seq} and m.ordinal = ${r.ord}
-                 and m.role <> ${QQ_THUMB_ROLE}
-               order by m.id limit 1`,
+          sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()
+               where (chat_id, message_seq, ordinal) in (values ${keys}) and role = ${QQ_THUMB_ROLE}
+                 and fetch_state in ('on_demand', 'failed', 'expired')
+           returning id`,
         );
-        if (!original) continue;
-        // 缩略图：图片是 QQ 的 spec=720 缩略图；视频是 QQ 自带的封面（首帧，几十 KB，只下封面、不碰视频本身）。
-        if (what === 'thumb' && ((original.kind === 'image' && original.role !== 'sticker') || original.kind === 'video')) {
-          const thumb = await maybeOne<{ id: number }>(
+        queued.push(...requeued.map((r) => r.id));
+        const existing = new Set(
+          (
+            await rows<{ k: string }>(
+              w.tx,
+              sql`select chat_id || ':' || message_seq || ':' || ordinal as k from media_refs
+                   where (chat_id, message_seq, ordinal) in (values ${keys}) and role = ${QQ_THUMB_ROLE}`,
+            )
+          ).map((r) => r.k),
+        );
+        const missing = thumbTargets.filter((o) => o.locator && !existing.has(`${o.chat_id}:${o.message_seq}:${o.ordinal}`));
+        const videos = missing.filter((o) => o.kind === 'video').map((o) => o.id);
+        const images = missing.filter((o) => o.kind !== 'video').map((o) => o.id);
+        if (videos.length > 0) {
+          // 视频封面：不带视频的链接和 md5（封面由插件按定位信息单独下载）。
+          const covers = await rows<{ id: number }>(
             w.tx,
-            // 按需的、以前失败或过期的都重新要（链接换新后多半能拿到）。
-            sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()
-                 where chat_id = ${r.chatId} and message_seq = ${r.seq} and ordinal = ${r.ord} and role = ${QQ_THUMB_ROLE}
-                   and fetch_state in ('on_demand', 'failed', 'expired')
+            sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, fetch_state, locator, sender_uin, time, requested_at)
+                select chat_id, message_seq, ordinal, ${QQ_THUMB_ROLE}, 'image', 'pending', locator, sender_uin, time, now()
+                  from media_refs where id in (${sql.join(videos.map((id) => sql`${id}`), sql`, `)})
              returning id`,
           );
-          if (thumb) {
-            queued.push(thumb.id);
-            continue;
-          }
-          const existing = await maybeOne(
-            w.tx,
-            sql`select 1 as x from media_refs where chat_id = ${r.chatId} and message_seq = ${r.seq} and ordinal = ${r.ord} and role = ${QQ_THUMB_ROLE}`,
-          );
-          if (existing || !original.locator) continue;
-          if (original.kind === 'video') {
-            // 视频封面：不带视频的链接和 md5（封面由插件按定位信息单独下载）。
-            const cover = await one<{ id: number }>(
-              w.tx,
-              sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, fetch_state, locator, sender_uin, time, requested_at)
-                  select chat_id, message_seq, ordinal, ${QQ_THUMB_ROLE}, 'image', 'pending', locator, sender_uin, time, now()
-                    from media_refs where id = ${original.id}
-               returning id`,
-            );
-            queued.push(cover.id);
-            continue;
-          }
+          queued.push(...covers.map((r) => r.id));
+        }
+        if (images.length > 0) {
           // 以前入库的图片没有 QQ 缩略图引用：照原件那条补一条。
-          const added = await one<{ id: number }>(
+          const added = await rows<{ id: number }>(
             w.tx,
             sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
                                         qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
                 select chat_id, message_seq, ordinal, ${QQ_THUMB_ROLE}, 'image', qq_md5, qq_md5_partial, qq_file_uuid,
                        qq_resource_id, qq_file_id, url, url_expires_at, 'pending', locator, sender_uin, time
-                  from media_refs where id = ${original.id}
+                  from media_refs where id in (${sql.join(images.map((id) => sql`${id}`), sql`, `)})
              returning id`,
           );
-          queued.push(added.id);
-          continue;
+          queued.push(...added.map((r) => r.id));
         }
+      }
+      const thumbIds = new Set(thumbTargets.map((o) => o.id));
+      for (const original of originals) {
+        if (thumbIds.has(original.id)) continue;
         // 看大图要原图时，已经在下载队列里 / 正在下载的也算上：调用方会等它下完（否则会把"还在下载"当成"拿不到"）。
         if (what === 'original' && (original.fetch_state === 'pending' || original.fetch_state === 'fetching')) {
           queued.push(original.id);
