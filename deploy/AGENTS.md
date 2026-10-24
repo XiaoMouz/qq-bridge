@@ -14,7 +14,7 @@
 | `.env` | **秘密**（数据库、令牌、LiveKit、APNs 等），不打印、不提交 |
 | `data/` | 运行数据（不提交）：`postgres`、`media`（按 sha256 存的媒体）、`qface`（表情资源）、`napcat-config`（NapCat 配置、插件数据和 capture、开关文件 `qqbridge.env`）、APNs `.p8`（**不读不打印**） |
 
-2026-10-19 起，本机项目位于 `/Volumes/Ext1/Workspace/qq-bridge`。`data/qq` 保存 QQ 外层配置及 AV Host profile，`data/qq-user` 显式挂载到 `/app/.config/QQ`，保存原先匿名卷中的 QQ 登录态和用户数据。两者都要备份；绑定挂载禁止自动创建缺失目录，启动前须确认 Ext1 已挂载。迁移及回退说明见 [迁移记录](../docs/migration-ext1.md)。
+2026-10-24 起，代码在内置盘 `~/Workspace/qq-bridge`；数据库、NapCat 配置、QQ 登录态（`qq`、`qq-user`）、`.env` 和 APNs 密钥在 `~/deploy`（compose 经 `.env` 的 `QQBRIDGE_DATA` 挂载）；媒体、QQ 表情、诊断材料在 HDD-1 的 `XiaoMouz's Files/Depoly/QQ-Bridge`（`MEDIA_ROOT`）。仓库里 `deploy/data/` 是指向这些位置的符号链接。`data/qq` 保存 QQ 外层配置及 AV Host profile，`data/qq-user` 显式挂载到 `/app/.config/QQ`，都要备份；绑定挂载禁止自动创建缺失目录，启动前须确认 HDD-1 已挂载。迁移说明见 [迁出 Ext1](../docs/migration-internal.md)。
 
 ## 常用操作
 

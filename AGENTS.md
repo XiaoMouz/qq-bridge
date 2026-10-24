@@ -25,7 +25,7 @@
 | `packages/call-gateway` | PulseAudio ⇄ LiveKit 的媒体桥 | [AGENTS.md](packages/call-gateway/AGENTS.md) |
 | `ios/QQBridge` | iOS App（XcodeGen 工程、通知扩展） | [AGENTS.md](ios/QQBridge/AGENTS.md) |
 | `ios/QQBridgeKit` | Swift 包：API 客户端、本地库、同步、媒体缓存、生成的 proto | [AGENTS.md](ios/QQBridgeKit/AGENTS.md) |
-| `deploy` | docker compose、QQ 镜像、launchd、LiveKit 配置；`deploy/data` 是运行数据 | [AGENTS.md](deploy/AGENTS.md) |
+| `deploy` | docker compose、QQ 镜像、launchd、LiveKit 配置；`deploy/data` 是指向运行数据的符号链接（数据库、QQ 数据在 `~/deploy`，媒体在 HDD-1，见 [迁出 Ext1](docs/migration-internal.md)） | [AGENTS.md](deploy/AGENTS.md) |
 | `tools` | 运维脚本（插件部署、QQ 调试、表情同步） | [AGENTS.md](tools/AGENTS.md) |
 | `macos` | macOS 版 BetterChat（Mac Catalyst，独立工程，引用共享客户端实现） | [README](macos/README.md) |
 | `fixtures` | 测试样本（脱敏） | |

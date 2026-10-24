@@ -32,18 +32,18 @@ services:
       - "127.0.0.1:6099:6099" # NapCat WebUI：扫码登录、查看日志
     volumes:
       - type: bind
-        source: ./data/napcat-config
+        source: ${QQBRIDGE_DATA:-./data}/napcat-config
         target: /app/napcat/config
         bind:
           create_host_path: false
       - type: bind
-        source: ./data/qq
+        source: ${QQBRIDGE_DATA:-./data}/qq
         target: /app/.config
         bind:
           create_host_path: false
       # 2026-10-19 迁移实测：镜像给 QQ 声明了匿名卷，必须显式挂载才能让登录态随目录备份。
       - type: bind
-        source: ./data/qq-user
+        source: ${QQBRIDGE_DATA:-./data}/qq-user
         target: /app/.config/QQ
         bind:
           create_host_path: false
@@ -92,7 +92,7 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - type: bind
-        source: ./data/postgres
+        source: ${QQBRIDGE_DATA:-./data}/postgres
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
