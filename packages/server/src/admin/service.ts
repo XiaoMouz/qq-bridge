@@ -54,7 +54,7 @@ export class AdminService {
   private readonly statusQueries = new Map<number, Promise<SystemStatus>>();
   /** 状态页的冷热存储总量：变化很慢，按账号缓存一分钟（统计一次约 170 毫秒）。 */
   private readonly storageTotals = new Map<number, { at: number; value: Promise<{ hotBytes: number; coldBytes: number }> }>();
-  /** 通话桥（问插件）、网关的状态：变化慢，缓存 10 秒（2026-10-24 实测状态页约 180 ms 大多花在这两次网络往返上）。 */
+  /** 通话桥（问插件）、网关的状态：变化慢，缓存 30 秒。 */
   private readonly callStates = new Map<string, { at: number; value: Promise<unknown> }>();
   constructor(
     private readonly db: Db,
@@ -136,7 +136,7 @@ export class AdminService {
     let missingSeqs = 0;
     const history = this.deps.history();
     for (const id of ids) {
-      const holes = (await history?.holes(id)) ?? [];
+      const holes = (await history?.holes(id, undefined, { maxStaleMs: 60_000 })) ?? [];
       chatsWithHoles += new Set(holes.filter((h) => !h.deep).map((h) => h.chatId)).size;
       missingSeqs += holes.filter((h) => !h.deep).reduce((n, h) => n + (h.upper - h.lower), 0);
     }
@@ -180,7 +180,8 @@ export class AdminService {
 
   private recent<T>(key: string, load: () => Promise<T>): Promise<T> {
     const cached = this.callStates.get(key);
-    if (cached && Date.now() - cached.at < 10_000) return cached.value as Promise<T>;
+    // 客户端每 20 秒拉一次状态：缓存要比这长才命中。
+    if (cached && Date.now() - cached.at < 30_000) return cached.value as Promise<T>;
     const value = load();
     this.callStates.set(key, { at: Date.now(), value });
     value.catch(() => this.callStates.delete(key));

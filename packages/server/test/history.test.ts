@@ -95,6 +95,18 @@ describe('HoleFiller', () => {
     }
   });
 
+  // 2026-10-24：状态页允许缺口晚一分钟（maxStaleMs），补历史自己调用时按指纹要最新的。
+  it('lets the status page reuse recent holes while the filler always sees fresh ones', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    for (const seq of [1, 3]) await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810098, seq, 20002));
+    const filler = new HoleFiller(t.db, new FakeQq(acc.uin), new InboxProcessor(t.db, ingest), null);
+    expect(await filler.holes(acc.qqAccountId)).toHaveLength(1);
+    await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810098, 2, 20002));
+    expect(await filler.holes(acc.qqAccountId, undefined, { maxStaleMs: 60_000 })).toHaveLength(1);
+    expect(await filler.holes(acc.qqAccountId)).toEqual([]);
+  });
+
   it('finds holes between archived messages and fills them, newest first, then stays quiet', async () => {
     const { ingest } = services(t.db);
     const acc = await createTestAccount(t.db, ingest);

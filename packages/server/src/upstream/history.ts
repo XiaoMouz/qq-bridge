@@ -66,7 +66,7 @@ export class HoleFiller {
    * 2026-10-24 实测：状态页每分钟三次重算全部会话的缺口，每次约 0.5–14 秒（冷缓存时读 5 万个块），是数据库最耗时的查询；
    * 消息的任何写入都会推进 chat_pts，指纹没变的会话缺口不可能变，只重算变了的会话。
    */
-  private readonly holeCache = new Map<number, { fingerprint: string; holes: Hole[] }>();
+  private readonly holeCache = new Map<number, { fingerprint: string; holes: Hole[]; at: number }>();
   private readonly o: Required<Omit<HistoryOptions, 'logger'>> & Pick<HistoryOptions, 'logger'>;
   private timer: NodeJS.Timeout | null = null;
 
@@ -159,30 +159,37 @@ export class HoleFiller {
   }
 
   /** 某个 QQ 号下所有会话的缺口（按会话的 [最早一条, 最新一条] 计算）。 */
-  async holes(qqAccountId: number, chatId?: number): Promise<Hole[]> {
+  async holes(qqAccountId: number, chatId?: number, opts: { maxStaleMs?: number } = {}): Promise<Hole[]> {
     // 2026-10-19：状态页并发请求曾占满连接池，导致实时收件箱无法入库。
-    // 只合并尚未完成的同范围查询，不缓存结果，以免补历史后仍看到旧缺口。
-    const key = `${qqAccountId}:${chatId ?? 'all'}`;
+    // 合并尚未完成的同范围查询；结果按会话指纹复用（见 holeCache）。
+    // maxStaleMs：只给状态页用。忙的群 20 秒里 chat_pts 就会变好几次，状态页每次都要重算这些群（约 150 ms）；
+    // 状态页的数字晚一分钟无妨，补历史自己调用时仍按指纹要最新的。
+    const key = `${qqAccountId}:${chatId ?? 'all'}:${opts.maxStaleMs ?? 0}`;
     let pending = this.holeQueries.get(key);
     if (!pending) {
-      pending = this.queryHoles(qqAccountId, chatId).finally(() => this.holeQueries.delete(key));
+      pending = this.queryHoles(qqAccountId, chatId, opts.maxStaleMs ?? 0).finally(() => this.holeQueries.delete(key));
       this.holeQueries.set(key, pending);
     }
     // 补历史会按优先级原地排序，调用方不能共享可变数组或条目。
     return (await pending).map((hole) => ({ ...hole }));
   }
 
-  private async queryHoles(qqAccountId: number, chatId?: number): Promise<Hole[]> {
+  private async queryHoles(qqAccountId: number, chatId: number | undefined, maxStaleMs: number): Promise<Hole[]> {
     const chats = await rows<{ id: number; fingerprint: string }>(
       this.db,
       sql`select id, chat_pts || '|' || verified_ranges::text || '|' || coalesce(deep_archive_at::text, '') as fingerprint
             from chats where qq_account_id = ${qqAccountId} and scene in ('friend', 'group')
              ${chatId === undefined ? sql`` : sql`and id = ${chatId}`}`,
     );
-    const stale = chats.filter((c) => this.holeCache.get(c.id)?.fingerprint !== c.fingerprint);
+    const now = Date.now();
+    const stale = chats.filter((c) => {
+      const cached = this.holeCache.get(c.id);
+      if (!cached) return true;
+      return cached.fingerprint !== c.fingerprint && now - cached.at > maxStaleMs;
+    });
     if (stale.length > 0) {
       const fresh = await this.computeHoles(qqAccountId, stale.map((c) => c.id));
-      for (const c of stale) this.holeCache.set(c.id, { fingerprint: c.fingerprint, holes: fresh.get(c.id) ?? [] });
+      for (const c of stale) this.holeCache.set(c.id, { fingerprint: c.fingerprint, holes: fresh.get(c.id) ?? [], at: now });
     }
     if (chatId === undefined) {
       // 已经不在列表里的会话（删掉、换了账号）不再占着缓存。
