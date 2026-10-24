@@ -54,6 +54,8 @@ export class AdminService {
   private readonly statusQueries = new Map<number, Promise<SystemStatus>>();
   /** 状态页的冷热存储总量：变化很慢，按账号缓存一分钟（统计一次约 170 毫秒）。 */
   private readonly storageTotals = new Map<number, { at: number; value: Promise<{ hotBytes: number; coldBytes: number }> }>();
+  /** 通话桥（问插件）、网关的状态：变化慢，缓存 10 秒（2026-10-24 实测状态页约 180 ms 大多花在这两次网络往返上）。 */
+  private readonly callStates = new Map<string, { at: number; value: Promise<unknown> }>();
   constructor(
     private readonly db: Db,
     private readonly deps: {
@@ -88,8 +90,10 @@ export class AdminService {
     const calls = this.deps.calls();
     const first = ids.find((id) => hub?.isConnected(id));
     const bridgeQuery: Promise<Record<string, unknown>> =
-      hub && first !== undefined ? hub.call<Record<string, unknown>>(first, 'x.call.status', {}, 5000).catch(() => ({})) : Promise.resolve({});
-    const gatewayQuery = calls.gatewayStatus();
+      hub && first !== undefined
+        ? this.recent(`bridge:${first}`, () => hub.call<Record<string, unknown>>(first, 'x.call.status', {}, 5000).catch(() => ({})))
+        : Promise.resolve({});
+    const gatewayQuery = this.recent('gateway', () => calls.gatewayStatus());
     const activeCallQuery = calls.active(accountId);
     const storageQuery = this.storage(accountId);
     // 下面的统计先失败时这两个还没人等：先挂上处理，免得成了未处理的拒绝让进程退出（结果仍在 Promise.all 里取）。
@@ -172,6 +176,15 @@ export class AdminService {
       storage: { hotBytes: overview.hotBytes, coldBytes: overview.coldBytes, coldTierEnabled: this.deps.media.hasColdTier },
       serverStartedAt: startedAt,
     };
+  }
+
+  private recent<T>(key: string, load: () => Promise<T>): Promise<T> {
+    const cached = this.callStates.get(key);
+    if (cached && Date.now() - cached.at < 10_000) return cached.value as Promise<T>;
+    const value = load();
+    this.callStates.set(key, { at: Date.now(), value });
+    value.catch(() => this.callStates.delete(key));
+    return value;
   }
 
   private storage(accountId: number): Promise<{ hotBytes: number; coldBytes: number }> {
