@@ -52,10 +52,8 @@ const startedAt = new Date();
 
 export class AdminService {
   private readonly statusQueries = new Map<number, Promise<SystemStatus>>();
-  /** 状态页的冷热存储总量：变化很慢，按账号缓存一分钟（统计一次约 170 毫秒）。 */
-  private readonly storageTotals = new Map<number, { at: number; value: Promise<{ hotBytes: number; coldBytes: number }> }>();
-  /** 通话桥（问插件）、网关的状态：变化慢，缓存 30 秒。 */
-  private readonly callStates = new Map<string, { at: number; value: Promise<unknown> }>();
+  /** 通话桥（问插件）、网关的状态、存储总量：变化慢，先给旧值、超过 30 秒在后台刷新。 */
+  private readonly callStates = new Map<string, { at: number; value: Promise<unknown>; refreshing?: boolean }>();
   constructor(
     private readonly db: Db,
     private readonly deps: {
@@ -178,24 +176,29 @@ export class AdminService {
     };
   }
 
+  /** 有值就先给，超过 30 秒的在后台刷新（客户端每 20 秒拉一次，不该让其中一次去等插件和网关的往返）。 */
   private recent<T>(key: string, load: () => Promise<T>): Promise<T> {
     const cached = this.callStates.get(key);
-    // 客户端每 20 秒拉一次状态：缓存要比这长才命中。
-    if (cached && Date.now() - cached.at < 30_000) return cached.value as Promise<T>;
+    if (cached) {
+      if (Date.now() - cached.at >= 30_000 && !cached.refreshing) {
+        cached.refreshing = true;
+        load()
+          .then((value) => this.callStates.set(key, { at: Date.now(), value: Promise.resolve(value) }))
+          .catch(() => (cached.refreshing = false));
+      }
+      return cached.value as Promise<T>;
+    }
     const value = load();
     this.callStates.set(key, { at: Date.now(), value });
     value.catch(() => this.callStates.delete(key));
     return value;
   }
 
+  /** 冷热存储总量（统计一次约 170 毫秒）：同样先给旧值、后台刷新。 */
   private storage(accountId: number): Promise<{ hotBytes: number; coldBytes: number }> {
-    const cached = this.storageTotals.get(accountId);
-    if (cached && Date.now() - cached.at < 60_000) return cached.value;
-    const value = this.deps.media.storageOverview(accountId, 0).then((o) => ({ hotBytes: o.hotBytes, coldBytes: o.coldBytes }));
-    // 失败的不留在缓存里，下次重新统计。
-    value.catch(() => this.storageTotals.delete(accountId));
-    this.storageTotals.set(accountId, { at: Date.now(), value });
-    return value;
+    return this.recent(`storage:${accountId}`, () =>
+      this.deps.media.storageOverview(accountId, 0).then((o) => ({ hotBytes: o.hotBytes, coldBytes: o.coldBytes })),
+    );
   }
 
   /** 各会话的存档完整性，缺口多的在前。 */
