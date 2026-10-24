@@ -44,6 +44,7 @@ const MESSAGE_TTL_MS = 5 * 60_000;
 
 export class StorageBrowser {
   private messageCache = new Map<number, { at: number; rows: StorageChatRow[] }>();
+  private messageRefresh = new Map<number, Promise<StorageChatRow[]>>();
 
   constructor(private readonly db: Db) {}
 
@@ -156,19 +157,41 @@ export class StorageBrowser {
   }
 
   /** 各会话消息本身的大小（按行算），缓存 5 分钟。 */
+  /**
+   * 各会话消息本身占的空间：要扫整张消息表（2026-10-24 实测内置盘约 2.4 秒，原来在 Ext1 上最长 12 秒）。
+   * 有结果就先给（过期了在后台重算，同时只算一次），只有从没算过时才等；服务端启动后也会先在后台算好（warm）。
+   */
   private async messageChats(accountId: number): Promise<StorageChatRow[]> {
     const cached = this.messageCache.get(accountId);
-    if (cached && Date.now() - cached.at < MESSAGE_TTL_MS) return cached.rows;
-    const list = await rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
-      this.db,
-      sql`select m.chat_id, c.scene, c.peer_id, sum(pg_column_size(m.*))::bigint as bytes, count(*)::int as count
-            from messages m join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
-           where q.account_id = ${accountId}
-           group by 1, 2, 3 order by bytes desc limit 200`,
-    );
-    const out = list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count }));
-    this.messageCache.set(accountId, { at: Date.now(), rows: out });
-    return out;
+    if (cached) {
+      if (Date.now() - cached.at >= MESSAGE_TTL_MS) void this.refreshMessageChats(accountId).catch(() => undefined);
+      return cached.rows;
+    }
+    return this.refreshMessageChats(accountId);
+  }
+
+  /** 后台先把各账号的消息占用算好（启动后调用一次）。 */
+  async warm(): Promise<void> {
+    for (const a of await rows<{ id: number }>(this.db, sql`select id from accounts`)) await this.refreshMessageChats(a.id);
+  }
+
+  private refreshMessageChats(accountId: number): Promise<StorageChatRow[]> {
+    const running = this.messageRefresh.get(accountId);
+    if (running) return running;
+    const task = (async () => {
+      const list = await rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
+        this.db,
+        sql`select m.chat_id, c.scene, c.peer_id, sum(pg_column_size(m.*))::bigint as bytes, count(*)::int as count
+              from messages m join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
+             where q.account_id = ${accountId}
+             group by 1, 2, 3 order by bytes desc limit 200`,
+      );
+      const out = list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count }));
+      this.messageCache.set(accountId, { at: Date.now(), rows: out });
+      return out;
+    })().finally(() => this.messageRefresh.delete(accountId));
+    this.messageRefresh.set(accountId, task);
+    return task;
   }
 }
 

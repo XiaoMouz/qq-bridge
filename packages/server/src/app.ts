@@ -242,6 +242,12 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
   const retentionDaily = setInterval(runRetention, 24 * 3600_000);
   retentionFirst.unref();
   retentionDaily.unref();
+  // 存储页「消息」一类要扫整张消息表：启动 1 分钟后先在后台算好，打开存储页不用等。
+  const storageWarm = setTimeout(
+    () => void deps.storageBrowser.warm().catch((error: unknown) => deps.logger.warn({ err: error }, 'storage warm failed')),
+    60_000,
+  );
+  storageWarm.unref();
 
   deps.defaultAutoFetchMaxBytes = config.MEDIA_AUTO_FETCH_MAX_BYTES;
   deps.napcatWebUi = config.NAPCAT_WEBUI_TOKEN ? new NapcatWebUi(config.NAPCAT_WEBUI_URL, config.NAPCAT_WEBUI_TOKEN) : null;
@@ -268,6 +274,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     deps.tiering.stop();
     clearInterval(uploadCleanup);
     clearTimeout(retentionFirst);
+    clearTimeout(storageWarm);
     clearInterval(retentionDaily);
     await outboxWorker?.stop();
     await upstream?.stop();
