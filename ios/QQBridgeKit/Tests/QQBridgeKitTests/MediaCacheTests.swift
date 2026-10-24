@@ -39,6 +39,20 @@ final class FakeMedia: MediaURLSigner, MediaDownloader, @unchecked Sendable {
   }
 }
 
+/// 分几步报进度的下载（2026-10-24：验证进度从 MediaCache 传到界面观察的 MediaTransfers）。
+final class SteppedMedia: MediaURLSigner, MediaDownloader, @unchecked Sendable {
+  let base = FakeMedia()
+  func sign(_ sha256: [String]) async throws -> [String: (url: URL, expiresAt: Date)] { try await base.sign(sha256) }
+  func download(_ url: URL) async throws -> URL { try await base.download(url) }
+  func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    for step in [0.25, 0.5, 0.75] {
+      progress(step)
+      try await Task.sleep(for: .milliseconds(150))
+    }
+    return try await base.download(url)
+  }
+}
+
 final class Clock: @unchecked Sendable {
   private let lock = NSLock()
   private var value = Date(timeIntervalSince1970: 1_800_000_000)
@@ -88,6 +102,33 @@ final class Clock: @unchecked Sendable {
     }
     #expect(media.signCalls == 1)
     #expect(Set(media.downloads) == Set(shas))
+  }
+
+  /// 下载中进度出现在 MediaTransfers（界面按它画进度环），下完收起。
+  @Test func reportsDownloadProgressToTransfersAndClearsWhenDone() async throws {
+    let media = SteppedMedia()
+    let sha = media.base.add(Data(repeating: 3, count: 4096))
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let cache = MediaCache(directory: dir, store: try LocalStore.inMemory(), signer: media, downloader: media,
+                           limits: .init(capBytes: nil, retentionDays: nil))
+    let transfers = cache.transfers
+    let download = Task { try await cache.file(for: sha) }
+
+    var seen: Set<Double> = []
+    let deadline = Date().addingTimeInterval(3)
+    while Date() < deadline, seen.count < 3 {
+      if let p = await MainActor.run(body: { transfers.downloads[sha] }), p > 0 { seen.insert(p) }
+      try await Task.sleep(for: .milliseconds(20))
+    }
+    #expect(seen.isSuperset(of: [0.25, 0.5, 0.75]))
+    _ = try await download.value
+    var cleared = false
+    for _ in 0..<50 where !cleared {
+      cleared = await MainActor.run(body: { transfers.downloads[sha] == nil })
+      if !cleared { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    #expect(cleared)
   }
 
   @Test func evictsExpiredThenLeastRecentlyUsedToStayUnderTheCap() async throws {
