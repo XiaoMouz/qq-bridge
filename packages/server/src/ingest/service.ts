@@ -447,8 +447,11 @@ export class IngestService {
     return done;
   }
 
-  /** QQ 缩略图下好了：记进消息的缩略图（原件状态不变）。 */
-  async thumbStored(refId: number, blob: { sha256: string; size: number }): Promise<boolean> {
+  /**
+   * QQ 缩略图下好了：记进消息的缩略图（原件状态不变）。shownSha256：气泡实际显示的那份（压紧的派生版本），
+   * 引用上仍记 QQ 原来那份（占用统计、去重照旧）。
+   */
+  async thumbStored(refId: number, blob: { sha256: string; size: number }, shownSha256: string = blob.sha256): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
     let ready: Update | null = null;
     const done = await this.writers.forAccount(accountId).run(async (w) => {
@@ -461,8 +464,8 @@ export class IngestService {
         sql`update media_refs set sha256 = ${blob.sha256}, fetch_state = 'stored', last_error = null, next_attempt_at = null where id = ${refId}`,
       );
       await addUsage(w.tx, locked.chat_id, blob.sha256);
-      await updateMessageMedia(w, locked, { thumbSha256: blob.sha256 });
-      ready = await mediaReadyOf(w.tx, refId, true, 'stored', blob.sha256);
+      await updateMessageMedia(w, locked, { thumbSha256: shownSha256 });
+      ready = await mediaReadyOf(w.tx, refId, true, 'stored', shownSha256);
       return true;
     });
     if (done && ready) this.writers.publishEphemeral(accountId, ready);

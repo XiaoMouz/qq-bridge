@@ -173,3 +173,34 @@ describe('uploads', () => {
     expect(derived.previewSha256).toBeUndefined();
   });
 });
+
+// 2026-10-24：QQ 的 spec=720 缩略图压得很松，聊天气泡改用重新编码的 chat 派生版本。
+describe('compact chat thumbnails', () => {
+  it('re-encodes a large QQ thumbnail once, keeps small ones as they are', async () => {
+    // 带噪点的大图：JPEG 高质量下远超 60 KB，重新编码后应明显变小、长边不超过 720。
+    const noise = Buffer.alloc(1200 * 900 * 3);
+    for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24;
+    const big = await sharp(noise, { raw: { width: 1200, height: 900, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const stored = await media.storeBlob(Readable.from([big]), { kind: 'image', mime: 'image/jpeg' });
+    expect(stored.size).toBeGreaterThan(60 * 1024);
+
+    const shown = await processor.compactThumb(stored.sha256);
+    expect(shown).not.toBe(stored.sha256);
+    const variant = await one<{ variant_sha256: string }>(
+      t.db,
+      sql`select variant_sha256 from blob_variants where sha256 = ${stored.sha256} and variant = 'chat'`,
+    );
+    expect(variant.variant_sha256).toBe(shown);
+    const blob = (await media.getBlob(shown))!;
+    expect(blob.size).toBeLessThan(stored.size * 0.8);
+    const meta = await sharp(Buffer.concat(await Array.fromAsync(await media.openBlob(blob)))).metadata();
+    expect(meta.format).toBe('webp');
+    expect(Math.max(meta.width!, meta.height!)).toBeLessThanOrEqual(720);
+    // 再要一次直接复用。
+    expect(await processor.compactThumb(stored.sha256)).toBe(shown);
+
+    const small = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#3366cc' } }).png().toBuffer();
+    const tiny = await media.storeBlob(Readable.from([small]), { kind: 'image', mime: 'image/png' });
+    expect(await processor.compactThumb(tiny.sha256)).toBe(tiny.sha256);
+  });
+});

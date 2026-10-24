@@ -74,6 +74,35 @@ export class MediaProcessor {
     }
   }
 
+  /**
+   * 聊天气泡显示用的 QQ 缩略图：QQ 给的 spec=720 缩略图压得很松（2026-10-24 实测平均 240 KB、p95 888 KB），
+   * 弱网下一屏图片就要几 MB。按气泡需要（最宽 220 pt × 3 倍屏 ≈ 660 px）重新编码成长边不超过 720 的 WebP，
+   * 同样数据约小 30 倍（1016 KB → 34 KB）。记成 QQ 缩略图的 chat 派生版本；小于 60 KB、省不到两成或出错时用原件。
+   */
+  async compactThumb(sha256: string): Promise<string> {
+    try {
+      const known = await maybeOne<{ variant_sha256: string }>(
+        this.db,
+        sql`select variant_sha256 from blob_variants where sha256 = ${sha256} and variant = 'chat'`,
+      );
+      if (known) return known.variant_sha256;
+      const blob = await this.media.getBlob(sha256);
+      if (!blob || blob.size < 60 * 1024 || blob.size > MAX_DERIVE_BYTES) return sha256;
+      const out = await sharp(await this.read(blob), { animated: false, failOn: 'none' })
+        .rotate()
+        .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 72 })
+        .toBuffer();
+      if (out.length > blob.size * 0.8) return sha256;
+      const compact = await this.media.storeBlob(Readable.from([out]), { kind: 'image', mime: 'image/webp' });
+      await upsertVariant(this.db, sha256, 'chat', compact.sha256);
+      return compact.sha256;
+    } catch (error) {
+      this.opts.logger?.warn({ err: error, sha256 }, 'compact thumb failed');
+      return sha256;
+    }
+  }
+
   /** 之前处理过的结果。 */
   async existing(sha256: string): Promise<DerivedInfo> {
     const blob = await maybeOne<{ thumbhash: string | null; width: number | null; height: number | null; waveform: string | null }>(

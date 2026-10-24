@@ -335,10 +335,11 @@ export class MediaFetcher {
     return url ? { ...t, url } : null;
   }
 
-  /** 生成（或复用）派生版本，再把引用标记为已存储。QQ 缩略图直接用，不再处理。 */
+  /** 生成（或复用）派生版本，再把引用标记为已存储。QQ 缩略图另存一份压紧的给气泡显示（见 compactThumb）。 */
   private async complete(ref: PendingRef, stored: { sha256: string; size: number; mime: string | null }): Promise<void> {
     if (ref.role === QQ_THUMB_ROLE) {
-      await this.ingest.thumbStored(ref.id, stored);
+      const shown = this.processor ? await this.processor.compactThumb(stored.sha256) : stored.sha256;
+      await this.ingest.thumbStored(ref.id, stored, shown);
       return;
     }
     const extra = this.processor ? await this.processor.process(stored.sha256, ref.kind) : {};
