@@ -67,6 +67,8 @@ export class HoleFiller {
    * 消息的任何写入都会推进 chat_pts，指纹没变的会话缺口不可能变，只重算变了的会话。
    */
   private readonly holeCache = new Map<number, { fingerprint: string; holes: Hole[]; at: number }>();
+  /** 状态页触发的后台重算（每个 QQ 号同时只跑一个）。 */
+  private readonly holeRefresh = new Map<number, Promise<unknown>>();
   private readonly o: Required<Omit<HistoryOptions, 'logger'>> & Pick<HistoryOptions, 'logger'>;
   private timer: NodeJS.Timeout | null = null;
 
@@ -182,14 +184,20 @@ export class HoleFiller {
              ${chatId === undefined ? sql`` : sql`and id = ${chatId}`}`,
     );
     const now = Date.now();
-    const stale = chats.filter((c) => {
-      const cached = this.holeCache.get(c.id);
-      if (!cached) return true;
-      return cached.fingerprint !== c.fingerprint && now - cached.at > maxStaleMs;
-    });
-    if (stale.length > 0) {
-      const fresh = await this.computeHoles(qqAccountId, stale.map((c) => c.id));
-      for (const c of stale) this.holeCache.set(c.id, { fingerprint: c.fingerprint, holes: fresh.get(c.id) ?? [], at: now });
+    const changed = chats.filter((c) => this.holeCache.get(c.id)?.fingerprint !== c.fingerprint);
+    if (maxStaleMs > 0) {
+      // 状态页：有过结果就先用（忙的群重算一次 100–370 ms），过了容忍时间的放到后台重算；从没算过的才当场算。
+      const missing = changed.filter((c) => !this.holeCache.has(c.id));
+      const expired = changed.filter((c) => this.holeCache.has(c.id) && now - this.holeCache.get(c.id)!.at > maxStaleMs);
+      if (missing.length > 0) await this.refreshHoles(qqAccountId, missing, now);
+      if (expired.length > 0 && !this.holeRefresh.has(qqAccountId)) {
+        const task = this.refreshHoles(qqAccountId, expired, now)
+          .catch((error: unknown) => this.o.logger?.warn({ err: error }, 'background hole refresh failed'))
+          .finally(() => this.holeRefresh.delete(qqAccountId));
+        this.holeRefresh.set(qqAccountId, task);
+      }
+    } else if (changed.length > 0) {
+      await this.refreshHoles(qqAccountId, changed, now);
     }
     if (chatId === undefined) {
       // 已经不在列表里的会话（删掉、换了账号）不再占着缓存。
@@ -200,6 +208,11 @@ export class HoleFiller {
       .map((c) => c.id)
       .sort((x, y) => x - y)
       .flatMap((id) => this.holeCache.get(id)?.holes ?? []);
+  }
+
+  private async refreshHoles(qqAccountId: number, chats: { id: number; fingerprint: string }[], at: number): Promise<void> {
+    const fresh = await this.computeHoles(qqAccountId, chats.map((c) => c.id));
+    for (const c of chats) this.holeCache.set(c.id, { fingerprint: c.fingerprint, holes: fresh.get(c.id) ?? [], at });
   }
 
   private async computeHoles(qqAccountId: number, chatIds: number[]): Promise<Map<number, Hole[]>> {

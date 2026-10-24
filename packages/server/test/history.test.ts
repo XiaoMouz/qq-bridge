@@ -104,6 +104,16 @@ describe('HoleFiller', () => {
     expect(await filler.holes(acc.qqAccountId)).toHaveLength(1);
     await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 810098, 2, 20002));
     expect(await filler.holes(acc.qqAccountId, undefined, { maxStaleMs: 60_000 })).toHaveLength(1);
+    // 过了容忍时间：状态页照样先拿到旧结果，后台重算完再问就是新的。
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 120_000);
+      expect(await filler.holes(acc.qqAccountId, undefined, { maxStaleMs: 60_000 })).toHaveLength(1);
+      await (filler as unknown as { holeRefresh: Map<number, Promise<unknown>> }).holeRefresh.get(acc.qqAccountId);
+      expect(await filler.holes(acc.qqAccountId, undefined, { maxStaleMs: 60_000 })).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await filler.holes(acc.qqAccountId)).toEqual([]);
   });
 
