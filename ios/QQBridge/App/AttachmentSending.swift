@@ -23,7 +23,8 @@ struct SessionAttachmentSendingService: AttachmentSendingService {
     switch payload {
     case .image(let data):
       let gif = data.starts(with: [0x47, 0x49, 0x46])
-      let uploaded = try await session.api.upload(data, mime: gif ? "image/gif" : "image/jpeg", name: gif ? "image.gif" : "photo.jpg")
+      let uploaded = try await session.api.upload(data, mime: gif ? "image/gif" : "image/jpeg", name: gif ? "image.gif" : "photo.jpg",
+                                                  progress: progress)
       segment.image.sha256 = uploaded.sha256
     case .stored(let sha, let sticker):
       segment.image.sha256 = sha

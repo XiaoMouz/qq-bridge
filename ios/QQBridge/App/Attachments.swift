@@ -203,7 +203,7 @@ struct AttachmentTray: View {
             switch a.state {
             case .uploading(let p):
               Color.black.opacity(0.35)
-              ProgressView(value: max(0.02, p)).progressViewStyle(.circular).tint(.white)
+              TransferRing(progress: p).tint(.white).frame(width: 28, height: 28)
             case .failed:
               Color.red.opacity(0.35)
               Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.white)

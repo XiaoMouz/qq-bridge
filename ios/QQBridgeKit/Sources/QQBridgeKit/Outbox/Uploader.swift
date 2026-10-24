@@ -18,9 +18,13 @@ public enum UploadError: Error, Equatable {
 
 extension APIClient {
   /// 上传一段数据（图片、语音等），返回服务端里的 sha256。
-  public func upload(_ data: Data, mime: String, name: String = "", chunkSize: Int = 1 << 20) async throws -> UploadedMedia {
+  /// progress 收到 0…1（按块报；2026-10-24 前图片上传不报进度，附件条的进度环一直停在开头）。
+  public func upload(
+    _ data: Data, mime: String, name: String = "", chunkSize: Int = 1 << 20,
+    progress: (@Sendable (Double) -> Void)? = nil
+  ) async throws -> UploadedMedia {
     let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    return try await upload(sha256: sha, size: data.count, mime: mime, name: name, chunkSize: chunkSize, progress: nil) { offset, length in
+    return try await upload(sha256: sha, size: data.count, mime: mime, name: name, chunkSize: chunkSize, progress: progress) { offset, length in
       data.subdata(in: offset..<(offset + length))
     }
   }

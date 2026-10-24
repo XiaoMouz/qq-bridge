@@ -55,13 +55,10 @@ struct MacAttachmentTile: View {
     switch attachment.state {
     case .ready: Image(systemName: attachment.isFile ? "doc.fill" : "photo").font(.title2).foregroundStyle(.tint)
     case .uploading(let progress):
-      VStack(spacing: 2) {
-        ProgressView(value: min(1, max(0, progress))).progressViewStyle(.linear)
-          .tint(attachment.preview == nil ? Color.accentColor : .white).frame(width: 36)
-        Text("\(Int(min(1, max(0, progress)) * 100))%")
-          .font(.system(size: 9, weight: .medium)).monospacedDigit()
-          .foregroundStyle(attachment.preview == nil ? Color.primary : .white)
-      }
+      // 和 iOS、文件气泡一样只用进度环，不另写百分比（百分比在悬停提示和旁白里）。
+      TransferRing(progress: min(1, max(0, progress)))
+        .tint(attachment.preview == nil ? Color.accentColor : .white)
+        .frame(width: 26, height: 26)
     case .failed: Image(systemName: "exclamationmark.triangle.fill").font(.title2)
         .foregroundStyle(attachment.preview == nil ? Color.red : .white)
     case .queued: Image(systemName: "clock.fill").font(.title2)
