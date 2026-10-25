@@ -89,6 +89,21 @@ final class Clock: @unchecked Sendable {
   }
 
   /// 一屏图片同时请求：只换一次签名链接（2026-10-24 合并签名），没有的照样报不可用。
+  @Test func adoptedUploadIsServedWithoutDownloadingAndWrongHashIsRefused() async throws {
+    let media = FakeMedia()
+    let data = Data(repeating: 9, count: 2000)
+    let sha = media.add(data)
+    let (cache, dir) = try makeCache(media, limits: MediaCacheLimits())
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    try await cache.adopt(data, sha256: sha, chatId: 1)
+    #expect(try Data(contentsOf: try await cache.file(for: sha, chatId: 1)) == data)
+    #expect(media.downloads.isEmpty)
+    await #expect(throws: MediaCacheError.hashMismatch(String(repeating: "0", count: 64))) {
+      try await cache.adopt(data, sha256: String(repeating: "0", count: 64))
+    }
+  }
+
   @Test func concurrentRequestsShareOneSigningRoundTrip() async throws {
     let media = FakeMedia()
     let shas = (0..<8).map { media.add(Data(repeating: UInt8($0), count: 100 + $0)) }

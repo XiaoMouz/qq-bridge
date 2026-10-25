@@ -322,6 +322,21 @@ public actor MediaCache {
       Task { @MainActor in transfers.report(sha256, token, fraction) }
     }
     defer { try? FileManager.default.removeItem(at: tmp) }
+    return try await install(tmp, sha256: sha256, chatId: chatId)
+  }
+
+  /// 刚上传的内容直接放进缓存：发送中的气泡和发出后的消息不必再从服务端下一遍。
+  /// 2026-10-25 弱网实测：发一张图，上传完后气泡空着约 6 秒，就是在把刚传上去的原图再下回来。
+  public func adopt(_ data: Data, sha256: String, chatId: Int64? = nil) async throws {
+    if try cachedFile(sha256) != nil { return }
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try data.write(to: tmp)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    _ = try await install(tmp, sha256: sha256, chatId: chatId)
+  }
+
+  /// 校验后挪进缓存目录并记账。
+  private func install(_ tmp: URL, sha256: String, chatId: Int64?) async throws -> URL {
     guard try Self.sha256(of: tmp) == sha256 else { throw MediaCacheError.hashMismatch(sha256) }
     let dest = path(for: sha256)
     try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
