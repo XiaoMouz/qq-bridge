@@ -685,7 +685,9 @@ struct BlockView: View {
         // 私聊的语音：显示到时就下到本机（几十 KB），点了马上播。群聊的点了再下。
         .task(id: VoicePlayer.sha(r)) {
           if let message { context.transcripts.autoTranscribe(chatId: context.chatId, seq: message.seq, session: context.session) }
-          guard !context.isGroup, r.media.state == .stored else { return }
+          guard r.media.state == .stored else { return }
+          // 群里的不预先下载（量大），只先换好链接，点了少等一个往返。
+          guard !context.isGroup else { await context.session.media.presign(VoicePlayer.sha(r)); return }
           _ = try? await context.session.media.file(for: VoicePlayer.sha(r), chatId: context.chatId)
         }
           // 一键转文字（长按菜单里的「转文字」也保留）：转过的再点收起。
@@ -761,6 +763,7 @@ struct BlockView: View {
         }
       }
       .contentShape(Rectangle())
+      .task(id: f.media.sha256) { if f.media.state == .stored { await context.session.media.presign(f.media.sha256) } }
       .modifier(MessageBlockAction(title: "\(f.media.state == .onDemand ? "下载" : "打开")文件：\(f.name)", value: fileStatus(f),
                                    enabled: [.onDemand, .stored, .purged].contains(f.media.state)) {
         switch f.media.state {

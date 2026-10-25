@@ -377,6 +377,13 @@ public actor MediaCache {
     try store.db.read { db in try Int64.fetchOne(db, sql: "select coalesce(sum(size), 0) from mediaCache") ?? 0 }
   }
 
+  /// 点了才下的内容（群语音、文件）显示到时先换好链接，并进同一屏的合批；点下去只剩下载本身。
+  /// 2026-10-25 弱网（单程 300 ms）实测群语音点了约 3 秒才响，其中换链接占一个往返。
+  public func presign(_ sha256: String) async {
+    guard !sha256.isEmpty, (try? cachedFile(sha256)) == nil else { return }
+    _ = try? await signedURL(sha256)
+  }
+
   private func signedURL(_ sha256: String) async throws -> URL {
     if let s = signed[sha256], s.expiresAt.timeIntervalSince(now()) > 60 { return s.url }
     let result = try await withCheckedThrowingContinuation { continuation in

@@ -113,6 +113,24 @@ final class Clock: @unchecked Sendable {
     }
   }
 
+  @Test func presignedLinksAreBatchedAndReusedWhenTheFileIsOpened() async throws {
+    let media = FakeMedia()
+    let a = media.add(Data(repeating: 1, count: 500))
+    let b = media.add(Data(repeating: 2, count: 600))
+    // FakeMedia 按真实时间签有效期，这里也用真实时钟（makeCache 的假时钟在 2027 年，链接会被当成已过期）。
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("qqbridge-cache-\(UUID().uuidString)")
+    let cache = MediaCache(directory: dir, store: try LocalStore.inMemory(), signer: media, downloader: media)
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    async let x: Void = cache.presign(a)
+    async let y: Void = cache.presign(b)
+    _ = await (x, y)
+    #expect(media.signCalls == 1)  // 同一屏的合成一次
+    _ = try await cache.file(for: a)
+    #expect(media.signCalls == 1)  // 点开时不再换链接
+    #expect(media.downloads.isEmpty == false)
+  }
+
   @Test func concurrentRequestsShareOneSigningRoundTrip() async throws {
     let media = FakeMedia()
     let shas = (0..<8).map { media.add(Data(repeating: UInt8($0), count: 100 + $0)) }
