@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { buffer } from 'node:stream/consumers';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { encode as encodeSilk } from 'silk-wasm';
@@ -193,7 +194,7 @@ describe('compact chat thumbnails', () => {
     expect(variant.variant_sha256).toBe(shown);
     const blob = (await media.getBlob(shown))!;
     expect(blob.size).toBeLessThan(stored.size * 0.8);
-    const meta = await sharp(Buffer.concat(await Array.fromAsync(await media.openBlob(blob)))).metadata();
+    const meta = await sharp(await buffer(await media.openBlob(blob))).metadata();
     expect(meta.format).toBe('webp');
     expect(Math.max(meta.width!, meta.height!)).toBeLessThanOrEqual(720);
     // 再要一次直接复用。
