@@ -37,7 +37,9 @@ struct DialogListView: View {
       }
       .navigationTitle("消息")
       // 2026-10-19 用户反馈：标签栏上方的「正在同步…」条太占地方，改成标题下的一行小字（和 Telegram 的「更新中…」一样）。
-      .navigationSubtitle(model.connection == .connecting ? "正在同步…" : "")
+      // 同步完不留空串而是留一个空格：副标题那一行一直占着，列表不会在同步结束时整体上移一截
+      // （2026-10-25 弱网实测：同步约 1.5 秒后列表跳一下，正好点在会话上的会点错行）。
+      .navigationSubtitle(model.connection == .connecting ? "正在同步…" : " ")
       .navigationDestination(for: Route.self) { route in
         switch route {
         case .chat(let id): ChatScreen(session: session, chatId: id)
