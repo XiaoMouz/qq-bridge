@@ -39,10 +39,26 @@ public struct URLSessionDownloader: MediaDownloader {
   /// 2026-10-24 实测：传给 async 版 download(from:delegate:) 的任务代理收不到 didWriteData，
   /// 所以用 downloadTask 并观察它的 progress；每过 1% 报一次。
   public func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+    // 弱网下大文件常在中途断：系统给了 resumeData 就从断点续（服务端回 ETag、支持 Range），
+    // 不从头再下；连续断 3 次才算失败。
+    var resumeData: Data?
+    for attempt in 0... {
+      do {
+        return try await downloadOnce(url, resumeData: resumeData, progress: progress)
+      } catch let error as URLError {
+        guard attempt < 3, let data = error.downloadTaskResumeData, !Task.isCancelled else { throw error }
+        resumeData = data
+        try await Task.sleep(for: .milliseconds(500 << attempt))
+      }
+    }
+    fatalError("unreachable")
+  }
+
+  private func downloadOnce(_ url: URL, resumeData: Data?, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
     let running = Mutex<(task: URLSessionDownloadTask, observation: NSKeyValueObservation)?>(nil)
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-        let task = session.downloadTask(with: url) { file, response, error in
+        let completion: @Sendable (URL?, URLResponse?, Error?) -> Void = { file, response, error in
           running.withLock { $0?.observation.invalidate() }
           if let error { continuation.resume(throwing: error); return }
           guard let file, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -58,6 +74,8 @@ public struct URLSessionDownloader: MediaDownloader {
             continuation.resume(throwing: error)
           }
         }
+        let task = resumeData.map { session.downloadTask(withResumeData: $0, completionHandler: completion) }
+          ?? session.downloadTask(with: url, completionHandler: completion)
         let last = Mutex(-1)
         let observation = task.progress.observe(\.fractionCompleted) { p, _ in
           let percent = Int(p.fractionCompleted * 100)
