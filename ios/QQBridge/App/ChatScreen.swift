@@ -1055,6 +1055,16 @@ struct ChatScreen: View {
     }
   }
 
+  /// 打开文件失败的一句话：不是发送失败，不弹「发送失败」，也不露 MediaCacheError 错误 0 这种内部名字。
+  /// 2026-10-25 弱网实测：刚发出、QQ 还没确认的文件点开时服务端不给签名，原来弹「发送失败 · …MediaCacheError 错误 0」。
+  static func fileOpenFailure(_ error: Error) -> String {
+    switch error {
+    case MediaCacheError.notAvailable: "文件暂时拿不到"
+    case is URLError: "网络不好，文件没下下来"
+    default: "文件打不开"
+    }
+  }
+
   private func show(_ text: String) {
     notice = text
     Task {
@@ -1158,7 +1168,7 @@ struct ChatScreen: View {
           fileURL = named
           #endif
         } catch {
-          sendError = "文件打不开：\(error.localizedDescription)"
+          show(Self.fileOpenFailure(error))
         }
       }
     }
@@ -1166,7 +1176,7 @@ struct ChatScreen: View {
     actions.revealFile = { file in
       Task {
         do { MacDownloads.reveal(try await MacDownloads.shared.file(sha: file.media.sha256, name: file.name, session: session)) }
-        catch { sendError = "文件打不开：\(error.localizedDescription)" }
+        catch { show(Self.fileOpenFailure(error)) }
       }
     }
     #endif

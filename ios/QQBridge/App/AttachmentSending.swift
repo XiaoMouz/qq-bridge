@@ -36,10 +36,13 @@ struct SessionAttachmentSendingService: AttachmentSendingService {
     case .video(let url):
       let uploaded = try await session.api.uploadFile(at: url, mime: "video/mp4", name: url.lastPathComponent, progress: progress)
       segment.video.sha256 = uploaded.sha256
+      try? await session.media.adopt(fileAt: url, sha256: uploaded.sha256)
     case .file(let url, let name):
       let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
       let uploaded = try await session.api.uploadFile(at: url, mime: mime, name: name, progress: progress)
       segment.file.sha256 = uploaded.sha256
+      // 刚发出、QQ 还没确认的文件服务端不给签名链接，点开只能靠本地这份。
+      try? await session.media.adopt(fileAt: url, sha256: uploaded.sha256)
       segment.file.name = name
     }
     return segment

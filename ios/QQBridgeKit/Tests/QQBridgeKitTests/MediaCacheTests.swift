@@ -99,6 +99,15 @@ final class Clock: @unchecked Sendable {
     try await cache.adopt(data, sha256: sha, chatId: 1)
     #expect(try Data(contentsOf: try await cache.file(for: sha, chatId: 1)) == data)
     #expect(media.downloads.isEmpty)
+    // 文件版：原文件之后被删也不影响缓存里那份。
+    let fileData = Data(repeating: 5, count: 3000)
+    let fileSha = media.add(fileData)
+    let picked = dir.appendingPathExtension("picked")
+    try fileData.write(to: picked)
+    try await cache.adopt(fileAt: picked, sha256: fileSha)
+    try FileManager.default.removeItem(at: picked)
+    #expect(try Data(contentsOf: try await cache.file(for: fileSha)) == fileData)
+    #expect(media.downloads.isEmpty)
     await #expect(throws: MediaCacheError.hashMismatch(String(repeating: "0", count: 64))) {
       try await cache.adopt(data, sha256: String(repeating: "0", count: 64))
     }

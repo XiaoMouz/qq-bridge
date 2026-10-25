@@ -335,6 +335,15 @@ public actor MediaCache {
     _ = try await install(tmp, sha256: sha256, chatId: chatId)
   }
 
+  /// 刚上传的文件、视频同上：复制一份进缓存（原文件可能在相册或文件 App 的临时位置，过后会被清掉）。
+  public func adopt(fileAt url: URL, sha256: String, chatId: Int64? = nil) async throws {
+    if try cachedFile(sha256) != nil { return }
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.copyItem(at: url, to: tmp)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    _ = try await install(tmp, sha256: sha256, chatId: chatId)
+  }
+
   /// 校验后挪进缓存目录并记账。
   private func install(_ tmp: URL, sha256: String, chatId: Int64?) async throws -> URL {
     guard try Self.sha256(of: tmp) == sha256 else { throw MediaCacheError.hashMismatch(sha256) }
