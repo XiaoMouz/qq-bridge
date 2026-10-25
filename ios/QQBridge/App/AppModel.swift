@@ -114,7 +114,18 @@ final class AppModel {
   /// 启动：钥匙串里有令牌就直接进去，没有就去登录页。
   func launch() {
     guard case .launching = phase else { return }
-    if let saved = try? tokens.load(), let session = try? Session(config: saved.config, token: saved.token, container: container, recoverInterruptedSends: true) {
+    if var saved = try? tokens.load() {
+      #if DEBUG
+      // 调试：启动参数 -debugServerURL http://127.0.0.1:<端口> 只在这次运行里换服务端地址（不写回钥匙串），
+      // 用来经本机弱网代理实测整个 App。
+      if let override = UserDefaults.standard.string(forKey: "debugServerURL"), let url = URL(string: override) {
+        saved.config.baseURL = url
+      }
+      #endif
+      guard let session = try? Session(config: saved.config, token: saved.token, container: container, recoverInterruptedSends: true) else {
+        phase = .loggedOut
+        return
+      }
       enter(session)
     } else {
       phase = .loggedOut
