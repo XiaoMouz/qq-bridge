@@ -49,7 +49,10 @@ struct ImageViewer: View {
 
       TabView(selection: $current) {
         ForEach(items) { t in
-          ImagePageView(page: page(for: t), onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } },
+          // 只建不加载：TabView 只会让当前页和左右相邻页出现，出现时再开始拿原图（见 ImagePageView）。
+          // 2026-10-25 实测原来这里一建就开始加载，打开查看器就同时拉整组原图（服务端一次收到约 20 个），
+          // 弱网下当前这张要和其他十几张抢带宽。
+          ImagePageView(page: page(for: t, start: false), onTap: { withAnimation(.easeInOut(duration: 0.2)) { chrome.toggle() } },
                         onDrag: { dragProgress = $0 }, onDismiss: close)
             .tag(t.id)
             .ignoresSafeArea()
@@ -107,11 +110,11 @@ struct ImageViewer: View {
     }
   }
 
-  private func page(for t: MediaTarget) -> ImagePage {
-    if let p = pages[t.id] { return p.start() }
+  private func page(for t: MediaTarget, start: Bool = true) -> ImagePage {
+    if let p = pages[t.id] { return start ? p.start() : p }
     let p = ImagePage(target: t, session: session, chatId: chatId)
-    DispatchQueue.main.async { pages[t.id] = p }
-    return p.start()
+    DispatchQueue.main.async { if pages[t.id] == nil { pages[t.id] = p } }
+    return start ? p.start() : p
   }
 
   private func close() {
@@ -979,5 +982,6 @@ struct ImagePageView: View {
         ProgressView().tint(.white).controlSize(.large)
       }
     }
+    .onAppear { page.start() }
   }
 }
