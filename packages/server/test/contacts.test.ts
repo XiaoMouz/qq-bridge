@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -158,6 +159,36 @@ describe('ContactService', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(fetches).toBe(1);
     expect(qq.calls).toEqual([]); // 不经 QQ 协议
+  });
+
+  it('GetAvatars waits only for people with no avatar yet; stale ones come back at once and refresh behind', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const qq = new FakeQq();
+    const fresh = await png('#123456');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const contacts = new ContactService(t.db, ingest, media, null, () => qq, {
+      avatarMaxAgeMs: 0,
+      fetchAvatar: async (url) => {
+        // 已有头像的那位：后台刷新卡住，GetAvatars 不能等它。
+        if (url.includes('nk=30081')) await held;
+        return fresh;
+      },
+    });
+    const old = await media.storeBlob(Readable.from([await png('#654321')]), { kind: 'image' });
+    await ingest.upsertPeer(acc.qqAccountId, { kind: 'user', peerId: 30081, name: '旧', avatarSha256: old.sha256 });
+
+    const got = await contacts.avatars(acc.accountId, [30080, 30081]);
+    expect(got.get(30081)).toBe(old.sha256);
+    expect(got.get(30080)).toMatch(/^[0-9a-f]{64}$/);
+    expect(got.get(30080)).not.toBe(old.sha256);
+
+    release();
+    await vi.waitFor(async () => {
+      const p = await one<{ avatar_sha256: string }>(t.db, sql`select avatar_sha256 from peers where qq_account_id = ${acc.qqAccountId} and peer_id = 30081`);
+      expect(p.avatar_sha256).toBe(got.get(30080));
+    });
   });
 
   it('syncs friend categories, and keeps everything when QQ returns a half-loaded friend list', async () => {

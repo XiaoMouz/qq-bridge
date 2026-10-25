@@ -162,7 +162,11 @@ export class ContactService {
     })().catch((error: unknown) => this.o.logger?.debug({ err: error, chatId }, 'avatar refresh failed'));
   }
 
-  /** 一批人的头像：超过一天没检查过（或从没有过）的才下载，最多 4 个并发。返回 userId → sha256。 */
+  /**
+   * 一批人的头像。返回 userId → sha256。
+   * 从没有过头像的当场下载（最多 8 个并发）；已有但超过一天没检查过的先给旧的、后台再查：
+   * 2026-10-25 实测原来全部当场下载，滚到群聊时常 0.5–2.6 秒才返回，头像一直空着。
+   */
   async avatars(accountId: number, userIds: number[]): Promise<Map<number, string>> {
     return this.batchAvatars(await this.qqAccountOf(accountId), 'user', userIds);
   }
@@ -188,9 +192,36 @@ export class ContactService {
       if (kind === 'group' && !k) return false;
       return !k?.checked || Date.now() - Number(k.checked) > this.o.avatarMaxAgeMs;
     });
-    for (let i = 0; i < stale.length; i += 4) {
+    const missing = stale.filter((id) => !byId.get(id)?.avatar_sha256);
+    const background = stale.filter((id) => byId.get(id)?.avatar_sha256);
+    if (background.length > 0) {
+      void this.refreshAvatars(qq, kind, background, byId, 4).catch((error: unknown) =>
+        this.o.logger?.debug({ err: error, kind }, 'background avatar refresh failed'),
+      );
+    }
+    const out = new Map<number, string>();
+    for (const k of known) if (k.avatar_sha256) out.set(Number(k.peer_id), k.avatar_sha256);
+    if (missing.length === 0) return out;
+    await this.refreshAvatars(qq, kind, missing, byId, 8);
+    const missingList = sql.join(missing.map((i) => sql`${i}`), sql`, `);
+    const after = await rows<{ peer_id: number; avatar_sha256: string | null }>(
+      this.db,
+      sql`select peer_id, avatar_sha256 from peers where qq_account_id = ${qq} and kind = ${kind} and peer_id in (${missingList})`,
+    );
+    for (const a of after) if (a.avatar_sha256) out.set(Number(a.peer_id), a.avatar_sha256);
+    return out;
+  }
+
+  private async refreshAvatars(
+    qq: number,
+    kind: 'user' | 'group',
+    ids: number[],
+    byId: Map<number, unknown>,
+    concurrency: number,
+  ): Promise<void> {
+    for (let i = 0; i < ids.length; i += concurrency) {
       await Promise.all(
-        stale.slice(i, i + 4).map(async (id) => {
+        ids.slice(i, i + concurrency).map(async (id) => {
           const key = `${qq}:${kind}:${id}`;
           if (this.avatarInFlight.has(key)) return;
           this.avatarInFlight.add(key);
@@ -205,11 +236,6 @@ export class ContactService {
         }),
       );
     }
-    const after = await rows<{ peer_id: number; avatar_sha256: string | null }>(
-      this.db,
-      sql`select peer_id, avatar_sha256 from peers where qq_account_id = ${qq} and kind = ${kind} and peer_id in (${list})`,
-    );
-    return new Map(after.filter((a) => a.avatar_sha256).map((a) => [Number(a.peer_id), a.avatar_sha256!]));
   }
 
   /** 只下载头像（不经 QQ 协议，直接从头像服务取），变了才更新。 */
