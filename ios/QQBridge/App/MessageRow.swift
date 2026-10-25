@@ -752,6 +752,8 @@ struct BlockView: View {
             Image(systemName: fileIcon(f)).font(.title2)
           }
         }
+        // 自己发的气泡是蓝底：默认蓝色的进度弧几乎看不见（2026-10-25 弱网实测），跟文字一样用白色。
+        .tint(outgoing ? .white : .accentColor)
         .frame(width: 28, height: 28)
         VStack(alignment: .leading) {
           Text(f.name).lineLimit(2)
