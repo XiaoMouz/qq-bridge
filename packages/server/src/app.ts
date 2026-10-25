@@ -19,6 +19,7 @@ import { LocalFsBackend, RemovableBackend } from './media/store.ts';
 import { UploadService } from './media/upload.ts';
 import { DialogPrefs } from './dialogs/prefs.ts';
 import { OutboxService } from './outbox/service.ts';
+import { SentConfirmer } from './outbox/confirm.ts';
 import { OutboxWorker } from './outbox/worker.ts';
 import { ActiveChats } from './sync/active-chats.ts';
 import { OnlineDevices } from './sync/online-devices.ts';
@@ -256,6 +257,13 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     90_000,
   );
   thumbBackfill.unref();
+  // 发出去的消息 QQ 没推回来（大文件实测会这样）：发出 10 秒后还没入库就单独要一次。
+  const sentConfirmer = new SentConfirmer(db, () => deps.history, { logger: deps.logger.child({ component: 'outbox' }) });
+  const sentConfirm = setInterval(
+    () => void sentConfirmer.runOnce().catch((error: unknown) => deps.logger.warn({ err: error }, 'confirm sent failed')),
+    10_000,
+  );
+  sentConfirm.unref();
 
   deps.defaultAutoFetchMaxBytes = config.MEDIA_AUTO_FETCH_MAX_BYTES;
   deps.napcatWebUi = config.NAPCAT_WEBUI_TOKEN ? new NapcatWebUi(config.NAPCAT_WEBUI_URL, config.NAPCAT_WEBUI_TOKEN) : null;
@@ -284,6 +292,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     clearTimeout(retentionFirst);
     clearTimeout(storageWarm);
     clearTimeout(thumbBackfill);
+    clearInterval(sentConfirm);
     clearInterval(retentionDaily);
     await outboxWorker?.stop();
     await upstream?.stop();

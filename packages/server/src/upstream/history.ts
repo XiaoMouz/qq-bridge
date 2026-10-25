@@ -242,6 +242,19 @@ export class HoleFiller {
     return out;
   }
 
+  /** 这一条还没入库就单独向 QQ 要（见 outbox/confirm.ts）。返回是否已在库里。 */
+  async ensureMessage(chatId: number, seq: number): Promise<boolean> {
+    const has = async () =>
+      Boolean(await maybeOne(this.db, sql`select 1 from messages where chat_id = ${chatId} and seq = ${seq}`));
+    if (await has()) return true;
+    const chat = await this.chat(chatId);
+    if (!chat) return false;
+    // 2026-10-25 实测：getMsgsBySeqAndCount 要 1 条时返回空列表（要 4 条才带上这一条），
+    // 空页会被当成「这段没有消息」记为核对过，所以连前面几条一起要。已入库的重复入库是幂等的。
+    await this.fetchOlder(chat, seq, Math.max(0, seq - 5), 5, { maxRequests: 1, throttleFirst: false });
+    return has();
+  }
+
   /** 懒回填：拉 belowSeq 之前的一页。QQ 那边已经到头（或之前确认过到头）时返回 0。 */
   async backfillOlder(chatId: number, belowSeq: number, limit: number): Promise<number> {
     if (belowSeq <= 1) return 0;

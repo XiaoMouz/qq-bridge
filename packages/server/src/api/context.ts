@@ -49,7 +49,7 @@ export interface ApiDeps {
   /** 上游（NapCat 插件）；没有配置 UPSTREAM_TOKEN 时为 null。发送、撤回、已读回写都经过它。 */
   upstream: Pick<UpstreamHub, 'call' | 'isConnected' | 'connections'> | null;
   /** 懒回填：往上翻页翻过了服务端最早的一条时，现场向 QQ 拉一页。没有上游时为 null。 */
-  history: Pick<HoleFiller, 'backfillOlder' | 'holes' | 'schedule'> | null;
+  history: Pick<HoleFiller, 'backfillOlder' | 'ensureMessage' | 'holes' | 'schedule'> | null;
   calls: CallService;
   interactions: MessageInteractions;
   forwards: ForwardService;
