@@ -250,6 +250,12 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     60_000,
   );
   storageWarm.unref();
+  // 旧消息的 QQ 缩略图补压（重复跑无害，补完之后只剩新消息里压不动的少数几张）。
+  const thumbBackfill = setTimeout(
+    () => void fetcher?.backfillChatThumbs().catch((error: unknown) => deps.logger.warn({ err: error }, 'thumb backfill failed')),
+    90_000,
+  );
+  thumbBackfill.unref();
 
   deps.defaultAutoFetchMaxBytes = config.MEDIA_AUTO_FETCH_MAX_BYTES;
   deps.napcatWebUi = config.NAPCAT_WEBUI_TOKEN ? new NapcatWebUi(config.NAPCAT_WEBUI_URL, config.NAPCAT_WEBUI_TOKEN) : null;
@@ -277,6 +283,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     clearInterval(uploadCleanup);
     clearTimeout(retentionFirst);
     clearTimeout(storageWarm);
+    clearTimeout(thumbBackfill);
     clearInterval(retentionDaily);
     await outboxWorker?.stop();
     await upstream?.stop();

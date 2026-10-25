@@ -390,6 +390,30 @@ describe('MediaFetcher', () => {
     expect(calls).toEqual([{ action: 'x.media_url', params: locator }]);
   });
 
+  it('backfills compact chat thumbnails for QQ thumbnails stored before they existed', async () => {
+    const locator = { chatType: 1, peerUid: 'u_x', msgId: '7400000000000000999', elementId: '7000000000000000999', elementType: 2 };
+    const { chatId } = await ingestImage(nextPeer(), 1, { locator });
+    const thumbRef = await one<{ id: number }>(t.db, sql`select id from media_refs where chat_id = ${chatId} and role = 'qq_thumb'`);
+    const noise = Buffer.alloc(1000 * 750 * 3);
+    for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24;
+    const big = await sharp(noise, { raw: { width: 1000, height: 750, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const stored = await media.storeBlob((async function* () { yield big; })(), { kind: 'image', mime: 'image/jpeg' });
+    // 压紧上线前的存法：气泡直接显示原缩略图。
+    await ingest.thumbStored(thumbRef.id, stored);
+    expect((await mediaOf(chatId)).thumbSha256).toBe(stored.sha256);
+    const before = await one<{ chat_pts: string }>(t.db, sql`select chat_pts from chats where id = ${chatId}`);
+
+    const f = fetcher();
+    expect(await f.backfillChatThumbs({ pauseMs: 0 })).toBe(1);
+    const shown = (await mediaOf(chatId)).thumbSha256!;
+    expect(shown).not.toBe(stored.sha256);
+    expect((await media.getBlob(shown))!.size).toBeLessThan(stored.size * 0.8);
+    const after = await one<{ chat_pts: string }>(t.db, sql`select chat_pts from chats where id = ${chatId}`);
+    expect(Number(after.chat_pts)).toBeGreaterThan(Number(before.chat_pts)); // 客户端增量能拿到
+    // 再跑一次什么都不改。
+    expect(await f.backfillChatThumbs({ pauseMs: 0 })).toBe(0);
+  });
+
   it('runs in the background until stopped', async () => {
     const body = await png(48, 48, { r: 0, g: 255, b: 0 });
     files.set('g.png', { body, type: 'image/png' });

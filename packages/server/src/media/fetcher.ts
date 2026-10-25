@@ -49,6 +49,7 @@ export type RehydrateResult = 'restored' | 'unavailable' | 'expired';
 
 export class MediaFetcher {
   private running = false;
+  private stopped = false;
   private readonly rehydrating = new Map<string, Promise<RehydrateResult>>();
   private loop: Promise<void> | null = null;
   private wake: (() => void) | null = null;
@@ -105,6 +106,36 @@ export class MediaFetcher {
     })();
   }
 
+  /**
+   * 压紧缩略图上线（2026-10-24）前存下的 QQ 缩略图：补压并换给消息气泡，弱网下旧消息的一屏图片也从几 MB 降到几百 KB。
+   * 一张一张来、每张之间让一下，不挤占实时写入；已有 chat 变体或太小的跳过，重复跑无害。返回换掉的张数。
+   */
+  async backfillChatThumbs(opts: { since?: Date; pauseMs?: number; limit?: number } = {}): Promise<number> {
+    if (!this.processor) return 0;
+    const since = opts.since ?? new Date(Date.now() - 30 * 86_400_000);
+    const candidates = await rows<{ id: number; sha256: string }>(
+      this.db,
+      sql`select r.id, r.sha256 from media_refs r join blobs b on b.sha256 = r.sha256
+           where r.role = ${QQ_THUMB_ROLE} and r.message_seq is not null and r.forward_bundle_id is null
+             and r.created_at >= ${since.toISOString()} and b.size >= 61440
+             and not exists (select 1 from blob_variants v where v.sha256 = r.sha256 and v.variant = 'chat')
+           order by r.id desc limit ${opts.limit ?? 5000}`,
+    );
+    let changed = 0;
+    for (const c of candidates) {
+      if (this.stopped) break;
+      try {
+        const shown = await this.processor.compactThumb(c.sha256);
+        if (shown !== c.sha256 && (await this.ingest.thumbCompacted(c.id, shown))) changed += 1;
+      } catch (error) {
+        this.opts.logger?.debug({ err: error, refId: c.id }, 'thumb backfill failed');
+      }
+      await new Promise((resolve) => setTimeout(resolve, opts.pauseMs ?? 50));
+    }
+    if (candidates.length > 0) this.opts.logger?.info({ candidates: candidates.length, changed }, 'chat thumb backfill');
+    return changed;
+  }
+
   /** 有新的待下载媒体时调用，立即开始下一轮（不必等轮询间隔）。 */
   poke(): void {
     this.wake?.();
@@ -112,6 +143,7 @@ export class MediaFetcher {
 
   async stop(): Promise<void> {
     this.running = false;
+    this.stopped = true;
     this.poke();
     await this.loop;
   }

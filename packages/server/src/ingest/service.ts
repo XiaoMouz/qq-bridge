@@ -472,6 +472,30 @@ export class IngestService {
     return done;
   }
 
+  /**
+   * 早先存下的 QQ 缩略图补压后换给气泡显示（见 MediaFetcher.backfillChatThumbs）。
+   * 只改普通消息，且消息里仍是原缩略图时才换；推进 chat_pts，客户端照常增量拿到。
+   */
+  async thumbCompacted(refId: number, shownSha256: string): Promise<boolean> {
+    const accountId = await this.accountOfRef(refId);
+    return this.writers.forAccount(accountId).run(async (w) => {
+      const locked = await one<MediaRefTarget & { sha256: string | null }>(
+        w.tx,
+        sql`select chat_id, message_seq, chat_event_id, forward_bundle_id, node_path, ordinal, sha256 from media_refs where id = ${refId} for update`,
+      );
+      if (!locked.sha256 || locked.message_seq === null || locked.forward_bundle_id) return false;
+      const current = await maybeOne<{ thumb: string | null }>(
+        w.tx,
+        sql`select s->'media'->>'thumbSha256' as thumb from messages m, jsonb_array_elements(m.segments) s
+             where m.chat_id = ${locked.chat_id} and m.seq = ${locked.message_seq} and (s->'media'->>'ord')::int = ${locked.ordinal}
+             limit 1`,
+      );
+      if (current?.thumb !== locked.sha256) return false;
+      await updateMessageMedia(w, locked, { thumbSha256: shownSha256 });
+      return true;
+    });
+  }
+
   /** 媒体拿不到了（链接过期、超过大小上限、多次重试后放弃）：记录原因，并把消息里的媒体状态告诉客户端。 */
   async mediaUnavailable(refId: number, state: 'expired' | 'skipped' | 'failed', reason: string): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
