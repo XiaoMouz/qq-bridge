@@ -91,6 +91,8 @@ struct ChatScreen: View {
   @State private var pasteHintTimer: Task<Void, Never>?
   /// 在这之前获得的焦点是关掉弹窗后系统自动还回来的：不提示粘贴。
   @State private var pasteQuietUntil = Date.distantPast
+  /// 外部的文件正拖在聊天上（显示拖入提示）。
+  @State private var dropTargeted = false
   /// 最后一次停在底部时看到的最后一条消息：之后来的算"新消息"，显示在回到底部按钮上。
   @State private var bottomMark: Int64 = 0
   /// 列表里见过的最新一条：再来的新消息里有 @ / 回复就加进"有人@我"。
@@ -229,9 +231,19 @@ struct ChatScreen: View {
       scrollRequest: scrollRequest,
       onFileDrop: { providers in
         #if targetEnvironment(macCatalyst)
-        MacDroppedProviders.enqueue(providers, into: composer.attachmentQueue)
+        // Mac：进附件条预览，点发送才发。
+        DroppedProviders.enqueue(providers, into: composer.attachmentQueue)
+        #else
+        // iPhone：松手就发。
+        let queue = composer.attachmentQueue
+        DroppedProviders.enqueue(providers, into: queue) { succeeded in
+          // 草稿已移交或页面已离开时保留预览，不让迟到的拖放结果发出另一份草稿。
+          if succeeded, queue.pendingImports == 0, queue.importError == nil, composer.attachmentQueue === queue,
+             model.visibleChats.last?.token == visibleToken { sendAll() }
+        }
         #endif
-      }
+      },
+      onDropTargeted: { dropTargeted = $0 }
     )
     // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
@@ -319,19 +331,11 @@ struct ChatScreen: View {
       .animation(.snappy, value: atBottom)
       .animation(.snappy, value: mentions.count)
     }
-    #if !targetEnvironment(macCatalyst)
-    .dropDestination(for: DroppedItem.self) { items, _ in
-      let queue = composer.attachmentQueue
-      queue.enqueueImport({ await AttachmentLoader.load(drops: items) }) { succeeded in
-        // 草稿已移交或页面已离开时保留预览，不让迟到的拖放结果发出另一份草稿。
-        if succeeded, queue.pendingImports == 0, queue.importError == nil, composer.attachmentQueue === queue,
-           model.visibleChats.last?.token == visibleToken { sendAll() }
-      }
-      return !items.isEmpty
-    }
-    #endif
-    // 不再显示拖入提示（盖住聊天的毛玻璃）：2026-10-21 起 iOS、2026-10-23 起 Mac 都去掉了。
-    // 用户反馈 @、加图片、回复后偶尔留下一整层毛玻璃，就是这个提示卡住；拖入附件照常能用，Mac 拖进来后进附件条预览。
+    // 拖入提示：外部的文件、媒体拖在聊天上时才亮（App 内拖动文字不算），放下、拖出、1.5 秒没更新都会收掉。
+    // 2026-10-26 查清：以前「@、加图片后盖住聊天的毛玻璃」不是这个提示，是系统的读取进度蒙层和底栏边缘模糊
+    // （见 ChatFileDropReceiver、ChatCollectionView），10-21 / 10-23 删错了，按用户要求拿回来。
+    .overlay { if dropTargeted { DropHint().transition(.opacity) } }
+    .animation(.easeOut(duration: 0.15), value: dropTargeted)
     .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in checkPasteboard() }
     .onChange(of: inputFocused) { _, focused in
       // 弹窗、资料卡、下一级页面关掉回来时，系统会把焦点自动还给输入框：这种不算"要输入了"，不提示粘贴。

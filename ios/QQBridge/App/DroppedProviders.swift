@@ -2,8 +2,9 @@ import CoreTransferable
 import Foundation
 
 @MainActor
-enum MacDroppedProviders {
-  static func enqueue(_ providers: [NSItemProvider], into queue: AttachmentQueue<Attachment>) {
+enum DroppedProviders {
+  static func enqueue(_ providers: [NSItemProvider], into queue: AttachmentQueue<Attachment>,
+                      completion: @escaping @MainActor (Bool) -> Void = { _ in }) {
     guard !providers.isEmpty else {
       queue.importError = "无法读取拖入的文件，请重新拖入，或使用“添加附件”选择文件。"
       return
@@ -11,7 +12,7 @@ enum MacDroppedProviders {
     // 松手时锁定草稿队列；异步读取期间切换会话也不能把附件放进另一份草稿。
     // UIKit 要求在 performDrop 回调内发起数据读取；不能等队列 Task 开始后才请求提供器。
     let transfers = providers.map(start)
-    queue.enqueueImport { await load(transfers: transfers) }
+    queue.enqueueImport({ await load(transfers: transfers) }, completion: completion)
   }
 
   static func load(_ providers: [NSItemProvider]) async -> AttachmentLoader.FileImportResult {
@@ -45,7 +46,7 @@ enum MacDroppedProviders {
         result.failures.append("第 \(index + 1) 项附件：\(error.localizedDescription)")
       }
     }
-    #if DEBUG
+    #if DEBUG && targetEnvironment(macCatalyst)
     MacDropDiagnostics.record("UIKit import finished attachments=\(result.attachments.count) failures=\(result.failures.count)")
     #endif
     return result

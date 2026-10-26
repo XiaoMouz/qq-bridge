@@ -264,3 +264,35 @@ struct MovieFile: Transferable {
     }
   }
 }
+
+/// 外部的文件、媒体拖在聊天上时盖在聊天上的提示：整片毛玻璃 + 图标 + 虚线框 + 一句话。
+/// 不接收点击；什么时候亮由 ChatFileDropReceiver 决定（App 内的拖动不算，放下、拖出、超时都会收掉）。
+struct DropHint: View {
+  var body: some View {
+    ZStack {
+      Rectangle().fill(.ultraThinMaterial)
+      VStack(spacing: 10) {
+        Image(systemName: "arrow.down.doc.fill").font(.system(size: 44)).foregroundStyle(.tint)
+        #if targetEnvironment(macCatalyst)
+        Text("松手添加附件").font(.title3.bold())
+        Text("预览后发送").font(.subheadline).foregroundStyle(.secondary)
+        #else
+        Text("松手发送").font(.title3.bold())
+        #endif
+      }
+      .accessibilityElement(children: .combine)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 24, style: .continuous)
+        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+        .padding(12)
+    }
+    #if targetEnvironment(macCatalyst)
+    // Catalyst 的侧栏与输入栏靠安全区避让；忽略安全区会按整窗居中，并把边框裁掉。
+    .clipped()
+    #else
+    .ignoresSafeArea()
+    #endif
+    .allowsHitTesting(false)
+  }
+}

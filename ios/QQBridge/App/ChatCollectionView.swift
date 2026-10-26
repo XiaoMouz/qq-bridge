@@ -37,6 +37,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   var onScrollDate: (Int64?) -> Void = { _ in }
   var scrollRequest: ChatScrollRequest?
   var onFileDrop: (([NSItemProvider]) -> Void)?
+  /// 外部的文件拖在聊天上时 true（显示拖入提示）。
+  var onDropTargeted: ((Bool) -> Void)?
 
   func makeUIViewController(context _: Context) -> ChatCollectionController {
     ChatCollectionController()
@@ -49,9 +51,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     controller.onBottomChange = onBottomChange
     controller.onVisibleSeqs = onVisibleSeqs
     controller.onScrollDate = onScrollDate
-    #if targetEnvironment(macCatalyst)
     controller.fileDropReceiver.onDrop = onFileDrop
-    #endif
+    controller.fileDropReceiver.onTargeted = onDropTargeted
     controller.request(scrollRequest)
     controller.apply(items, version: version)
   }
@@ -68,9 +69,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   private var reportedVisible: Set<Int64> = []
 
   private var collectionView: UICollectionView!
-  #if targetEnvironment(macCatalyst)
-  let fileDropReceiver = MacChatFileDropReceiver()
-  #endif
+  let fileDropReceiver = ChatFileDropReceiver()
   private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
   private var byId: [String: ChatItem] = [:]
   /// 每一项的前一项（时间上更早的那条）：显示时间、发送者头像时要用，提交数据时一次算好。
@@ -109,15 +108,17 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     collectionView.backgroundColor = .systemBackground
     collectionView.keyboardDismissMode = .interactive
     collectionView.delegate = self
-    #if targetEnvironment(macCatalyst)
-    // Mac 的真实消息区域由 UIKit 命中，直接使用列表的接收协议，避免依赖外层 SwiftUI 转发。
+    // 拖入由列表自己接（iOS、Mac 都是）：UIKit 的接口能区分 App 内的拖动、关掉系统的读取进度蒙层。
     collectionView.dropDelegate = fileDropReceiver
-    #endif
     collectionView.selfSizingInvalidation = .enabledIncludingConstraints
     collectionView.transform = Self.flip
     // 翻转后系统自动加的安全区内边距方向是反的：自己按翻转后的方向设。
     collectionView.contentInsetAdjustmentBehavior = .never
     collectionView.automaticallyAdjustsScrollIndicatorInsets = false
+    // 列表是翻转的、内边距自己设：系统给底部输入栏加的边缘模糊会算错范围，输入栏一变高（附件条、@ 补全）就糊住整个列表
+    // （2026-10-26 用户截图）。输入栏自己有底色，不需要这层效果。
+    collectionView.topEdgeEffect.isHidden = true
+    collectionView.bottomEdgeEffect.isHidden = true
     // 点状态栏回顶：翻转后会滚到最新的消息，不对，关掉。
     collectionView.scrollsToTop = false
     view.addSubview(collectionView)

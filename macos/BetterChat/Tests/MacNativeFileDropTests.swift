@@ -41,7 +41,7 @@ struct MacNativeFileDropTests {
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let providers = [NSItemProvider(object: url as NSURL), NSItemProvider(),
                      NSItemProvider(object: url.deletingLastPathComponent() as NSURL)]
-    let result = await MacDroppedProviders.load(providers)
+    let result = await DroppedProviders.load(providers)
     defer { discard(result.attachments) }
     #expect(result.attachments.count == 1)
     #expect(result.failures.count == 2)
@@ -60,8 +60,8 @@ struct MacNativeFileDropTests {
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
     let original = AttachmentQueue<BetterChat.Attachment>()
     var current = original
-    let receiver = MacChatFileDropReceiver()
-    receiver.onDrop = { MacDroppedProviders.enqueue($0, into: current) }
+    let receiver = ChatFileDropReceiver()
+    receiver.onDrop = { DroppedProviders.enqueue($0, into: current) }
     receiver.receive([NSItemProvider(object: url as NSURL)])
     #expect(original.pendingImports == 1)
     current = AttachmentQueue<BetterChat.Attachment>()
