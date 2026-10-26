@@ -21,7 +21,10 @@ struct ImageViewer: View {
   #endif
   @Environment(AppModel.self) private var model
   @State private var current: String = ""
-  @State private var pages: [String: ImagePage] = [:]
+  /// 每张图一个页面对象，建好立刻记下（普通引用、不经 SwiftUI 状态）：
+  /// 2026-10-26 用户反馈点开图片加载不出来、切走再切回才显示——原来放在 @State 里、下一轮才存上，
+  /// 这之间重建的视图又建了一个新对象，显示的那个开始加载了、存下的那个却没开始。
+  @State private var pageCache = ImagePageCache()
   @State private var chrome = true
   /// 下拉关闭的进度（0…1），背景跟着变淡。
   @State private var dragProgress: CGFloat = 0
@@ -34,7 +37,7 @@ struct ImageViewer: View {
   @State private var toast: String?
 
   private var items: [MediaTarget] { gallery.contains(where: { $0.id == target.id }) ? gallery : [target] }
-  private var page: ImagePage? { pages[current] }
+  private var page: ImagePage? { pageCache.pages[current] }
   private var index: Int { items.firstIndex { $0.id == current } ?? 0 }
 
   var body: some View {
@@ -82,7 +85,7 @@ struct ImageViewer: View {
       mediaWindow?.menu = { imageMenu(for: items[index])?() }
       #endif
     }
-    .onChange(of: current) { _, id in
+    .onChange(of: current, initial: true) { _, id in
       // 翻到哪张加载哪张，顺带预加载左右两张。
       guard let i = items.firstIndex(where: { $0.id == id }) else { return }
       for j in max(0, i - 1)...min(items.count - 1, i + 1) { _ = page(for: items[j]).start() }
@@ -111,9 +114,8 @@ struct ImageViewer: View {
   }
 
   private func page(for t: MediaTarget, start: Bool = true) -> ImagePage {
-    if let p = pages[t.id] { return start ? p.start() : p }
-    let p = ImagePage(target: t, session: session, chatId: chatId)
-    DispatchQueue.main.async { if pages[t.id] == nil { pages[t.id] = p } }
+    let p = pageCache.pages[t.id] ?? ImagePage(target: t, session: session, chatId: chatId)
+    pageCache.pages[t.id] = p
     return start ? p.start() : p
   }
 
@@ -860,6 +862,12 @@ enum PhotoSaver {
 }
 
 /// 一张图的加载状态：先显示缩略图 / 预览图，原图到了换上。
+/// 查看器里已建好的页面（按图片 id）。
+@MainActor
+final class ImagePageCache {
+  var pages: [String: ImagePage] = [:]
+}
+
 @MainActor
 @Observable
 final class ImagePage {
