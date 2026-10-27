@@ -24,6 +24,11 @@ public sealed partial class MainWindow
     private int viewerIndex;
     private Uri? viewerUri;
     private CancellationTokenSource? viewerLoad;
+    // 一次打开查看器的生命周期：预取的相邻图片用它，左右切换不取消预取，关闭时才取消。
+    private CancellationTokenSource? viewerSession;
+    // 当前和相邻图片的原图数据（同 iOS：看大图只加载当前和左右各一张）。按媒体定键，切换后不在相邻范围的丢掉。
+    private readonly Dictionary<(long Chat, long Seq, uint Ord), Task<(Uri Uri, byte[] Bytes)>> viewerData = [];
+    private byte[]? viewerBytes;
     private static readonly HttpClient MediaDownloads = new() { Timeout = TimeSpan.FromMinutes(5) };
 
     private static bool IsViewable(MediaInfo media, Segment s) => s.Image is not null || s.MarketFace is not null || s.Video is not null
@@ -44,6 +49,9 @@ public sealed partial class MainWindow
             index = 0;
         }
         viewerItems = items;
+        viewerSession?.Cancel(); viewerSession?.Dispose();
+        viewerSession = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        viewerData.Clear();
         Viewer.Visibility = Visibility.Visible;
         Viewer.Focus(FocusState.Programmatic);
         await ShowViewerItem(index);
@@ -63,35 +71,75 @@ public sealed partial class MainWindow
         ViewerNext.Visibility = index < viewerItems.Count - 1 ? Visibility.Visible : Visibility.Collapsed;
         ViewerZoomIn.Visibility = ViewerZoomOut.Visibility = ViewerCopy.Visibility = item.Video ? Visibility.Collapsed : Visibility.Visible;
         StopViewerPlayer();
-        ViewerImage.Source = null; ViewerError.Visibility = Visibility.Collapsed; viewerUri = null;
+        ViewerImage.Source = null; ViewerError.Visibility = Visibility.Collapsed; viewerUri = null; viewerBytes = null;
         ViewerScroll.Visibility = item.Video ? Visibility.Collapsed : Visibility.Visible;
         ViewerPlayer.Visibility = item.Video ? Visibility.Visible : Visibility.Collapsed;
         ViewerLoading.IsActive = true;
         try
         {
-            var media = await SessionFor(sessionApi).PrepareMediaForOpenAsync(item.Message.ChatId, item.Message.Seq, item.Media, ct);
-            string sha = media.State == MediaState.Stored ? MediaPresentation.OpenHash(media) : "";
-            // 原图还没下好时先看预览图（和 iOS 一样，看大图时服务端会去拉原图）。
-            if (sha.Length == 0 && !item.Video) sha = MediaPresentation.PreviewHash(media);
-            if (sha.Length == 0) throw new IOException("媒体暂不可用：" + MediaPresentation.StateText(media.State));
-            var uri = await MediaUri(sessionApi, sha, ct);
-            ct.ThrowIfCancellationRequested();
-            if (api != sessionApi || viewerIndex != index || Viewer.Visibility != Visibility.Visible) return;
-            viewerUri = uri;
-            if (item.Video) ViewerPlayer.Source = MediaSource.CreateFromUri(uri);
+            if (item.Video)
+            {
+                var uri = await ViewerUri(sessionApi, item, ct);
+                if (api != sessionApi || viewerIndex != index || Viewer.Visibility != Visibility.Visible) return;
+                viewerUri = uri; ViewerPlayer.Source = MediaSource.CreateFromUri(uri);
+            }
             else
             {
+                var (uri, bytes) = await ViewerImageData(sessionApi, item).WaitAsync(ct);
                 var bitmap = new BitmapImage();
-                bitmap.ImageOpened += (_, _) => { if (viewerIndex == index) { ViewerLoading.IsActive = false; FitViewerImage(); } };
-                bitmap.ImageFailed += (_, e) => { if (viewerIndex == index) ShowViewerError("图片加载失败：" + e.ErrorMessage); };
-                bitmap.UriSource = uri;
-                ViewerImage.Source = bitmap;
-                return;
+                using (var stream = new InMemoryRandomAccessStream())
+                {
+                    await stream.WriteAsync(bytes.AsBuffer()); stream.Seek(0);
+                    await bitmap.SetSourceAsync(stream);
+                }
+                ct.ThrowIfCancellationRequested();
+                if (api != sessionApi || viewerIndex != index || Viewer.Visibility != Visibility.Visible) return;
+                viewerUri = uri; viewerBytes = bytes;
+                ViewerImage.Source = bitmap; FitViewerImage();
             }
         }
         catch (OperationCanceledException) { return; }
         catch (Exception error) { if (viewerIndex == index) ShowViewerError(error.Message); return; }
         ViewerLoading.IsActive = false;
+        PreloadViewerNeighbors(sessionApi, index);
+    }
+
+    // 打开前先让服务端准备好原图（还没下好时退回预览图，同 iOS），再拿签名地址。
+    private async Task<Uri> ViewerUri(BridgeApi sessionApi, ViewerItem item, CancellationToken ct)
+    {
+        var media = await SessionFor(sessionApi).PrepareMediaForOpenAsync(item.Message.ChatId, item.Message.Seq, item.Media, ct);
+        string sha = media.State == MediaState.Stored ? MediaPresentation.OpenHash(media) : "";
+        if (sha.Length == 0 && !item.Video) sha = MediaPresentation.PreviewHash(media);
+        if (sha.Length == 0) throw new IOException("媒体暂不可用：" + MediaPresentation.StateText(media.State));
+        var uri = await MediaUri(sessionApi, sha, ct);
+        ct.ThrowIfCancellationRequested();
+        return uri;
+    }
+    private Task<(Uri Uri, byte[] Bytes)> ViewerImageData(BridgeApi sessionApi, ViewerItem item)
+    {
+        var key = (item.Message.ChatId, item.Message.Seq, item.Media.Ord);
+        if (viewerData.TryGetValue(key, out var task) && !task.IsFaulted && !task.IsCanceled) return task;
+        var ct = viewerSession?.Token ?? lifetime.Token;
+        task = Load();
+        viewerData[key] = task;
+        return task;
+        async Task<(Uri, byte[])> Load()
+        {
+            var uri = await ViewerUri(sessionApi, item, ct);
+            return (uri, await MediaDownloads.GetByteArrayAsync(uri, ct));
+        }
+    }
+    // 预取左右各一张图片（视频不预取），其余的数据丢掉，内存里最多三张原图。
+    private void PreloadViewerNeighbors(BridgeApi sessionApi, int index)
+    {
+        var keep = new HashSet<(long, long, uint)>();
+        for (int i = Math.Max(0, index - 1); i <= Math.Min(viewerItems.Count - 1, index + 1); i++)
+        {
+            var item = viewerItems[i];
+            keep.Add((item.Message.ChatId, item.Message.Seq, item.Media.Ord));
+            if (i != index && !item.Video) _ = ViewerImageData(sessionApi, item).ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+        }
+        foreach (var key in viewerData.Keys.Where(k => !keep.Contains(k)).ToList()) viewerData.Remove(key);
     }
 
     private void ShowViewerError(string message)
@@ -113,7 +161,7 @@ public sealed partial class MainWindow
 
     private void CloseViewer()
     {
-        viewerLoad?.Cancel();
+        viewerLoad?.Cancel(); viewerSession?.Cancel(); viewerData.Clear(); viewerBytes = null;
         StopViewerPlayer();
         ViewerImage.Source = null; viewerUri = null; viewerItems = [];
         Viewer.Visibility = Visibility.Collapsed;
@@ -154,6 +202,8 @@ public sealed partial class MainWindow
 
     private async Task<byte[]?> DownloadViewerItem()
     {
+        // 图片已经整张下载在内存里，复制 / 另存不再下载第二遍。
+        if (viewerBytes is { } bytes) return bytes;
         if (viewerUri is not { } uri) return null;
         return await MediaDownloads.GetByteArrayAsync(uri, lifetime.Token);
     }
