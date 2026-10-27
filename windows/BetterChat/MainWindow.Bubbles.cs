@@ -2,6 +2,7 @@ using BetterChat.Application;
 using BetterChat.Application.ViewModels;
 using BetterChat.Core;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
@@ -122,22 +123,52 @@ public sealed partial class MainWindow
         return NoticeView(inlines);
     }
 
-    // 还在发件箱里的消息：和自己的气泡同一侧，底部写状态（失败标红）和重试。
-    private static FrameworkElement PendingBubble(string text, string status, bool failed, FrameworkElement? action)
+    // 还没确认的本地消息：失败可重试。
+    private FrameworkElement PendingView(SendMessageRequest pending)
     {
-        var body = new StackPanel { Spacing = 4 };
-        body.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
-        footer.Children.Add(new FontIcon { Glyph = failed ? "" : "", FontSize = 12, Foreground = Brush(failed ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush") });
-        footer.Children.Add(new TextBlock { Text = status, Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Brush(failed ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush"), TextWrapping = TextWrapping.Wrap, MaxWidth = 360 });
-        if (action is not null) footer.Children.Add(action);
-        body.Children.Add(footer);
-        return new Border
+        var retry = RetryButton(); retry.Click += async (_, _) => await Guard(() => Submit(pending));
+        // 本地已入库、服务端还没确认：可能正在发，也可能上次请求断了，所以转圈的同时给重试（幂等 ID 不会重复发送）。
+        return PendingBubble(OutgoingPreview(pending.Segments), failed: false, "", retry);
+    }
+    // 发件箱里的消息：等待中只转一个小进度环；失败标红，转发的只能从原消息重发。
+    private FrameworkElement OutboxView(OutboxEntry o)
+    {
+        if (o.State != OutboxState.Failed) return PendingBubble(OutgoingPreview(o.Segments), failed: false, "", null);
+        if (o.Segments.Any(s => s.KindCase == OutgoingSegment.KindOneofCase.Forward))
+            return PendingBubble(OutgoingPreview(o.Segments), failed: true, o.Error, new TextBlock { Text = "请从原消息重新转发", Style = Res<Style>("CaptionTextBlockStyle"), Foreground = Brush("SystemFillColorCriticalBrush") });
+        var retry = RetryButton();
+        retry.Click += async (_, _) => await Guard(() => { var r = new SendMessageRequest { ChatId = o.ChatId, ClientRandomId = o.ClientRandomId, ReplyToSeq = o.ReplyToSeq }; r.Segments.Add(o.Segments); return Submit(r); });
+        return PendingBubble(OutgoingPreview(o.Segments), failed: true, o.Error, retry);
+    }
+    private static Button RetryButton()
+    {
+        var retry = new Button { Content = new FontIcon { Glyph = "\uE72C", FontSize = 12 }, Padding = new Thickness(6, 4, 6, 4), MinWidth = 0, MinHeight = 0 };
+        ToolTipService.SetToolTip(retry, "重试"); AutomationProperties.SetName(retry, "重试发送");
+        return retry;
+    }
+
+    // 和自己的气泡同一侧、半透明。状态只用图标表达（同 iOS / Mac：发送中转圈、失败红色感叹号），失败原因放在提示里。
+    private static FrameworkElement PendingBubble(string text, bool failed, string error, FrameworkElement? action)
+    {
+        var bubble = new Border
         {
-            Child = body, Padding = Res<object>("BubblePadding") is Thickness p ? p : new Thickness(12, 8, 12, 6), CornerRadius = Res<object>("OverlayCornerRadius") is CornerRadius r ? r : new CornerRadius(8),
+            Child = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true },
+            Padding = Res<object>("BubblePadding") is Thickness p ? p : new Thickness(12, 8, 12, 6), CornerRadius = Res<object>("OverlayCornerRadius") is CornerRadius r ? r : new CornerRadius(8),
             Background = Brush("SubtleFillColorSecondaryBrush"), BorderBrush = Brush(failed ? "SystemFillColorCriticalBrush" : "CardStrokeColorDefaultBrush"), BorderThickness = new Thickness(1),
-            HorizontalAlignment = HorizontalAlignment.Right, MaxWidth = (double)Microsoft.UI.Xaml.Application.Current.Resources["BubbleMaxWidth"], Margin = new Thickness(0, 2, 0, 2), Opacity = 0.85
+            MaxWidth = (double)Microsoft.UI.Xaml.Application.Current.Resources["BubbleMaxWidth"], Opacity = failed ? 1 : 0.7
         };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 0, 2) };
+        if (action is not null) { action.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(action); }
+        if (failed)
+        {
+            var mark = new FontIcon { Glyph = "\uEA39", FontSize = 16, Foreground = Brush("SystemFillColorCriticalBrush"), VerticalAlignment = VerticalAlignment.Center };
+            if (error.Length > 0) ToolTipService.SetToolTip(mark, error);
+            AutomationProperties.SetName(mark, error.Length > 0 ? "发送失败：" + error : "发送失败");
+            row.Children.Add(mark);
+        }
+        else row.Children.Add(new ProgressRing { IsActive = true, Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(bubble);
+        return row;
     }
 
     private FrameworkElement MessageView(ProtoMessage m, bool includeActions = true, bool showSender = false)

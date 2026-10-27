@@ -18,8 +18,12 @@ using ProtoMessage = Qqbridge.V1.Message;
 
 namespace BetterChat;
 
-public sealed record TimelineEntry(string Key, object Value)
+// 时间线的一行。故意不用 record：record 按值比较，HashSet / IndexOf 会逐字段比较、哈希整条 proto 消息，
+// 而行的身份只该看 Key。同一个 Key 的行在多次刷新间保持同一个对象，列表只增删真正变化的行。
+public sealed class TimelineEntry(string key, object value)
 {
+    public string Key { get; } = key;
+    public object Value { get; } = value;
     public ProtoMessage? Message => Value switch { MessageItem item => item.Message, ProtoMessage m => m, _ => null };
     public override string ToString() => Value switch { MessageItem { Message: var m } => m.SenderName + "：" + m.Text, TimeHeader => "时间", ChatEvent => "系统事件", _ => "发送中的消息" };
 }
@@ -90,6 +94,9 @@ public sealed partial class MainWindow : Window
         Items.ItemsSource = entries;
         // 会话列表重排不要动画：默认的增删 / 重排过渡会先让下面的行滑开留出空位、再淡入，群多时列表一直在晃（2026-10-19 录屏）。
         Items.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
+        // 消息列表同理：ListView 默认带 AddDelete / Reorder / Content / Entrance 四种过渡，底部插入一条新消息时，
+        // 视口里每个气泡都要随偏移变化做一次位移动画，看起来就是整个聊天界面在刷新。聊天里的新消息直接出现。
+        Messages.ItemContainerTransitions = new Microsoft.UI.Xaml.Media.Animation.TransitionCollection();
         Messages.AddHandler(UIElement.PointerWheelChangedEvent, new PointerEventHandler((_, _) => followLatest = false), true);
         Messages.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, _) => followLatest = false), true);
         draftTimer.Tick += async (_, _) => { draftTimer.Stop(); await Guard(SaveDraft); };
@@ -439,7 +446,12 @@ public sealed partial class MainWindow : Window
         if (rendering || Items.SelectedItem is not ListEntry entry) return;
         await Guard(async () =>
         {
-            if (entry.Value is Dialog d) await GoRoot(ChatKey(d.ChatId), () => OpenChat(d.ChatId));
+            // 会话行因新消息重排时会先删后插，选中项被重新设上；已经打开的会话不能因此整页重开（清空时间线再重读）。
+            if (entry.Value is Dialog d)
+            {
+                if (d.ChatId == selectedChat && navigator.Current?.Key == ChatKey(d.ChatId) && ChatPanel.Visibility == Visibility.Visible) return;
+                await GoRoot(ChatKey(d.ChatId), () => OpenChat(d.ChatId));
+            }
             else if (entry.Value is ProtoMessage m) await GoRoot(ChatKey(m.ChatId), () => OpenChat(m.ChatId, m.Seq));
             else if (entry.Value is Peer p) await GoRoot(ProfileKey(p), () => { _ = Guard(SaveDraft); NewPage(); selectedChat = 0; ShowProfile(p); return Task.CompletedTask; });
             else if (entry.Value is string s) await GoRoot(SettingKey(s), () => { NewPage(); return ShowSetting(s); });
@@ -559,6 +571,7 @@ public sealed partial class MainWindow : Window
             var view = messageViews.GetValueOrDefault(key) ?? new TimelineEntry(key, value);
             retained[key] = view; return view;
         }
+        TimelineEntry Keep(TimelineEntry row) { retained[row.Key] = row; return row; }
         var ordered = messages.Select(m => (Time: m.Time, Value: (object)m)).Concat(events.Select(e => (Time: e.Time, Value: (object)e))).OrderBy(x => x.Time).ToList();
         bool group = dialogIndex.GetValueOrDefault(chat)?.Scene == Scene.Group;
         var layout = ChatPresentation.Layout(ordered.Select(x => x.Value is ProtoMessage pm
@@ -571,34 +584,26 @@ public sealed partial class MainWindow : Window
             if (ordered[i].Value is ProtoMessage m) desired.Add(Retain($"m:{m.ChatId}:{m.Seq}:{m.Version}:{(layout[i].ShowsSender ? 1 : 0)}:{(session.OwnUsers.Contains(m.SenderId) ? 1 : 0)}", new MessageItem(m, layout[i].ShowsSender)));
             else if (ordered[i].Value is ChatEvent e) desired.Add(Retain($"e:{e.ChatId}:{e.Id}:{e.Version}", e));
         }
+        // 发送中的行按 client_random_id 和状态定键：原来每次刷新都用「pending:序号」新建一行，
+        // 有消息在发件箱里时，每来一条别的消息这些行都要删掉重建一遍。
         foreach (var pending in pendingEntries.Where(p => !outboxEntries.Any(o => o.ClientRandomId == p.ClientRandomId)))
         {
-            var retry = new HyperlinkButton { Content = "重试", Padding = new Thickness(4, 0, 4, 0) };
-            retry.Click += async (_, _) => await Guard(() => Submit(pending));
-            desired.Add(new TimelineEntry("pending:" + desired.Count, PendingBubble(OutgoingPreview(pending.Segments), "未确认发送", false, retry)));
+            desired.Add(messageViews.GetValueOrDefault("pending:" + pending.ClientRandomId) is { } kept ? Keep(kept) : Keep(new("pending:" + pending.ClientRandomId, PendingView(pending))));
         }
         foreach (var o in outboxEntries.Where(o => o.State != OutboxState.Sent))
         {
-            FrameworkElement? action = null;
-            if (o.State == OutboxState.Failed && o.Segments.Any(s => s.KindCase == OutgoingSegment.KindOneofCase.Forward))
-                action = new TextBlock { Text = "请从原消息重新转发", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["CaptionTextBlockStyle"] };
-            else if (o.State == OutboxState.Failed)
-            {
-                var retry = new HyperlinkButton { Content = "重试", Padding = new Thickness(4, 0, 4, 0) };
-                retry.Click += async (_, _) => await Guard(() => { var r = new SendMessageRequest { ChatId = o.ChatId, ClientRandomId = o.ClientRandomId, ReplyToSeq = o.ReplyToSeq }; r.Segments.Add(o.Segments); return Submit(r); });
-                action = retry;
-            }
-            desired.Add(new TimelineEntry("pending:" + desired.Count, PendingBubble(OutgoingPreview(o.Segments),
-                o.State == OutboxState.Failed ? "发送失败：" + o.Error : "等待 QQ 发送…", o.State == OutboxState.Failed, action)));
+            string key = $"outbox:{o.ClientRandomId}:{o.State}:{o.Pts}";
+            desired.Add(messageViews.GetValueOrDefault(key) is { } kept ? Keep(kept) : Keep(new(key, OutboxView(o))));
         }
-        // 保留未变化的行和容器，让 ItemsStackPanel 维持阅读锚点，避免每次推送清空整个列表。
+        // 只增删真正变化的行：没变的行保持同一个对象和容器，ItemsStackPanel 维持阅读锚点。
         var wanted = desired.ToHashSet();
         for (int i = Messages.Items.Count - 1; i >= 0; i--)
             if (Messages.Items[i] is not TimelineEntry row || !wanted.Contains(row)) Messages.Items.RemoveAt(i);
         for (int i = 0; i < desired.Count; i++)
         {
             if (i < Messages.Items.Count && ReferenceEquals(Messages.Items[i], desired[i])) continue;
-            int existing = Messages.Items.IndexOf(desired[i]);
+            int existing = -1;
+            for (int j = i + 1; j < Messages.Items.Count; j++) if (ReferenceEquals(Messages.Items[j], desired[i])) { existing = j; break; }
             if (existing >= 0) Messages.Items.RemoveAt(existing);
             Messages.Items.Insert(i, desired[i]);
         }
@@ -606,11 +611,8 @@ public sealed partial class MainWindow : Window
         UpdateChatState();
         // 回复条要等时间线加载后才能拿到原消息的发送者和内容。
         if (replySeq > 0) UpdateReply();
-        if (followBottom && desired.Count > 0)
-        {
-            var window = historyWindow; var last = desired[^1];
-            DispatcherQueue.TryEnqueue(() => { if (historyWindow == window && Messages.Items.Contains(last)) Messages.ScrollIntoView(last); });
-        }
+        // 原来这里再单独 ScrollIntoView 一次，和 QueueScrollToLatest 各滚一遍；统一走后者，一次布局后滚到底。
+        if (followBottom) { followLatest = true; QueueScrollToLatest(); }
         // 内容还不够一屏时滚动事件不会触发，渲染完也检查一次是否要接着往上加载。
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, CheckAutoLoad);
     }
