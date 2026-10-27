@@ -7,25 +7,22 @@ namespace BetterChat;
 
 public sealed partial class MainWindow
 {
-    // 群文件 / 文件夹的一行：图标、名称、说明，整行可点，右键出操作菜单。
-    private Button FileRow(string glyph, string title, string detail, Func<Task> open)
+    // 群文件 / 文件夹 / 共享文件的一行：和设置页同一种可点卡片（图标、名称、大小与上传者），右键出操作菜单。
+    // 下载和打开期间右侧转一个进度环，不再写「正在下载…」；原来是透明按钮，点了以后整行只是变灰，看不出在下载。
+    private FrameworkElement FileRow(string glyph, string title, string detail, Func<Task> open)
     {
-        var grid = new Grid { ColumnSpacing = 12 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.Children.Add(new FontIcon { Glyph = glyph, FontSize = 20, VerticalAlignment = VerticalAlignment.Center });
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        text.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis });
-        text.Children.Add(new TextBlock { Text = detail, Style = Res<Style>("SecondaryCaptionTextBlockStyle") });
-        Grid.SetColumn(text, 1); grid.Children.Add(text);
-        var button = new Button
+        var busy = new ProgressRing { IsActive = false, Width = 16, Height = 16, Visibility = Visibility.Collapsed };
+        var card = new ClickableSettingsCard { IsClickEnabled = true, Header = title, Description = detail, HeaderIcon = new FontIcon { Glyph = glyph }, Content = busy };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(card, title);
+        async void Run()
         {
-            Content = grid, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            Padding = new Thickness(12, 8, 12, 8), BorderThickness = new Thickness(0), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent)
-        };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, title);
-        button.Click += async (_, _) => { button.IsEnabled = false; try { await Guard(open); } finally { button.IsEnabled = true; } };
-        return button;
+            if (busy.IsActive) return;
+            busy.IsActive = true; busy.Visibility = Visibility.Visible; card.IsClickEnabled = false;
+            try { await Guard(open); }
+            finally { busy.IsActive = false; busy.Visibility = Visibility.Collapsed; card.IsClickEnabled = true; }
+        }
+        card.Click += (_, _) => Run(); card.Invoked = Run;
+        return card;
     }
     private static string FileGlyph(string name) => Path.GetExtension(name).ToLowerInvariant() switch
     {
@@ -39,7 +36,7 @@ public sealed partial class MainWindow
         _ => "\uE7C3"
     };
 
-    private Button GroupFileButton(Peer group, string folder, GroupFile file, GroupFilesViewModel vm, CancellationToken ct)
+    private FrameworkElement GroupFileButton(Peer group, string folder, GroupFile file, GroupFilesViewModel vm, CancellationToken ct)
     {
         var session = runtime ?? throw new InvalidOperationException("账号已断开。");
         var currentApi = session.Api;

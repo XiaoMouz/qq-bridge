@@ -403,7 +403,6 @@ public sealed partial class MainWindow
             ct.ThrowIfCancellationRequested();
             if (folder.Length > 0) Details.Children.Add(ActionRow(("返回根目录", "\uE72B", () => Go(GroupKey(peer, title), () => ShowGroup(peer, title)))));
             else Details.Children.Add(ActionRow(("新建文件夹", "\uE8F4", () => CreateGroupFolder(peer, vm, ct))));
-            Details.Children.Add(new TextBlock { Text = "点击文件下载并打开；右键可以重命名、移动和删除（权限由 QQ 校验）。", Style = Res<Style>("SecondaryCaptionTextBlockStyle"), TextWrapping = TextWrapping.Wrap });
             if (vm.Folders.Count == 0 && vm.Files.Count == 0) Details.Children.Add(Card("这里还没有文件", null, "\uE8B7"));
             foreach (var f in vm.Folders)
             {

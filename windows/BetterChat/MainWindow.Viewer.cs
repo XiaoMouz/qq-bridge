@@ -19,7 +19,8 @@ namespace BetterChat;
 // 看图 / 看视频浮层（代替原来的对话框和交给系统程序），以及气泡里的语音条。
 public sealed partial class MainWindow
 {
-    private sealed record ViewerItem(ProtoMessage Message, MediaInfo Media, bool Video);
+    // Direct：群公告 / 精华里的图片是 QQ 的公开链接，没有对应的消息媒体，直接下载。
+    private sealed record ViewerItem(ProtoMessage Message, MediaInfo Media, bool Video, Uri? Direct = null);
     private List<ViewerItem> viewerItems = [];
     private int viewerIndex;
     private Uri? viewerUri;
@@ -48,6 +49,18 @@ public sealed partial class MainWindow
             items = [new(message, media, media.Mime.StartsWith("video/", StringComparison.OrdinalIgnoreCase))];
             index = 0;
         }
+        await OpenViewer(items, index);
+    }
+
+    // 公告、精华里的一组公开图片：用同一个查看器（缩放、左右切换、复制、另存），代替原来的对话框。
+    private Task OpenPublicImages(IReadOnlyList<Uri> images, int index, string sender, long time)
+    {
+        var message = new ProtoMessage { SenderName = sender, Time = time };
+        return OpenViewer(images.Select((uri, i) => new ViewerItem(message, new MediaInfo { Ord = (uint)i, Mime = "image/*" }, false, uri)).ToList(), index);
+    }
+
+    private async Task OpenViewer(List<ViewerItem> items, int index)
+    {
         viewerItems = items;
         viewerSession?.Cancel(); viewerSession?.Dispose();
         viewerSession = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -70,6 +83,7 @@ public sealed partial class MainWindow
         ViewerPrevious.Visibility = index > 0 ? Visibility.Visible : Visibility.Collapsed;
         ViewerNext.Visibility = index < viewerItems.Count - 1 ? Visibility.Visible : Visibility.Collapsed;
         ViewerZoomIn.Visibility = ViewerZoomOut.Visibility = ViewerCopy.Visibility = item.Video ? Visibility.Collapsed : Visibility.Visible;
+        ViewerForward.Visibility = item.Direct is null ? Visibility.Visible : Visibility.Collapsed;
         StopViewerPlayer();
         ViewerImage.Source = null; ViewerError.Visibility = Visibility.Collapsed; viewerUri = null; viewerBytes = null;
         ViewerScroll.Visibility = item.Video ? Visibility.Collapsed : Visibility.Visible;
@@ -107,6 +121,7 @@ public sealed partial class MainWindow
     // 打开前先让服务端准备好原图（还没下好时退回预览图，同 iOS），再拿签名地址。
     private async Task<Uri> ViewerUri(BridgeApi sessionApi, ViewerItem item, CancellationToken ct)
     {
+        if (item.Direct is { } direct) return direct;
         var media = await SessionFor(sessionApi).PrepareMediaForOpenAsync(item.Message.ChatId, item.Message.Seq, item.Media, ct);
         string sha = media.State == MediaState.Stored ? MediaPresentation.OpenHash(media) : "";
         if (sha.Length == 0 && !item.Video) sha = MediaPresentation.PreviewHash(media);
@@ -231,7 +246,7 @@ public sealed partial class MainWindow
     });
     private async void ViewerForwardClicked(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
-        if (runtime is not { } session || viewerIndex >= viewerItems.Count) return;
+        if (runtime is not { } session || viewerIndex >= viewerItems.Count || viewerItems[viewerIndex].Direct is not null) return;
         var item = viewerItems[viewerIndex];
         await Forward(session, item.Message.ChatId, [item.Message.Seq]);
     });

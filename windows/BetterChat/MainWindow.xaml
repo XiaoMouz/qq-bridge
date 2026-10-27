@@ -267,7 +267,7 @@
      <AppBarButton x:Name="ViewerZoomOut" Icon="ZoomOut" Label="缩小" LabelPosition="Collapsed" Click="ViewerZoomClicked" Tag="out" ToolTipService.ToolTip="缩小"/>
      <AppBarButton x:Name="ViewerCopy" Icon="Copy" Label="复制" Click="ViewerCopyClicked"/>
      <AppBarButton Icon="Save" Label="另存为" Click="ViewerSaveClicked"/>
-     <AppBarButton Icon="Forward" Label="转发" Click="ViewerForwardClicked"/>
+     <AppBarButton x:Name="ViewerForward" Icon="Forward" Label="转发" Click="ViewerForwardClicked"/>
      <CommandBar.SecondaryCommands>
       <AppBarButton Icon="OpenWith" Label="用系统程序打开" Click="ViewerOpenClicked"/>
      </CommandBar.SecondaryCommands>

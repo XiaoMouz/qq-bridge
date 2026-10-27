@@ -9,25 +9,38 @@ namespace BetterChat;
 // 群公告、群精华：每条一张卡片，页头是发送者头像、名字和时间。
 public sealed partial class MainWindow
 {
-    private FrameworkElement PublicGroupImage(string address, CancellationToken ct)
+    private static Uri? PublicImageUri(string address) =>
+        Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http" && uri.UserInfo.Length == 0 ? uri : null;
+
+    // 一组公开图片排成可换行的缩略图，点开进查看器，同一条公告 / 精华里的图片左右切换。
+    private FrameworkElement PublicGroupImages(IEnumerable<string> addresses, string sender, long time, CancellationToken ct)
     {
-        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http") || uri.UserInfo.Length > 0)
-            return new TextBlock { Text = "图片链接不可用", Style = Res<Style>("SecondaryCaptionTextBlockStyle") };
-        var picture = new Image { MaxWidth = 320, MaxHeight = 240, Stretch = Stretch.Uniform };
-        var frame = new Grid { CornerRadius = new CornerRadius(6), MinWidth = 120, MinHeight = 80, Background = Brush("SubtleFillColorSecondaryBrush"), HorizontalAlignment = HorizontalAlignment.Left };
+        var images = addresses.Select(PublicImageUri).OfType<Uri>().ToList();
+        // 一张按原比例显示；多张排成 120 见方的格子（同 iOS 公告的九宫格），格子尺寸固定才能换行对齐。
+        var panel = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = images.Count == 1 ? double.NaN : 128, ItemHeight = images.Count == 1 ? double.NaN : 128 };
+        for (int i = 0; i < images.Count; i++) panel.Children.Add(PublicGroupImage(images, i, sender, time, ct));
+        return panel;
+    }
+
+    private FrameworkElement PublicGroupImage(IReadOnlyList<Uri> images, int index, string sender, long time, CancellationToken ct)
+    {
+        var uri = images[index];
+        bool single = images.Count == 1;
+        var picture = single ? new Image { MaxWidth = 320, MaxHeight = 240, Stretch = Stretch.Uniform } : new Image { Width = 120, Height = 120, Stretch = Stretch.UniformToFill };
+        var frame = new Grid { CornerRadius = Res<object>("ControlCornerRadius") is CornerRadius r ? r : new CornerRadius(4), MinWidth = 120, MinHeight = single ? 80 : 120, Background = Brush("SubtleFillColorSecondaryBrush"), HorizontalAlignment = HorizontalAlignment.Left };
         frame.Children.Add(picture);
-        var button = new Button { Content = frame, Padding = new Thickness(0), BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var button = new Button { Content = frame, Padding = new Thickness(0), Margin = new Thickness(0, 0, 8, 8), BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, "查看群图片原图");
         ToolTipService.SetToolTip(button, "查看原图");
         button.Click += async (_, _) => await Guard(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            await DialogBox("群图片", new Image { Source = new BitmapImage(uri), MaxWidth = 900, MaxHeight = 650, Stretch = Stretch.Uniform });
+            await OpenPublicImages(images, index, sender, time);
         });
         button.Loaded += (_, _) =>
         {
             if (ct.IsCancellationRequested) return;
-            var bitmap = new BitmapImage { DecodePixelWidth = 640 };
+            var bitmap = new BitmapImage { DecodePixelWidth = single ? 640 : 240 };
             bitmap.ImageOpened += (_, _) => { if (!ct.IsCancellationRequested) frame.Background = null; };
             picture.Source = bitmap; bitmap.UriSource = uri;
         };
@@ -65,7 +78,7 @@ public sealed partial class MainWindow
     {
         var (card, body) = ContentCard(notice.SenderId, notice.SenderName, notice.Time, notice.Pinned ? StatusPill("置顶", Health.Warning) : null);
         body.Children.Add(new TextBlock { Text = notice.Text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        foreach (string url in notice.ImageUrls) body.Children.Add(PublicGroupImage(url, ct));
+        if (notice.ImageUrls.Count > 0) body.Children.Add(PublicGroupImages(notice.ImageUrls, notice.SenderName, notice.Time, ct));
         string footer = $"{notice.ReadCount} 人已读" + (notice.ConfirmRequired ? notice.ReadByMe ? " · 我已确认" : " · 需要确认" : "");
         body.Children.Add(new TextBlock { Text = footer, Style = Res<Style>("SecondaryCaptionTextBlockStyle") });
         return card;
@@ -87,7 +100,7 @@ public sealed partial class MainWindow
         else
         {
             body.Children.Add(new TextBlock { Text = essence.Text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            foreach (string url in essence.ImageUrls) body.Children.Add(PublicGroupImage(url, ct));
+            if (essence.ImageUrls.Count > 0) body.Children.Add(PublicGroupImages(essence.ImageUrls, essence.SenderName, essence.Time, ct));
         }
         return card;
     }

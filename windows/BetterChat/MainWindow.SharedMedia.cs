@@ -55,7 +55,8 @@ public sealed partial class MainWindow
         foreach (var label in new[] { "最新", "最早", "大小", "发送者" }) order.Items.Add(label);
         order.SelectedIndex = 0;
         var sender = new TextBox { Header = "发送者 QQ", PlaceholderText = "所有人", Width = 160 };
-        var status = new TextBlock { Style = Res<Style>("SecondaryCaptionTextBlockStyle") };
+        var status = new TextBlock { Style = Res<Style>("SecondaryCaptionTextBlockStyle"), Visibility = Visibility.Collapsed };
+        var loading = new ProgressRing { IsActive = false, Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
         // 图片、视频、表情用缩略图网格（点开进看图浮层），语音和文件用行。
         var grid = new GridView { SelectionMode = ListViewSelectionMode.None, IsItemClickEnabled = false };
         var files = new StackPanel { Spacing = 2 };
@@ -88,16 +89,20 @@ public sealed partial class MainWindow
             }
             grid.ItemsSource = tiles;
             grid.Visibility = tiles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            status.Text = vm.Load.State == OperationState.Failed ? "加载失败，可重试：" + vm.Load.Error
-                : vm.PaginationError ?? $"已加载 {vm.Items.Count} 项" + (vm.HasMore ? "" : "，已到末尾");
-            more!.IsEnabled = vm.HasMore && !vm.Load.IsBusy;
+            // 只在出错时写一行；加载了多少、是否到底由列表本身和「加载更多」按钮的可用状态表达。
+            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : vm.PaginationError ?? "";
+            status.Visibility = status.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            loading.IsActive = false; loading.Visibility = Visibility.Collapsed;
+            // 到底了就不显示「加载更多」，不再写「已到末尾」。
+            more!.IsEnabled = !vm.Load.IsBusy;
+            more.Visibility = vm.HasMore ? Visibility.Visible : Visibility.Collapsed;
         }
         async Task LoadMore()
         {
             var current = vm;
             if (current is null) return;
             more!.IsEnabled = false;
-            status.Text = "正在加载…";
+            status.Visibility = Visibility.Collapsed; loading.IsActive = true; loading.Visibility = Visibility.Visible;
             await current.LoadMoreAsync(ct);
             ct.ThrowIfCancellationRequested();
             if (vm == current && runtime == session) Render();
@@ -118,12 +123,17 @@ public sealed partial class MainWindow
             await LoadMore();
         }
         more = ActionButton("加载更多", LoadMore);
-        var apply = new Button { Content = "筛选", Style = Res<Style>("AccentButtonStyle"), VerticalAlignment = VerticalAlignment.Bottom };
-        apply.Click += async (_, _) => await Guard(ApplyFilter);
+        // 筛选条件一改就重新查，不需要单独的「筛选」按钮；发送者在回车或离开输入框时生效。
+        kinds.SelectionChanged += async (_, _) => { if (vm is not null) await Guard(ApplyFilter); };
+        order.SelectionChanged += async (_, _) => { if (vm is not null) await Guard(ApplyFilter); };
+        string appliedSender = "";
+        async Task SenderChanged() { if (vm is null || sender.Text.Trim() == appliedSender) return; appliedSender = sender.Text.Trim(); await ApplyFilter(); }
+        sender.KeyDown += async (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { e.Handled = true; await Guard(SenderChanged); } };
+        sender.LostFocus += async (_, _) => await Guard(SenderChanged);
         var filters = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        filters.Children.Add(kinds); filters.Children.Add(order); filters.Children.Add(sender); filters.Children.Add(apply);
+        filters.Children.Add(kinds); filters.Children.Add(order); filters.Children.Add(sender);
         Details.Children.Add(filters);
-        Details.Children.Add(status); Details.Children.Add(content); Details.Children.Add(more);
+        Details.Children.Add(status); Details.Children.Add(content); Details.Children.Add(loading); Details.Children.Add(more);
         await ApplyFilter();
     }
 }
