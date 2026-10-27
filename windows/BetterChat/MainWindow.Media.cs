@@ -38,47 +38,76 @@ public sealed partial class MainWindow
         return uri;
     }
 
+    // 气泡里的图片 / 视频 / 表情包 / 文件。状态全部用图层表达（同 iOS / Mac 的进度环）：加载预览、准备原件时转圈，
+    // 失败一个感叹号（原因在提示里），原件已清理一个角标；原来在画面下面写「正在准备媒体…」「点击查看 / 重试」等文字。
     private FrameworkElement MediaPreview(Message message, Segment segment, MediaInfo media, string label)
     {
         var owner = runtime;
         var ownerToken = pageTask?.Token ?? lifetime.Token;
         bool visual = segment.Image is not null || segment.Video is not null || segment.MarketFace is not null;
-        var panel = new StackPanel { Spacing = 8 };
-        var status = Text(MediaPresentation.StateText(media.State), 12);
-        var picture = new Image { MaxWidth = 300, MaxHeight = 260, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+        var ring = new ProgressRing { IsActive = false, Width = 24, Height = 24, Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        var failure = new FontIcon { Glyph = "\uE783", FontSize = 20, Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush("SystemFillColorCriticalBrush") };
+        var picture = new Image { MaxWidth = 300, MaxHeight = 260, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Left };
+        FrameworkElement content;
         if (visual)
         {
             double width = media.Width > 0 ? Math.Min(300, media.Width) : 240;
             double height = media.Width > 0 && media.Height > 0 ? Math.Min(260, width * media.Height / media.Width) : 180;
-            picture.Width = width; picture.Height = height; picture.Visibility = Visibility.Visible;
-            // 图片、视频、表情包只显示画面（圆角裁切），文字说明只给语音、文件；视频叠一个播放图标。
+            picture.Width = width; picture.Height = height;
             var frame = new Grid { CornerRadius = new CornerRadius(6), HorizontalAlignment = HorizontalAlignment.Left, Background = Brush("SubtleFillColorSecondaryBrush") };
             frame.Children.Add(picture);
             if (segment.Video is not null)
                 frame.Children.Add(new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(22), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                     Child = new FontIcon { Glyph = "\uE768", FontSize = 18, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) } });
-            panel.Children.Add(frame);
+            if (media.State == MediaState.Purged)
+            {
+                var purged = new Border { Margin = new Thickness(6), Padding = new Thickness(4), CornerRadius = new CornerRadius(4), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0, 0, 0)), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+                    Child = new FontIcon { Glyph = "\uE74D", FontSize = 12, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) } };
+                ToolTipService.SetToolTip(purged, "原件已清理，只有预览");
+                frame.Children.Add(purged);
+            }
+            frame.Children.Add(ring); frame.Children.Add(failure);
+            content = frame;
         }
-        if (!visual) panel.Children.Add(Text(label));
-        panel.Children.Add(status);
+        else
+        {
+            // 文件 / 语音以外的附件：图标｜名称、大小｜状态。
+            var row = new Grid { ColumnSpacing = 10, MinWidth = 200 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new FontIcon { Glyph = segment.File is not null ? FileGlyph(label) : "\uE8A5", FontSize = 24, VerticalAlignment = VerticalAlignment.Center });
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 240 });
+            if (media.Size > 0) text.Children.Add(new TextBlock { Text = Bytes(media.Size), Style = Res<Style>("SecondaryCaptionTextBlockStyle") });
+            Grid.SetColumn(text, 1); row.Children.Add(text);
+            Grid.SetColumn(ring, 2); row.Children.Add(ring);
+            Grid.SetColumn(failure, 2); row.Children.Add(failure);
+            content = row;
+        }
         var button = visual
-            ? new Button { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), MaxWidth = 320, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) }
-            : new Button { Content = panel, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(8), MaxWidth = 320 };
-        bool loaded = false;
+            ? new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(0), MaxWidth = 320, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) }
+            : new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 8, 10, 8), MaxWidth = 320 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
+        void Busy(bool on) { ring.IsActive = on; ring.Visibility = on ? Visibility.Visible : Visibility.Collapsed; if (on) failure.Visibility = Visibility.Collapsed; }
+        void Fail(string reason) { Busy(false); failure.Visibility = Visibility.Visible; ToolTipService.SetToolTip(failure, reason); }
         bool opening = false;
-        button.Click += async (_, _) => await Guard(async () =>
+        button.Click += async (_, _) =>
         {
             if (opening || owner is null || runtime != owner || ownerToken.IsCancellationRequested) return;
-            opening = true; button.IsEnabled = false; status.Text = "正在准备媒体…"; status.Visibility = Visibility.Visible;
-            try { if (visual) await OpenViewer(message, media); else await ShowMedia(message, media, label); }
-            finally
+            opening = true; Busy(true);
+            try
             {
-                opening = false;
-                if (!ownerToken.IsCancellationRequested && runtime == owner)
-                { button.IsEnabled = true; status.Text = "点击查看 / 重试"; status.Visibility = visual && loaded ? Visibility.Collapsed : Visibility.Visible; }
+                if (visual) await OpenViewer(message, media); else await ShowMedia(message, media, label);
+                Busy(false);
             }
-        });
+            catch (OperationCanceledException) { Busy(false); }
+            catch (Exception error)
+            {
+                if (!ownerToken.IsCancellationRequested && runtime == owner) { Fail(error.Message); Notice.Severity = InfoBarSeverity.Error; Notice.Message = error.Message; Notice.IsOpen = true; }
+            }
+            finally { opening = false; }
+        };
         bool started = false;
         CancellationTokenSource? load = null;
         button.Loaded += async (_, _) =>
@@ -93,6 +122,7 @@ public sealed partial class MainWindow
                 string hash = MediaPresentation.PreviewHash(media);
                 if (hash.Length > 0)
                 {
+                    Busy(true);
                     var uri = await PreviewUri(currentApi, hash, ct);
                     ct.ThrowIfCancellationRequested();
                     if (api != currentApi) return;
@@ -100,18 +130,18 @@ public sealed partial class MainWindow
                     bitmap.ImageOpened += (_, _) =>
                     {
                         if (ct.IsCancellationRequested) return;
-                        // 预览出来后只保留画面；原件已清理时仍提示一句。
-                        loaded = true; picture.Visibility = Visibility.Visible;
+                        Busy(false);
                         // 没有尺寸信息时先按 240×180 占位；图出来后按实际比例收缩，去掉占位底色，避免两侧露灰边。
                         picture.Width = double.NaN; picture.Height = double.NaN;
                         if (picture.Parent is Grid frame) frame.Background = null;
-                        status.Text = "原件已清理"; status.Visibility = media.State == MediaState.Purged ? Visibility.Visible : Visibility.Collapsed;
                     };
-                    bitmap.ImageFailed += (_, _) => { if (!ct.IsCancellationRequested) status.Text = "预览加载失败，点击查看"; };
+                    bitmap.ImageFailed += (_, _) => { if (!ct.IsCancellationRequested) Fail("预览加载失败，点击查看原图"); };
                     picture.Source = bitmap; bitmap.UriSource = uri;
                 }
                 else if (media.State is MediaState.OnDemand or MediaState.Pending or MediaState.Stored)
                 {
+                    // 预览还没生成：请服务端准备，转圈等 mediaReady / chat_pts 推送（消息版本变了会换一个新视图），不轮询。
+                    Busy(true);
                     var key = (message.ChatId, message.Seq, media.Ord);
                     if (!requestedPreviews.Add(key)) return;
                     try
@@ -119,14 +149,13 @@ public sealed partial class MainWindow
                         var request = new RequestMediaRequest();
                         request.Refs.Add(new MediaRef { ChatId = message.ChatId, Seq = message.Seq, Ord = media.Ord });
                         await SessionFor(currentApi).RequestMediaAsync(request, ct);
-                        ct.ThrowIfCancellationRequested(); status.Text = "正在准备预览…";
                     }
                     catch { requestedPreviews.Remove(key); throw; }
-                    // 下载结果经 chat_pts / mediaReady 推送，无需轮询。
                 }
+                else Fail(MediaPresentation.StateText(media.State));
             }
             catch (OperationCanceledException) { }
-            catch (Exception) { if (!ct.IsCancellationRequested) status.Text = "预览暂不可用，点击查看"; }
+            catch (Exception error) { if (!ct.IsCancellationRequested) Fail(error.Message); }
         };
         button.Unloaded += (_, _) => { load?.Cancel(); load?.Dispose(); load = null; started = false; };
         return button;
