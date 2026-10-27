@@ -551,31 +551,18 @@ public sealed partial class MainWindow
         }
         return menu;
     }
-    // 气泡和 @ 徽章里的用户头像，与列表头像共用缓存和并发限制。
+    // 气泡和 @ 徽章里的用户头像，与列表头像共用缓存、批量查询和下载并发限制。
     private async void LoadSenderAvatar(PersonPicture picture, long userId, bool group = false)
     {
         if (api is null || userId == 0) return;
         var sessionApi = api;
         string hash = peerIndex.GetValueOrDefault((userId, group))?.AvatarSha256 ?? "";
-        string key = $"{group}:{userId}:{hash}";
         try
         {
-            await avatarRequests.WaitAsync(lifetime.Token);
-            BitmapImage? bitmap;
-            try
-            {
-                if (!avatarImages.TryGetValue(key, out var task))
-                {
-                    if (avatarImages.Count >= 512) avatarImages.Clear();
-                    task = FetchAvatar(sessionApi, userId, group, hash, lifetime.Token);
-                    avatarImages[key] = task;
-                }
-                bitmap = await task;
-            }
-            finally { avatarRequests.Release(); }
-            if (api == sessionApi && picture.Tag is long id && id == userId) picture.ProfilePicture = bitmap;
+            var bitmap = await AvatarImage(sessionApi, userId, group, hash);
+            if (api == sessionApi && picture.Tag is long id && id == userId && bitmap is not null) picture.ProfilePicture = bitmap;
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { if (api == sessionApi) avatarImages.Remove(key); }
+        catch (Exception) { /* 失败保留姓名占位，缓存已移除，下次显示时重试。 */ }
     }
 }

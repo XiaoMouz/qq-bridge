@@ -415,6 +415,7 @@ public sealed partial class MainWindow : Window
         }
         if (section == "messages") Items.SelectedItem = entries.FirstOrDefault(e => e.Value is Dialog d && d.ChatId == selectedChat);
         rendering = false;
+        RefreshMissingAvatars();
     }
     private int FilterIndex => Filter.SelectedItem is { } item ? Math.Max(0, Filter.Items.IndexOf(item)) : 0;
     private void SelectFilter(int index) => Filter.SelectedItem = index < Filter.Items.Count ? Filter.Items[index] : null;
