@@ -18,10 +18,15 @@ public sealed partial class MainWindow
         var vm = new StickerCatalogViewModel(session.ListStickersAsync, session.PrepareStickersAsync, session.AddStickerAsync, new UiDispatcher(DispatcherQueue));
         popup.Closed += (_, _) => { cancel.Cancel(); cancel.Dispose(); vm.Dispose(); };
         var ct = cancel.Token;
-        var status = new TextBlock { Text = "正在加载收藏表情…", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["SecondaryCaptionTextBlockStyle"] };
-        var refresh = new HyperlinkButton { Content = "从 QQ 刷新", Padding = new Thickness(4, 0, 4, 0) };
-        var header = new Grid(); header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        header.Children.Add(status); Grid.SetColumn(refresh, 1); header.Children.Add(refresh);
+        // 状态只在出错或为空时写；加载、刷新、发送都只转右上角的进度环（原来「正在加载收藏表情…」「N 个收藏表情」一直占一行）。
+        var status = new TextBlock { Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["SecondaryCaptionTextBlockStyle"], TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        var busy = new ProgressRing { IsActive = true, Width = 16, Height = 16 };
+        var refresh = new Button { Content = new FontIcon { Glyph = "\uE72C", FontSize = 14 }, Padding = new Thickness(6), Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) };
+        ToolTipService.SetToolTip(refresh, "从 QQ 刷新"); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(refresh, "从 QQ 刷新");
+        var header = new Grid { ColumnSpacing = 8 };
+        header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(status); Grid.SetColumn(busy, 1); header.Children.Add(busy); Grid.SetColumn(refresh, 2); header.Children.Add(refresh);
+        void Busy(bool on) { busy.IsActive = on; busy.Visibility = on ? Visibility.Visible : Visibility.Collapsed; refresh.IsEnabled = !on; }
         var grid = new GridView { Height = 300, Width = 360, IsItemClickEnabled = true, SelectionMode = ListViewSelectionMode.None };
         page.Children.Add(header); page.Children.Add(grid);
         var thumbs = new SemaphoreSlim(4, 4);
@@ -49,17 +54,21 @@ public sealed partial class MainWindow
         }
         async Task Load(bool fromQq)
         {
-            status.Text = fromQq ? "正在从 QQ 刷新…" : "正在加载收藏表情…";
-            if (!await vm.LoadAsync(fromQq, ct)) { ct.ThrowIfCancellationRequested(); status.Text = vm.Load.Error ?? "加载失败，请重试。"; return; }
-            ct.ThrowIfCancellationRequested();
-            grid.ItemsSource = vm.Items.Select(Tile).ToList();
-            status.Text = vm.Items.Count == 0 ? "还没有收藏表情；右键消息里的图片可以收藏。" : $"{vm.Items.Count} 个收藏表情";
+            status.Text = ""; Busy(true);
+            try
+            {
+                if (!await vm.LoadAsync(fromQq, ct)) { ct.ThrowIfCancellationRequested(); status.Text = vm.Load.Error ?? "加载失败，请重试。"; return; }
+                ct.ThrowIfCancellationRequested();
+                grid.ItemsSource = vm.Items.Select(Tile).ToList();
+                status.Text = vm.Items.Count == 0 ? "还没有收藏表情" : "";
+            }
+            finally { if (!ct.IsCancellationRequested) Busy(false); }
         }
         bool sending = false;
         grid.ItemClick += async (_, e) => await Guard(async () =>
         {
             if (sending || e.ClickedItem is not FrameworkElement { Tag: string md5 } || runtime != session || selectedChat != chat) return;
-            sending = true; status.Text = "正在发送…";
+            sending = true; status.Text = ""; Busy(true);
             try
             {
                 var item = vm.Items.FirstOrDefault(s => s.Md5 == md5);
@@ -71,7 +80,7 @@ public sealed partial class MainWindow
                 if (selectedChat == chat && replySeq == reply && reply != 0) { replySeq = 0; replies[chat] = 0; UpdateReply(); }
                 popup.Hide();
             }
-            finally { sending = false; }
+            finally { sending = false; if (!ct.IsCancellationRequested) Busy(false); }
         });
         refresh.Click += async (_, _) => await Guard(() => Load(true));
         _ = Guard(() => Load(false));

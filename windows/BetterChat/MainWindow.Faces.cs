@@ -22,10 +22,16 @@ public sealed partial class MainWindow
         string path = Path.Combine(AppContext.BaseDirectory, "Assets", "FaceCatalog.json");
         return (JsonSerializer.Deserialize<List<FaceEntry>>(File.ReadAllText(path)) ?? []).ToDictionary(f => f.Id);
     }
+    // 同一个表情、同一解码尺寸共用一个 BitmapImage：原来每个气泡、回应、记录里的表情都各自读文件解码一遍，
+    // 群里表情多时滚动一次要解码几百次。只在 UI 线程上用，不需要加锁。
+    private static readonly Dictionary<(string Id, int Width), BitmapImage> faceBitmaps = [];
     private static Image? FaceImage(string id, double size = 24)
     {
         if (!faces.TryGetValue(id, out var entry)) return null;
-        var image = new Image { Source = new BitmapImage(new Uri(entry.ImagePath)) { DecodePixelWidth = (int)Math.Max(64, size * 2) }, Width = size, Height = size, Stretch = Stretch.Uniform };
+        int decode = (int)Math.Max(64, size * 2);
+        if (!faceBitmaps.TryGetValue((id, decode), out var bitmap))
+            faceBitmaps[(id, decode)] = bitmap = new BitmapImage(new Uri(entry.ImagePath)) { DecodePixelWidth = decode };
+        var image = new Image { Source = bitmap, Width = size, Height = size, Stretch = Stretch.Uniform };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(image, entry.Name);
         ToolTipService.SetToolTip(image, entry.Name);
         return image;

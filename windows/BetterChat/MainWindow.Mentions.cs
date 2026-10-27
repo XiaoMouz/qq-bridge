@@ -1,4 +1,5 @@
 using BetterChat.Application.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Qqbridge.V1;
 
@@ -50,7 +51,9 @@ public sealed partial class MainWindow
                 });
                 rows.Children.Add(row);
             }
-            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : vm.Items.Count == 0 ? "没有未读的 @我 和回复我" : $"{vm.Items.Count} 条未读";
+            // 数量由列表本身表达；只在出错和空的时候写一行。
+            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : vm.Items.Count == 0 ? "没有未读的 @我 和回复我" : "";
+            status.Visibility = status.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         async Task Reload()
         {
@@ -62,7 +65,7 @@ public sealed partial class MainWindow
             {
                 do
                 {
-                    refreshRequested = false; status.Text = "正在加载…";
+                    refreshRequested = false;
                     await vm.LoadAsync(0, ct);
                     ct.ThrowIfCancellationRequested(); Render();
                 } while (refreshRequested);
@@ -96,21 +99,27 @@ public sealed partial class MainWindow
         if (session is null) return;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(pageTask?.Token ?? lifetime.Token, lifetime.Token);
         using var vm = new ReactionUsersViewModel(message.ChatId, message.Seq, emojiId, session.ListReactionUsersAsync, new UiDispatcher(DispatcherQueue));
-        var panel = new StackPanel { Spacing = 8 };
-        var status = Text("正在加载…"); var users = new StackPanel { Spacing = 4 };
-        async Task Load()
-        {
-            await vm.LoadAsync(cancellation.Token);
-            cancellation.Token.ThrowIfCancellationRequested();
-            if (runtime != session) return;
-            users.Children.Clear();
-            foreach (var user in vm.Users) users.Children.Add(Text($"{user.DisplayName}（{user.UserId}）"));
-            status.Text = vm.Load.State == OperationState.Failed ? "加载失败：" + vm.Load.Error : $"{vm.Users.Count} 人";
-        }
-        panel.Children.Add(status); panel.Children.Add(users); panel.Children.Add(ActionButton("刷新名单", Load));
-        await Load();
+        // 和 iOS 的回应名单一样：头像 + 名字一行一个，不写「N 人」；标题用表情本身。
+        var users = new StackPanel { Spacing = 4, MinWidth = 280 };
+        await vm.LoadAsync(cancellation.Token);
         cancellation.Token.ThrowIfCancellationRequested();
-        if (runtime == session) await DialogBox("回应 " + emojiId, panel);
+        if (runtime != session) return;
+        if (vm.Load.State == OperationState.Failed) users.Children.Add(Text("加载失败：" + vm.Load.Error));
+        foreach (var user in vm.Users)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(0, 4, 0, 4) };
+            var avatar = new PersonPicture { Width = 28, Height = 28, DisplayName = user.DisplayName, Tag = user.UserId };
+            avatar.Loaded += (_, _) => LoadSenderAvatar(avatar, user.UserId);
+            row.Children.Add(avatar);
+            row.Children.Add(new TextBlock { Text = user.DisplayName, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            ToolTipService.SetToolTip(row, user.UserId.ToString());
+            users.Children.Add(row);
+        }
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        if (FaceImage(emojiId, 28) is { } face) title.Children.Add(face); else title.Children.Add(new TextBlock { Text = emojiId });
+        title.Children.Add(new TextBlock { Text = "的回应", VerticalAlignment = VerticalAlignment.Center });
+        if (runtime == session)
+            await new ContentDialog { XamlRoot = Root.XamlRoot, Title = title, Content = new ScrollViewer { Content = users, MaxHeight = 420 }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close }.ShowAsync();
         cancellation.Cancel();
     }
 }
