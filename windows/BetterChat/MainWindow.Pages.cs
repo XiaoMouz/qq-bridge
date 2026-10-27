@@ -13,17 +13,19 @@ public sealed partial class MainWindow
     {
         if (api is not null)
         {
-            Detail("连接与账号", "当前登录的 QQ Bridge");
+            Detail("连接与账号");
             var avatar = new PersonPicture { Width = 72, Height = 72, DisplayName = AccountAvatar.DisplayName, ProfilePicture = AccountAvatar.ProfilePicture };
             Details.Children.Add(Hero(avatar, AccountAvatar.DisplayName, api.Transport.BaseUri.Host));
             Details.Children.Add(SectionHeader("状态"));
-            Details.Children.Add(Card("连接", connectionStatus, "\uE968"));
-            Details.Children.Add(Card("Windows 通知", notifications?.Error is { } notificationError ? "不可用：" + notificationError : "运行期间收到新消息时提醒", "\uEA8F"));
-            Details.Children.Add(Card("服务端 QQ 登录状态", "查看 NapCat 上的 QQ 是否在线，掉线时在这里扫码", "\uE8D4", click: () => Go("qq-login", ShowQqLogin)));
+            Details.Children.Add(Card("连接", null, "\uE968", CardValue(connectionStatus)));
+            // 正常时不写说明；只有不可用时把原因写出来，那是要用户处理的。
+            Details.Children.Add(Card("Windows 通知", notifications?.Error is { } notificationError ? notificationError : null, "\uEA8F",
+                CardValue(notifications?.Error is null ? "已开启" : "不可用")));
+            Details.Children.Add(Card("服务端 QQ 登录", null, "\uE8D4", click: () => Go("qq-login", ShowQqLogin)));
             Details.Children.Add(SectionHeader("账号"));
-            var logout = new Button { Content = "退出登录" };
+            var logout = new Button { Content = "退出" };
             logout.Click += async (_, _) => { logout.IsEnabled = false; try { await Guard(SignOut); } finally { logout.IsEnabled = true; } };
-            Details.Children.Add(Card("退出登录", "之后需要重新输入 QQ Bridge 密码；可以选择是否保留本机缓存", "\uE7E8", logout));
+            Details.Children.Add(Card("退出登录", null, "\uE7E8", logout));
             return;
         }
         if (api is null)
@@ -33,7 +35,7 @@ public sealed partial class MainWindow
             OnboardingSubtitle.Text = "登录你的 QQ Bridge";
             OnboardingContent.Children.Clear();
         }
-        else Detail("连接与账号", "连接你自己的 QQ Bridge 服务器");
+        else Detail("连接与账号");
         var form = api is null ? OnboardingContent : Details;
         // 可编辑的下拉：预置的几个入口和上次用过的地址点一下就填好，也能直接输入别的地址。
         string current = (api?.Transport.BaseUri.AbsoluteUri ?? SessionSettings.Load()?.Server ?? SessionSettings.LastServer ?? SessionSettings.PresetServers[0].Address).TrimEnd('/');
@@ -75,7 +77,6 @@ public sealed partial class MainWindow
         var username = new TextBox { Header = "用户名", Text = "owner", PlaceholderText = "QQ Bridge 用户名" };
         var password = new PasswordBox { Header = "密码", PlaceholderText = "QQ Bridge 账号密码" };
         form.Children.Add(server); form.Children.Add(serverInfo); form.Children.Add(username); form.Children.Add(password);
-        form.Children.Add(Text("使用 QQ Bridge 服务端账号登录。密码不会保存到本机。", 12));
         var login = new Button { Content = "登录", Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"] };
         bool busy = false;
         async Task SignIn()
@@ -120,17 +121,18 @@ public sealed partial class MainWindow
                 (AppearanceSettings.Load() with { Theme = value }).Save(); Root.RequestedTheme = value;
                 return Task.CompletedTask;
             });
-            Details.Children.Add(Card("主题", "跟随 Windows，或固定浅色 / 深色", "\uE790", theme));
+            Details.Children.Add(Card("主题", null, "\uE790", theme));
             var reset = new Button { Content = "恢复默认" };
             reset.Click += (_, _) => { listPaneWidth = AppearanceSettings.DefaultListPaneWidth; ApplyAdaptiveLayout(); SaveListPaneWidth(); };
-            Details.Children.Add(Card("会话列表宽度", "拖动列表右边的分隔线调整，双击分隔线也能恢复", "\uE89F", reset));
+            ToolTipService.SetToolTip(reset, "也可以拖动或双击列表右边的分隔线");
+            Details.Children.Add(Card("会话列表宽度", null, "\uE89F", reset));
             return;
         }
         if (name == "关于")
         {
             var icon = new Image { Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/AppLogo.png")), Width = 72, Height = 72 };
             string version = updater.CurrentVersion;
-            Details.Children.Add(Hero(icon, "BetterChat", "QQ Bridge 的 Windows 原生客户端", "WinUI 3 · Fluent Design · ConnectRPC" + (version.Length > 0 ? " · " + version : "")));
+            Details.Children.Add(Hero(icon, "BetterChat", version));
             AddUpdateSection();
             Details.Children.Add(SectionHeader("快捷键"));
             foreach (var (keys, what, glyph) in new[] { ("Ctrl + K", "搜索消息、联系人和群聊", "\uE721"), ("Ctrl + F", "在当前会话中查找", "\uE773"),
@@ -190,10 +192,10 @@ public sealed partial class MainWindow
                     StorageCategories.HasChats(category) ? () => Go("storage-chats:" + category, () => ShowStorageChats(category)) : null));
             }
             Details.Children.Add(SectionHeader("策略与本机"));
-            Details.Children.Add(Card("全局存储策略", "原件保留天数、自动下载上限、冷存储下沉", "\uE713", click: () => Go($"policy:{PolicyScope.Global}::", () => ShowStoragePolicy(PolicyScope.Global))));
+            Details.Children.Add(Card("全局存储策略", null, "\uE713", click: () => Go($"policy:{PolicyScope.Global}::", () => ShowStoragePolicy(PolicyScope.Global))));
             foreach (var (scene, label) in new[] { (Scene.Friend, "私聊"), (Scene.Group, "群聊"), (Scene.Temp, "临时会话") })
-                Details.Children.Add(Card(label + "存储策略", "覆盖全局策略", "\uE71D", click: () => Go($"policy:{PolicyScope.Scene}:{scene}:", () => ShowStoragePolicy(PolicyScope.Scene, scene))));
-            Details.Children.Add(Card("本机预览缓存", "缩略图、头像和表情的本地缓存", "\uE8B7", click: () => Go("preview-cache", ShowPreviewCache)));
+                Details.Children.Add(Card(label + "存储策略", null, "\uE71D", click: () => Go($"policy:{PolicyScope.Scene}:{scene}:", () => ShowStoragePolicy(PolicyScope.Scene, scene))));
+            Details.Children.Add(Card("本机预览缓存", null, "\uE8B7", click: () => Go("preview-cache", ShowPreviewCache)));
         }
         else if (name == "通话记录")
         {
@@ -439,14 +441,14 @@ public sealed partial class MainWindow
         searchPager = new MessageSearchPager(searchSession.SearchMessagesAsync);
         searchPager.Reset(searchQuery, chatId);
         MoreSearchResults.Visibility = Visibility.Collapsed;
-        Detail("搜索 “" + searchQuery + "”", chatId == 0 ? "全部会话 · 按时间倒序" : "当前会话 · 按时间倒序");
+        Detail("搜索 “" + searchQuery + "”", chatId == 0 ? "" : "当前会话");
         await SearchPage();
     }
     private async void LoadSearchMore(object sender, RoutedEventArgs e) => await Guard(async () =>
     {
         if (searchPager is null || searchPager.Loading) return;
         _ = Guard(SaveDraft); NewPage(); selectedChat = 0;
-        Detail("搜索 “" + searchPager.Query + "”", "按时间倒序显示匹配消息");
+        Detail("搜索 “" + searchPager.Query + "”");
         MoreSearchResults.IsEnabled = false;
         try { await SearchPage(); }
         finally { MoreSearchResults.IsEnabled = true; }
@@ -477,7 +479,7 @@ public sealed partial class MainWindow
             entries.Add(pager.ChatId == 0 ? new(PeerNameForChat(m.ChatId), text, time, m) { SenderPrefix = sender + "：" } : new(sender, text, time, m));
         }
         rendering = false;
-        Details.Children.Clear(); Details.Children.Add(Text($"找到 {contacts.Count} 个联系人或群聊，{pager.Results.Count} 条消息。选择消息可定位到原会话。"));
+        Details.Children.Clear(); Details.Children.Add(Card("联系人和群聊", null, "\uE716", CardValue(contacts.Count.ToString()))); Details.Children.Add(Card("消息", null, "\uE8BD", CardValue(pager.Results.Count + (pager.Next is null ? "" : "+"))));
         MoreSearchResults.Visibility = pager.Next is not null ? Visibility.Visible : Visibility.Collapsed;
     }
     private async void ChatOptions(object sender, RoutedEventArgs e) => await Guard(async () =>

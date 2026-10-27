@@ -13,7 +13,7 @@ public sealed partial class MainWindow
         if (runtime is not { } session) return;
         var ct = NewPage(); selectedChat = 0;
         var load = new RpcOperationViewModel<ListStorageChatsRequest, ListStorageChatsResponse>(session.ListStorageChatsAsync, new UiDispatcher(DispatcherQueue), false); featurePage = load;
-        Detail(Category(category), "按会话查看服务端占用");
+        Detail(Category(category));
         var request = new ListStorageChatsRequest { Limit = 200 }; request.Categories.Add(category);
         var loaded = PageLoading("正在统计各会话的占用…");
         bool ok;
@@ -43,7 +43,7 @@ public sealed partial class MainWindow
         if (runtime is not { } session) return;
         var ct = NewPage();
         var vm = new StorageItemsViewModel(chat, category, session.ListStorageItemsAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
-        Detail(Category(category), "会话媒体 · 按大小排序");
+        Detail(Category(category));
         Details.Children.Add(ActionRow(("清理媒体原件…", "\uE74D", () => PlanStorageCleanup(chat)),
             ("存储详情与策略", "\uE946", () => Go("chat-storage:" + chat, () => ShowChatStorage(chat)))));
         var rows = new StackPanel { Spacing = 8 }; Details.Children.Add(rows);
@@ -136,7 +136,7 @@ public sealed partial class MainWindow
     private async Task ShowChatStorage(long chat)
     {
         var session = runtime; if (session is null) return;
-        var ct = NewPage(); Detail("会话存储详情", "服务端占用；共享内容不等于本会话可释放空间。");
+        var ct = NewPage(); Detail("会话存储详情");
         var vm = new ChatStorageViewModel(chat, session.GetChatStorageAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
         var loaded = PageLoading("正在读取会话存储…");
         bool ok;

@@ -18,6 +18,12 @@
     <!-- 右栏阅读内容的最大宽度：设置、资料这类页面靠左排，超过这个宽度不再拉宽（2026-10-17 实测宽窗口居中会在左边空出一大块）。 -->
     <x:Double x:Key="DetailContentMaxWidth">800</x:Double>
 
+    <!-- 设置 / 资料页的卡片间距和分组标题，取 Windows 设置和 WinUI Gallery 的数值：卡片之间 4，分组标题上 30 下 6。 -->
+    <x:Double x:Key="SettingsCardSpacing">4</x:Double>
+    <Thickness x:Key="SettingsSectionHeaderMargin">1,26,0,2</Thickness>
+    <!-- 右栏标题行固定按「标题 + 一行副标题」的高度：没有副标题时标题居中，正在输入等提示出现时标题行不跳。 -->
+    <x:Double x:Key="PageHeaderMinHeight">78</x:Double>
+
     <Thickness x:Key="PagePadding">28,24,28,24</Thickness>
     <Thickness x:Key="PageHeaderPadding">24,16,16,16</Thickness>
     <Thickness x:Key="ListPanePadding">12,16,12,8</Thickness>

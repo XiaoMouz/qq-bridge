@@ -250,7 +250,7 @@ public sealed partial class MainWindow : Window
         Notice.IsOpen = false;
         activeTimer.Start(); Nav.SelectedItem = MessagesNavItem; RefreshList();
         navigator.Clear();
-        Detail("选择一个会话", "从左侧列表选一个会话；断线时仍可浏览已缓存的消息。");
+        Detail("选择一个会话");
         var account = accountState.QqAccounts.FirstOrDefault();
         if (account is not null)
         {
@@ -394,9 +394,11 @@ public sealed partial class MainWindow : Window
         }
         else if (section == "settings")
         {
-            foreach (var (title, sub, glyph) in new[] { ("连接与账号", "账号与登录状态", ""), ("外观", "主题与阅读体验", ""), ("设备", "已连接的设备", ""),
-                ("存储", "服务端空间与缓存", ""), ("服务端状态", "QQ、队列与通话桥", ""), ("存档完整性", "消息缺口与深度归档", ""),
-                ("通话记录", "最近的 QQ 通话", ""), ("关于", AboutSubtitle,"") })
+            // 只有图标和名称：每项再配一行说明（「主题与阅读体验」）只是重复标题，列表反而难扫读。
+            // 「关于」只在下好新版本时多一行，那是状态，不是说明。
+            foreach (var (title, sub, glyph) in new[] { ("连接与账号", "", ""), ("外观", "", ""), ("设备", "", ""),
+                ("存储", "", ""), ("服务端状态", "", ""), ("存档完整性", "", ""),
+                ("通话记录", "", ""), ("关于", AboutSubtitle,"") })
                 next.Add(new(title, sub, "", title) { Glyph = glyph });
         }
         var existing = entries.ToDictionary(e => e.Key);
@@ -439,7 +441,7 @@ public sealed partial class MainWindow : Window
             _ = Guard(() => GoLanding("contacts", () => { ShowContactsOverview(); return Task.CompletedTask; }));
             _ = Guard(() => runtime!.Contacts.LoadAsync(ct: lifetime.Token));
         }
-        else { navigator.Clear(); Detail("选择一个会话", "从左侧列表继续"); }
+        else { navigator.Clear(); Detail("选择一个会话"); }
     }
     private void FilterChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args) { if (!rendering) RefreshList(); }
     private async void ItemSelected(object sender, SelectionChangedEventArgs e)
@@ -474,7 +476,8 @@ public sealed partial class MainWindow : Window
         ct.ThrowIfCancellationRequested();
         if (localDraft is not null) dirtyDrafts.Add(chat);
         ContentTitle.Text = d is null ? "聊天" : PeerName(d.PeerId, d.Scene);
-        ContentSubtitle.Text = d?.Scene == Scene.Group ? "群聊" : "私聊";
+        // 不再写「群聊 / 私聊」：头像、成员资料栏已经说明了；副标题只留给正在输入这类即时状态。
+        ContentSubtitle.Text = "";
         DetailScroll.Visibility = Visibility.Collapsed;
         ChatPanel.Visibility = ComposerPanel.Visibility = ChatMore.Visibility = ChatSearchButton.Visibility = Visibility.Visible;
         rendering = true;
@@ -754,7 +757,6 @@ public sealed partial class MainWindow : Window
         {
             var page = await runtime.GetHistoryAsync(req, ct); ct.ThrowIfCancellationRequested();
             window.Extend(page, older);
-            if (page.Messages.Count == 0) ContentSubtitle.Text = older ? "已到最早的存档消息" : "已到最新的存档消息";
         }
         finally { if (historyWindow == window) { historyLoading = false; UpdateHistoryButtons(); } }
     }

@@ -11,7 +11,7 @@ public sealed partial class MainWindow
     private async Task ShowQqLogin()
     {
         if (runtime is not { } session) return;
-        var ct = NewPage(); Detail("QQ 登录状态", "这是服务端 QQ 的登录状态，与 QQ Bridge 密码登录独立。");
+        var ct = NewPage(); Detail("QQ 登录状态");
         var vm = new QqLoginViewModel(session.GetQqLoginAsync, session.RefreshQqLoginQrcodeAsync, new UiDispatcher(DispatcherQueue)); featurePage = vm;
         var pill = new ContentControl();
         var statusCard = Card("服务端 QQ", "正在查询…", "\uE77B", pill);

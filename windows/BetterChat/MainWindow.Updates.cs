@@ -46,7 +46,7 @@ public sealed partial class MainWindow
 
     private void OnboardingUpdateClicked(object sender, RoutedEventArgs e) => updater.RestartNow();
 
-    private string AboutSubtitle => updater.State.Phase == UpdatePhase.Ready ? $"新版本 {updater.State.Version}" : "BetterChat for Windows";
+    private string AboutSubtitle => updater.State.Phase == UpdatePhase.Ready ? $"新版本 {updater.State.Version}" : "";
 
     // 关于页：版本更新卡片 + 下好的新版本的更新说明。
     private void AddUpdateSection()

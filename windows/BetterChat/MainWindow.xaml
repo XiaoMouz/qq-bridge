@@ -104,7 +104,7 @@
     ToolTipService.ToolTip="拖动调整列表宽度，双击恢复默认" AutomationProperties.Name="调整列表宽度"/>
    <Grid x:Name="DetailPane" Grid.Column="1" Margin="{StaticResource DetailCardMargin}" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="{ThemeResource OverlayCornerRadius}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <Grid x:Name="DetailHeader" Padding="{StaticResource PageHeaderPadding}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+    <Grid x:Name="DetailHeader" Padding="{StaticResource PageHeaderPadding}" MinHeight="{StaticResource PageHeaderMinHeight}" BorderThickness="0,0,0,1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <StackPanel Spacing="2" VerticalAlignment="Center"><TextBlock x:Name="ContentTitle" Text="欢迎使用 BetterChat" Style="{StaticResource PageTitleTextBlockStyle}"/><TextBlock x:Name="ContentSubtitle" Text="你的 QQ 消息，在 Windows 上保持同步" Style="{StaticResource SecondaryCaptionTextBlockStyle}"/></StackPanel>
      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
@@ -117,7 +117,7 @@
      <!-- 内容靠左、最宽 800：星号列加 MaxWidth（StackPanel 直接设 MaxWidth 会被居中，设 Left 又只按内容宽度排，卡片会挤窄，2026-10-17 实测）。 -->
      <ScrollViewer x:Name="DetailScroll" Padding="{StaticResource PagePadding}">
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" MaxWidth="{StaticResource DetailContentMaxWidth}"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <StackPanel x:Name="Details" Spacing="{StaticResource SpaceS}"/>
+       <StackPanel x:Name="Details" Spacing="{StaticResource SettingsCardSpacing}"/>
       </Grid>
      </ScrollViewer>
      <Grid x:Name="ChatPanel" Visibility="Collapsed">

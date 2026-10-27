@@ -15,7 +15,7 @@ public sealed partial class MainWindow
         var ct = NewPage();
         var vm = new MentionsViewModel(chat, true, session.ListUnreadMentionsAsync, session.MarkMentionsSeenAsync, new UiDispatcher(DispatcherQueue));
         featurePage = vm;
-        Detail("提及和回复", "点一条跳到原消息；「已读」只清这条提醒，不影响普通已读");
+        Detail("提及和回复");
         var includeAll = new CheckBox { Content = "包含 @全体成员", IsChecked = true };
         var status = new TextBlock { Style = Res<Microsoft.UI.Xaml.Style>("SecondaryCaptionTextBlockStyle") };
         var rows = new StackPanel { Spacing = 8 };

@@ -14,7 +14,7 @@ public sealed partial class MainWindow
         await SaveDraft();
         if (runtime != session) return;
         var ct = NewPage();
-        Detail("会话设置", "改动立即保存；其他设备上的改动也会同步到这里");
+        Detail("会话设置");
         var dialog = await session.Repository.GetDialogAsync(chatId, ct);
         ct.ThrowIfCancellationRequested();
         if (runtime != session) return;

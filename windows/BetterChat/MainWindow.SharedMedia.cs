@@ -47,7 +47,7 @@ public sealed partial class MainWindow
         await SaveDraft();
         if (runtime != session) return;
         var ct = NewPage();
-        Detail("共享媒体", "按类型、发送者与排序查找，打开原消息或媒体");
+        Detail("共享媒体");
         var kinds = new ComboBox { Header = "类型", SelectedIndex = 0, MinWidth = 110 };
         foreach (var label in new[] { "全部", "图片", "视频", "语音", "文件", "表情" }) kinds.Items.Add(label);
         kinds.SelectedIndex = 0;

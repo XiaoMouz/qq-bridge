@@ -53,7 +53,7 @@ public sealed partial class MainWindow
 
     private static TextBlock SectionHeader(string text) => new()
     {
-        Text = text, Style = Res<Style>("BodyStrongTextBlockStyle"), Margin = new Thickness(1, 12, 0, 0)
+        Text = text, Style = Res<Style>("BodyStrongTextBlockStyle"), Margin = Res<object>("SettingsSectionHeaderMargin") is Thickness margin ? margin : new Thickness(1, 26, 0, 2)
     };
 
     // 小号的说明文字，放在卡片右侧（数量、大小、时间）。

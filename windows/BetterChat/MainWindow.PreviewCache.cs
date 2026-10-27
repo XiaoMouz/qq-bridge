@@ -7,7 +7,7 @@ public sealed partial class MainWindow
     private async Task ShowPreviewCache()
     {
         var session = runtime; if (session is null) return;
-        var ct = NewPage(); Detail("本机预览缓存", "当前账号的缩略图、头像和表情预览");
+        var ct = NewPage(); Detail("本机预览缓存");
         var usage = await session.GetPreviewCacheUsageAsync(ct); ct.ThrowIfCancellationRequested();
         Details.Children.Add(Hero(GlyphTile("\uE8B7"), Bytes((ulong)usage.Bytes), $"已缓存 {usage.Files:N0} 项 · 容量上限 {Bytes((ulong)usage.Capacity)}", $"临时文件 {Bytes((ulong)usage.TemporaryBytes)}"));
         var clear = new Button { Content = "清理" };

@@ -22,6 +22,9 @@ public sealed partial class MainWindow
         navigator.PropertyChanged += (_, _) => { ApplyAdaptiveLayout(); UpdateShellChrome(); };
         Workspace.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateShellChrome());
         Root.SizeChanged += (_, _) => ApplyAdaptiveLayout();
+        // 空的副标题也占一行高度，只有标题的页面标题就偏上；没有内容时收起（标题行的高度由 PageHeaderMinHeight 保持）。
+        ContentSubtitle.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
+            ContentSubtitle.Visibility = string.IsNullOrEmpty(ContentSubtitle.Text) ? Visibility.Collapsed : Visibility.Visible);
         UpdateThemeKey();
         Root.ActualThemeChanged += (_, _) => ThemeChanged();
         // 系统高对比度开关不会触发 ActualThemeChanged；AccessibilitySettings.HighContrastChanged 在桌面应用里订阅会直接失败
