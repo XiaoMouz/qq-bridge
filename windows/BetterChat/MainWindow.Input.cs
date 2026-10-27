@@ -16,6 +16,8 @@ public sealed partial class MainWindow
     private sealed record PendingAttachment(StorageFile File, bool IsImage);
     private readonly List<PendingAttachment> attachments = [];
     private long attachmentsChat;
+    // 正在上传的附件：它的缩略图上叠进度环（同 iOS 上传进度环），不再在窗口底部弹「正在上传 xxx…」。
+    private PendingAttachment? uploadingAttachment;
     private static readonly HashSet<string> ImageTypes = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
     private const int MaxAttachments = 9;
 
@@ -54,12 +56,21 @@ public sealed partial class MainWindow
                 thumb = new Border { CornerRadius = new CornerRadius(4), Child = image };
             }
             else thumb = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(4), Background = Brush("SubtleFillColorSecondaryBrush"), Child = new FontIcon { Glyph = "", FontSize = 20 } };
+            if (ReferenceEquals(attachment, uploadingAttachment))
+            {
+                var overlay = new Grid { Width = 48, Height = 48 };
+                overlay.Children.Add(thumb);
+                overlay.Children.Add(new Border { CornerRadius = new CornerRadius(4), Background = Brush("SmokeFillColorDefaultBrush") });
+                overlay.Children.Add(new ProgressRing { IsActive = true, Width = 24, Height = 24 });
+                thumb = overlay;
+            }
             grid.Children.Add(thumb);
             var name = new TextBlock { Text = attachment.File.Name, MaxWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Style = Res<Style>("CaptionTextBlockStyle") };
             Grid.SetColumn(name, 1); grid.Children.Add(name);
             var remove = new Button { Content = "", Style = Res<Style>("IconButtonStyle"), Width = 24, Height = 24, FontSize = 10, VerticalAlignment = VerticalAlignment.Top };
             ToolTipService.SetToolTip(remove, "移除"); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(remove, "移除 " + attachment.File.Name);
             remove.Click += (_, _) => { attachments.Remove(attachment); RenderAttachments(); };
+            remove.IsEnabled = !ReferenceEquals(attachment, uploadingAttachment);
             Grid.SetColumn(remove, 2); grid.Children.Add(remove);
             AttachmentItems.Children.Add(new Border { Style = Res<Style>("AttachmentChipStyle"), Child = grid });
         }
@@ -149,7 +160,7 @@ public sealed partial class MainWindow
             long reply = replySeq;
             foreach (var attachment in attachments.ToList())
             {
-                Notice.Severity = InfoBarSeverity.Informational; Notice.Message = $"正在上传 {attachment.File.Name}…"; Notice.IsOpen = true;
+                uploadingAttachment = attachment; if (selectedChat == chat) RenderAttachments();
                 using (var stream = await attachment.File.OpenStreamForReadAsync())
                 {
                     string mime = attachment.File.ContentType.Length > 0 ? attachment.File.ContentType : "application/octet-stream";
@@ -165,9 +176,12 @@ public sealed partial class MainWindow
                 if (selectedChat == chat) RenderAttachments();
             }
             if (selectedChat == chat && reply == 0 && replySeq != 0) { replySeq = 0; replies[chat] = 0; UpdateReply(); }
-            Notice.IsOpen = false;
         }
-        finally { sending = false; SendButton.IsEnabled = true; }
+        finally
+        {
+            sending = false; SendButton.IsEnabled = true;
+            if (uploadingAttachment is not null) { uploadingAttachment = null; if (selectedChat == chat) RenderAttachments(); }
+        }
         if (selectedChat == chat && !string.IsNullOrWhiteSpace(Composer.Text)) await SendText();
     }
 
