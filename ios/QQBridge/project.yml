@@ -9,8 +9,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "1.27"
-    CURRENT_PROJECT_VERSION: "37"
+    MARKETING_VERSION: "1.28"
+    CURRENT_PROJECT_VERSION: "38"
 packages:
   QQBridgeKit:
     path: ../QQBridgeKit
