@@ -488,7 +488,8 @@ export class BackupApplier {
     if (!people.length) return null;
     const actorId = (await this.uinOf(people[0]!.uid!)) ?? undefined;
     const targetId = people[1] ? ((await this.uinOf(people[1].uid!)) ?? undefined) : undefined;
-    return { kind: 'poke' as const, time, ...(actorId ? { actorId } : {}), ...(targetId ? { targetId } : {}), data: { rawInfo: items } };
+    // source 标出是导入的（gray_tip 同样带），需要时能精确找出导入写了哪些事件。
+    return { kind: 'poke' as const, time, ...(actorId ? { actorId } : {}), ...(targetId ? { targetId } : {}), data: { rawInfo: items, source: 'backup' } };
   }
 
   /**
