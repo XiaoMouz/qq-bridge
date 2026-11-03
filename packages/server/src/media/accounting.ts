@@ -190,6 +190,16 @@ export async function findReusableBlob(
   const match = partial
     ? sql`b.md5_head = ${md5} and b.size = ${size ?? null}::bigint`
     : sql`b.md5 = ${md5} and (${size ?? null}::bigint is null or b.size = ${size ?? null}::bigint)`;
+  return reusableWhere(db, match);
+}
+
+/** 按内容哈希取已存好的内容（备份导入：文件先拷进媒体库，再写引用它的消息）。 */
+export function findBlobBySha256(db: Queryable, sha256: string): Promise<ReusableBlob | null> {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return Promise.resolve(null);
+  return reusableWhere(db, sql`b.sha256 = ${sha256}`);
+}
+
+async function reusableWhere(db: Queryable, match: ReturnType<typeof sql>): Promise<ReusableBlob | null> {
   const row = await maybeOne<{
     sha256: string;
     size: number;

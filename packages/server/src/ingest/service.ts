@@ -134,70 +134,8 @@ export class IngestService {
       const existing = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${chat.id} and seq = ${msg.seq}`);
       if (existing) return { chatId: chat.id, inserted: false, service: false, readAdvanced: false };
 
-      // 下载前去重：QQ 给了 md5 且已有同样内容，直接复用，不再下载。
-      let segments: Segment[] = msg.segments;
-      const reused = new Map<number, ReusableBlob>();
-      for (const media of msg.media) {
-        if (!media.qqMd5) continue;
-        const hit = await findReusableBlob(w.tx, media.qqMd5, media.size, Boolean(media.qqMd5Partial));
-        if (!hit) continue;
-        reused.set(media.ord, hit);
-        segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
-      }
-      const groupChat = msg.scene === 'group';
-      const quietGroup = groupChat && ON_DEMAND_POLICIES.includes(chat.notify_policy);
-      const onDemand = new Set(
-        msg.media
-          .filter((m) => !reused.has(m.ord) && onDemandAtIngest(m, groupChat, quietGroup))
-          .map((m) => m.ord),
-      );
-      for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
-      const service = msg.kind === 'service';
-      if (service) segments = await resolveTipPeople(w.tx, qqAccountId, msg.scene === 'group' ? msg.peerId : null, segments);
-
-      const flags = messageFlags(segments, qq.uin);
-      const reply = segments.find((s): s is Extract<Segment, { type: 'reply' }> => s.type === 'reply');
-      const time = new Date(msg.time * 1000).toISOString();
-      const chatPts = await w.allocChatPts(chat.id);
-      const message = toMessage(
-        await one(
-          w.tx,
-          sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, sender_name, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
-              values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, ${service ? 'service' : 'normal'},
-                      ${pgJson(segments)}::jsonb, ${service ? serviceText(segments) : plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts},
-                      ${msg.source}, ${msg.raw === undefined ? null : pgJson(msg.raw)}::jsonb)
-              returning ${MESSAGE_COLUMNS}`,
-        ),
-      );
-
-      for (const media of msg.media) {
-        const hit = reused.get(media.ord);
-        await w.tx.execute(
-          sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, sha256, qq_md5, qq_md5_partial, qq_file_uuid,
-                                      qq_resource_id, qq_file_id, url, url_expires_at, size, name, mime, fetch_state, thumbhash,
-                                      locator, sender_uin, time)
-              values (${chat.id}, ${msg.seq}, ${media.ord}, ${media.role}, ${media.kind}, ${hit?.sha256 ?? null},
-                      ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null},
-                      ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
-                      ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                      ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null},
-                      ${hit ? 'stored' : onDemand.has(media.ord) ? 'on_demand' : 'pending'}, ${hit?.thumbhash ?? null},
-                      ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time})`,
-        );
-        if (hit) await addUsage(w.tx, chat.id, hit.sha256);
-        if (isPhoto(media) && !hit?.thumbSha256 && media.locator) {
-          await w.tx.execute(
-            sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
-                                        qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
-                values (${chat.id}, ${msg.seq}, ${media.ord}, ${QQ_THUMB_ROLE}, 'image', ${media.qqMd5?.toLowerCase() ?? null},
-                        ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null},
-                        ${media.qqFileId ?? null}, ${media.url ?? null},
-                        ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                        ${quietGroup ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
-          );
-        }
-      }
-      w.emit({ type: 'chatMessage', chatId: chat.id, chatPts, message });
+      const { message, chatPts, flags, service, time } = await insertMessage(w, chat, qqAccountId, qq.uin, msg, {});
+      w.emit({ type: 'chatMessage', chatId: chat.id, chatPts: chatPts!, message });
 
       const fromOther = msg.senderId !== qq.uin;
       // 灰条（撤回、拍一拍……）不算未读、不推送。
@@ -223,6 +161,125 @@ export class IngestService {
     if (result.inserted && result.readAdvanced) this.onRead?.({ accountId: qq.accountId, chatId: result.chatId, readSeq: msg.seq });
     if (result.inserted && !result.service && msg.senderId !== qq.uin) this.onNewMessage?.({ accountId: qq.accountId, chatId: result.chatId, seq: msg.seq });
     return result;
+  }
+
+  /**
+   * 备份导入：同一会话的一批历史消息在一个事务里写入（调用方见 imports/apply.ts）。存法和实时消息相同（insertMessage），
+   * 区别只在同步与提醒：
+   * - version 由调用方决定：比生产最早一条还旧的老历史给 0，不进增量同步，客户端往上翻时由 GetHistory 取；
+   *   落在已有范围里的补洞不填，照常分配 chat_pts，客户端按增量补上（每会话远少于 too_long 的阈值）。
+   * - 不算未读、不推通知、不推进已读；导入新建的会话已读位置直接放到这批最新一条。
+   * seq 已被占用的跳过并返回，调用方据此记报告。
+   */
+  async importMessages(
+    qqAccountId: number,
+    scene: Scene,
+    peerId: number,
+    items: readonly {
+      msg: IncomingMessage;
+      version?: number;
+      known?: ReadonlyMap<number, ReusableBlob>;
+      /** 备份里只剩撤回提示的消息（原消息生产没收到过）：写成已撤回，原文有多少存多少。 */
+      recalled?: { by: number; at: number };
+    }[],
+    opts: { readThrough: boolean },
+  ): Promise<{ chatId: number; inserted: number[]; occupied: number[] }> {
+    if (items.length === 0) throw new Error('importMessages needs at least one message');
+    const qq = await this.qqAccount(qqAccountId);
+    const newest = Math.max(...items.map((i) => i.msg.seq));
+    return this.writers.forAccount(qq.accountId).run(async (w) => {
+      const chat = await lockOrCreateChat(w.tx, qqAccountId, scene, peerId, newest);
+      const inserted: number[] = [];
+      const occupied: number[] = [];
+      let top: { seq: number; time: string } | null = null;
+      for (const item of items) {
+        const msg = stripNul(item.msg);
+        const taken = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${chat.id} and seq = ${msg.seq}`);
+        if (taken) {
+          occupied.push(msg.seq);
+          continue;
+        }
+        let { message, chatPts, time } = await insertMessage(w, chat, qqAccountId, qq.uin, msg, {
+          ...(item.version === undefined ? {} : { version: item.version }),
+          ...(item.known ? { known: item.known } : {}),
+          missing: 'expired',
+        });
+        if (item.recalled) {
+          message = toMessage(
+            await one(
+              w.tx,
+              sql`update messages set state = 'recalled', recalled_by = ${item.recalled.by}, recalled_at = ${new Date(item.recalled.at * 1000).toISOString()}
+                   where chat_id = ${chat.id} and seq = ${msg.seq} returning ${MESSAGE_COLUMNS}`,
+            ),
+          );
+        }
+        if (chatPts !== null) w.emit({ type: 'chatMessage', chatId: chat.id, chatPts, message });
+        inserted.push(msg.seq);
+        if (!top || msg.seq > top.seq) top = { seq: msg.seq, time };
+      }
+      if (top && (chat.top_seq === null || top.seq > chat.top_seq)) {
+        await w.tx.execute(sql`update chats set top_seq = ${top.seq}, top_time = ${top.time}::timestamptz where id = ${chat.id}`);
+        w.touchDialog(chat.id);
+      }
+      // 导入新建的会话：按批从旧到新写，每批都把已读位置推到本批最新，以后全量重算未读也不会把历史算成未读。
+      if (opts.readThrough && newest > chat.read_inbox_max_seq) {
+        await w.tx.execute(sql`update chats set read_inbox_max_seq = ${newest} where id = ${chat.id}`);
+        w.touchDialog(chat.id);
+      }
+      return { chatId: chat.id, inserted, occupied };
+    });
+  }
+
+  /**
+   * 导入新建的会话：消息都按老历史写成 version 0，会话的 chat_pts 还是 0，客户端带游标 0 来拉时什么也拿不到。
+   * 把最新的 limit 条换成正常分配的 chat_pts，首屏照常走增量同步，更早的仍由 GetHistory 翻页取。
+   */
+  async promoteImported(qqAccountId: number, chatId: number, limit: number): Promise<number> {
+    const qq = await this.qqAccount(qqAccountId);
+    return this.writers.forAccount(qq.accountId).run(async (w) => {
+      const latest = await rows<{ seq: number }>(
+        w.tx,
+        sql`select seq from messages where chat_id = ${chatId} and version = 0 order by seq desc limit ${limit}`,
+      );
+      for (const { seq } of latest.reverse()) {
+        const chatPts = await w.allocChatPts(chatId);
+        const message = toMessage(
+          await one(w.tx, sql`update messages set version = ${chatPts} where chat_id = ${chatId} and seq = ${seq} returning ${MESSAGE_COLUMNS}`),
+        );
+        w.emit({ type: 'chatMessage', chatId, chatPts, message });
+      }
+      return latest.length;
+    });
+  }
+
+  /**
+   * 备份导入的服务事件（拍一拍、灰条……）：存法同 addChatEvent，version 规则同 importMessages（0 = 老历史不进增量）。
+   * 去重由调用方做（按种类、时间和人比对生产已有的事件）。
+   */
+  async importChatEvents(
+    qqAccountId: number,
+    scene: Scene,
+    peerId: number,
+    events: readonly (Omit<IncomingChatEvent, 'scene' | 'peerId'> & { version?: number })[],
+  ): Promise<{ chatId: number; inserted: number }> {
+    const qq = await this.qqAccount(qqAccountId);
+    return this.writers.forAccount(qq.accountId).run(async (w) => {
+      const chat = await lockOrCreateChat(w.tx, qqAccountId, scene, peerId, 0);
+      for (const event of events.map(stripNul)) {
+        const chatPts = event.version === undefined ? await w.allocChatPts(chat.id) : null;
+        const row = toChatEvent(
+          await one(
+            w.tx,
+            sql`insert into chat_events (chat_id, kind, time, actor_id, target_id, ref_seq, data, version)
+                values (${chat.id}, ${event.kind}, ${new Date(event.time * 1000).toISOString()}, ${event.actorId ?? null},
+                        ${event.targetId ?? null}, ${event.refSeq ?? null}, ${pgJson(event.data ?? {})}::jsonb, ${chatPts ?? event.version!})
+                returning ${CHAT_EVENT_COLUMNS}`,
+          ),
+        );
+        if (chatPts !== null) w.emit({ type: 'chatEvent', chatId: chat.id, chatPts, event: row });
+      }
+      return { chatId: chat.id, inserted: events.length };
+    });
   }
 
   /**
@@ -641,6 +698,8 @@ export class IngestService {
     messageSeq: number,
     path: string,
     incoming: ForwardNodeInput[] | null,
+    /** 备份导入：known 按节点下标给出已存进媒体库的内容（按 ord），其余媒体记为 expired（没有可用的下载定位）。 */
+    opts: { known?: readonly ReadonlyMap<number, ReusableBlob>[]; missing?: 'download' | 'expired' } = {},
   ): Promise<ForwardBundleRow> {
     const nodes = incoming === null ? null : stripNul(incoming);
     const qq = await this.qqAccount(qqAccountId);
@@ -652,13 +711,17 @@ export class IngestService {
       if (existing && existing.state === 'ready') return existing;
       const stored: StoredForwardNode[] = [];
       const reusedByNode: Map<number, ReusableBlob>[] = [];
-      for (const node of nodes ?? []) {
+      const expired = opts.missing === 'expired';
+      for (const [index, node] of (nodes ?? []).entries()) {
         let segments = node.segments;
         const reused = new Map<number, ReusableBlob>();
         for (const media of node.media) {
-          if (!media.qqMd5) continue;
-          const hit = await findReusableBlob(w.tx, media.qqMd5, media.size, Boolean(media.qqMd5Partial));
-          if (!hit) continue;
+          const known = opts.known?.[index]?.get(media.ord);
+          const hit = known ?? (media.qqMd5 ? await findReusableBlob(w.tx, media.qqMd5, media.size, Boolean(media.qqMd5Partial)) : null);
+          if (!hit) {
+            if (expired) segments = updateMediaInfo(segments, media.ord, { state: 'expired' });
+            continue;
+          }
           reused.set(media.ord, hit);
           segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
         }
@@ -683,7 +746,7 @@ export class IngestService {
                         ${hit?.sha256 ?? null}, ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)},
                         ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
                         ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                        ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null}, ${hit ? 'stored' : 'pending'},
+                        ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null}, ${hit ? 'stored' : expired ? 'expired' : 'pending'},
                         ${hit?.thumbhash ?? null}, ${media.locator ? pgJson(media.locator) : null}::jsonb, ${node.senderId},
                         ${new Date(node.time * 1000).toISOString()})`,
           );
@@ -894,6 +957,95 @@ export class IngestService {
     if (!ref) throw new NotFoundError(`media ref ${refId} not found`);
     return ref.account_id;
   }
+}
+
+interface InsertOptions {
+  /** 不填就分配新的 chat_pts；导入的老历史给 0，不进增量同步（客户端往上翻时由 GetHistory 取，见 imports/apply.ts）。 */
+  version?: number;
+  /** 已经存进媒体库的内容（导入时从备份拷入的文件），按 ord 直接复用，不再按 QQ md5 查。 */
+  known?: ReadonlyMap<number, ReusableBlob>;
+  /** 没有内容的媒体：实时消息排下载；导入的历史没有可用的下载定位，直接记为 expired，免得下载器去请求早已失效的链接。 */
+  missing?: 'download' | 'expired';
+}
+
+/**
+ * 写一条消息和它的媒体引用（调用方已确认 seq 没被占用）。实时入库、历史导入共用，保证存法一致；
+ * 未读、顶部消息、已读位置和推送由调用方按各自的规则处理。
+ */
+async function insertMessage(
+  w: WriteContext,
+  chat: LockedChat,
+  qqAccountId: number,
+  selfUin: number,
+  msg: IncomingMessage,
+  opts: InsertOptions,
+): Promise<{ message: ReturnType<typeof toMessage>; chatPts: number | null; flags: number; service: boolean; time: string }> {
+  // 下载前去重：QQ 给了 md5 且已有同样内容，直接复用，不再下载。
+  let segments: Segment[] = msg.segments;
+  const reused = new Map<number, ReusableBlob>();
+  for (const media of msg.media) {
+    const known = opts.known?.get(media.ord);
+    const hit = known ?? (media.qqMd5 ? await findReusableBlob(w.tx, media.qqMd5, media.size, Boolean(media.qqMd5Partial)) : null);
+    if (!hit) continue;
+    reused.set(media.ord, hit);
+    segments = updateMediaInfo(segments, media.ord, reusedMediaPatch(hit));
+  }
+  const expired = opts.missing === 'expired';
+  const groupChat = msg.scene === 'group';
+  const quietGroup = groupChat && ON_DEMAND_POLICIES.includes(chat.notify_policy);
+  const onDemand = new Set(
+    msg.media
+      .filter((m) => !reused.has(m.ord) && !expired && onDemandAtIngest(m, groupChat, quietGroup))
+      .map((m) => m.ord),
+  );
+  for (const ord of onDemand) segments = updateMediaInfo(segments, ord, { state: 'on_demand' });
+  if (expired) for (const m of msg.media) if (!reused.has(m.ord)) segments = updateMediaInfo(segments, m.ord, { state: 'expired' });
+  const service = msg.kind === 'service';
+  if (service) segments = await resolveTipPeople(w.tx, qqAccountId, msg.scene === 'group' ? msg.peerId : null, segments);
+
+  const flags = messageFlags(segments, selfUin);
+  const reply = segments.find((s): s is Extract<Segment, { type: 'reply' }> => s.type === 'reply');
+  const time = new Date(msg.time * 1000).toISOString();
+  const chatPts = opts.version === undefined ? await w.allocChatPts(chat.id) : null;
+  const message = toMessage(
+    await one(
+      w.tx,
+      sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, sender_name, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
+          values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, ${service ? 'service' : 'normal'},
+                  ${pgJson(segments)}::jsonb, ${service ? serviceText(segments) : plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts ?? opts.version!},
+                  ${msg.source}, ${msg.raw === undefined ? null : pgJson(msg.raw)}::jsonb)
+          returning ${MESSAGE_COLUMNS}`,
+    ),
+  );
+
+  for (const media of msg.media) {
+    const hit = reused.get(media.ord);
+    await w.tx.execute(
+      sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, sha256, qq_md5, qq_md5_partial, qq_file_uuid,
+                                  qq_resource_id, qq_file_id, url, url_expires_at, size, name, mime, fetch_state, thumbhash,
+                                  locator, sender_uin, time)
+          values (${chat.id}, ${msg.seq}, ${media.ord}, ${media.role}, ${media.kind}, ${hit?.sha256 ?? null},
+                  ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null},
+                  ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
+                  ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
+                  ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null},
+                  ${hit ? 'stored' : expired ? 'expired' : onDemand.has(media.ord) ? 'on_demand' : 'pending'}, ${hit?.thumbhash ?? null},
+                  ${media.locator ? pgJson(media.locator) : null}::jsonb, ${msg.senderId}, ${time})`,
+    );
+    if (hit) await addUsage(w.tx, chat.id, hit.sha256);
+    if (isPhoto(media) && !hit?.thumbSha256 && media.locator && !expired) {
+      await w.tx.execute(
+        sql`insert into media_refs (chat_id, message_seq, ordinal, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
+                                    qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
+            values (${chat.id}, ${msg.seq}, ${media.ord}, ${QQ_THUMB_ROLE}, 'image', ${media.qqMd5?.toLowerCase() ?? null},
+                    ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null},
+                    ${media.qqFileId ?? null}, ${media.url ?? null},
+                    ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
+                    ${quietGroup ? 'on_demand' : 'pending'}, ${pgJson(media.locator)}::jsonb, ${msg.senderId}, ${time})`,
+      );
+    }
+  }
+  return { message, chatPts, flags, service, time };
 }
 
 /**
