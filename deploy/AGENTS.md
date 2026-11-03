@@ -28,6 +28,7 @@ tailscale serve status                                            # 7443 → 127
 
 ## 注意
 
+- **数据库健康检查**：保留 `postgres.init: true` 和直接执行的 `CMD` 探针；`pg_isready -t` 必须短于 Docker 的超时。2026-10-23 隔离实测：shell 探针被超时杀掉后，遗留的 `pg_isready` 退出码 2 会被作为 PID 1 的 PostgreSQL 当成自身子进程崩溃，引发整库重置并留下索引锁。详见 [故障记录](../docs/incidents/2026-10-23-postgres-healthcheck.md)。
 - **重启 NapCat**：登录态可能失效，要用户扫码（二维码在容器 `/app/napcat/cache/qrcode.png`，App 里「QQ 已掉线」也能扫）。插件热重载用 `tools/qq-plugin.sh deploy`，不用重启 NapCat。
 - **拷进容器的文件**（插件、`host.cjs`）重启容器后还在，重建容器时以镜像为准——长期改动要重建镜像。
 - **拉镜像**：OrbStack 的 Docker 引擎要经 `~/.orbstack/config/docker.json` 里的代理（host.internal:6152）；QQ / 腾讯的域名在代理里要直连（避免异地登录风控）。

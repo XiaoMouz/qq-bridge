@@ -55,6 +55,8 @@ services:
   postgres:
     image: groonga/pgroonga:4.0.9-debian-17
     container_name: qqbridge-postgres
+    # 2026-10-23 隔离实测：init 回收探针遗留子进程，避免 PostgreSQL 将其退出码 2 当成自身进程崩溃。
+    init: true
     restart: unless-stopped
     # 2026-10-24 实测：库 5.4 GB、默认 shared_buffers 128 MB，堆命中率 58.7%、索引 49.8%；
     # 数据目录在 USB 2.0 外接盘（480 Mbps）上经 OrbStack 共享，读不中缓存就要等盘，会话加载、媒体认领常卡几秒到几十秒。
@@ -97,9 +99,9 @@ services:
         bind:
           create_host_path: false
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U qqbridge -d qqbridge"]
+      test: ["CMD", "pg_isready", "-U", "qqbridge", "-d", "qqbridge", "-t", "2"]
       interval: 5s
-      timeout: 3s
+      timeout: 10s
       retries: 20
 
   # 通话：LiveKit SFU（iPhone 与网关都连它）。密钥与节点 IP 在 deploy/.env 里配置。
