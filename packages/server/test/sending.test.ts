@@ -313,6 +313,57 @@ describe('sending', () => {
     expect(await worker.runOnce()).toBe(1);
     expect(await state(b)).toMatchObject({ state: 'sent' });
   });
+
+  it('recovers an interrupted send with the same id and unblocks the next message', async () => {
+    const chatId = await newChat(700005);
+    const { messages } = clients();
+    const firstId = ++randomId;
+    const nextId = ++randomId;
+    for (const id of [firstId, nextId]) {
+      await messages.sendMessage({ chatId: BigInt(chatId), clientRandomId: id, segments: [{ kind: { case: 'text', value: `m${id}` } }] });
+    }
+    await t.db.execute(sql`update outbox set state = 'sending', attempts = 1 where client_random_id = ${Number(firstId)}`);
+    const before = await one<{ pts: number }>(t.db, sql`select pts from sync_state where account_id = ${accountId}`);
+    const updates: string[] = [];
+    const unsubscribe = deps.bus.subscribe(accountId, (update) => {
+      if (update.type === 'outbox' && update.entry.clientRandomId === Number(firstId)) updates.push(update.entry.state);
+    });
+    // 模拟 QQ 已发出第一条、服务端还没存回执就退出；插件仍保有幂等结果。
+    const cached = new Map([[String(firstId), { messageId: 20, msgSeq: '601', msgId: 'm601' }]]);
+    let newSends = 0;
+    upstream.calls = [];
+    upstream.behavior = async (_action, params) => {
+      const saved = cached.get(params.clientRandomId);
+      if (saved) return saved;
+      newSends += 1;
+      return { messageId: 21, msgSeq: '602', msgId: 'm602' };
+    };
+    const worker = new OutboxWorker(t.db, deps.outbox, upstream, deps.signer, { mediaBaseUrl: baseUrl });
+    try {
+      upstream.connected = false;
+      expect(await worker.runOnce()).toBe(0);
+      const recovered = await one<{ state: string; attempts: number; pts: number }>(
+        t.db, sql`select state, attempts, pts from outbox where client_random_id = ${Number(firstId)}`,
+      );
+      expect(recovered).toMatchObject({ state: 'pending', attempts: 1 });
+      expect(recovered.pts).toBeGreaterThan(before.pts);
+      expect(updates).toEqual(['pending']);
+
+      upstream.connected = true;
+      expect(await worker.runOnce()).toBe(1);
+      expect(await worker.runOnce()).toBe(1);
+      expect(upstream.calls.map((c) => c.params.clientRandomId)).toEqual([String(firstId), String(nextId)]);
+      expect(newSends).toBe(1);
+      expect(updates).toEqual(['pending', 'sending', 'sent']);
+      expect(await one(t.db, sql`select state, result_seq from outbox where client_random_id = ${Number(firstId)}`))
+        .toEqual({ state: 'sent', result_seq: 601 });
+      expect(await one(t.db, sql`select state, result_seq from outbox where client_random_id = ${Number(nextId)}`))
+        .toEqual({ state: 'sent', result_seq: 602 });
+    } finally {
+      upstream.connected = true;
+      unsubscribe();
+    }
+  });
 });
 
 describe('recall and read write-back', () => {

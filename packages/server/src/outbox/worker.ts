@@ -42,6 +42,7 @@ export interface SendResult {
 
 export class OutboxWorker {
   private running = false;
+  private recovered = false;
   private loop: Promise<void> | null = null;
   private wake: (() => void) | null = null;
   private readonly o: Required<Omit<OutboxWorkerOptions, 'logger'>> & Pick<OutboxWorkerOptions, 'logger'>;
@@ -59,6 +60,7 @@ export class OutboxWorker {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.recovered = false;
     this.loop = (async () => {
       while (this.running) {
         const n = await this.runOnce().catch((error: unknown) => {
@@ -82,6 +84,7 @@ export class OutboxWorker {
 
   /** 处理一轮：每个会话取最早的一条待发送条目，依次发送；返回处理了多少条。 */
   async runOnce(): Promise<number> {
+    if (!this.recovered) await this.recoverInterrupted();
     const due = await rows<Claimed>(
       this.db,
       sql`select o.id, o.account_id, o.client_random_id, o.content, o.attempts, c.scene, c.peer_id, c.qq_account_id, c.via_group_id
@@ -102,6 +105,19 @@ export class OutboxWorker {
       processed += 1;
     }
     return processed;
+  }
+
+  private async recoverInterrupted(): Promise<void> {
+    // 2026-10-23 数据库断连后实测：进程退出会留下 sending，永久挡住同会话后续消息。
+    // 单实例任务启动时收回旧认领；保留随机 id，已发送的消息由插件持久化结果去重。
+    const interrupted = await rows<{ id: number; account_id: number }>(
+      this.db,
+      sql`select id, account_id from outbox where state = 'sending' order by id`,
+    );
+    for (const entry of interrupted) {
+      await this.outbox.update(entry.account_id, entry.id, { state: 'pending', error: null, nextAttemptAt: null }, 'sending');
+    }
+    this.recovered = true;
   }
 
   private async send(entry: Claimed): Promise<void> {
