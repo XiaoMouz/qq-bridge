@@ -35,8 +35,9 @@ export class ReaderProcess {
   private waiting: { resolve: (v: any) => void; reject: (e: Error) => void } | null = null;
   private ended = false;
   private readonly done: Promise<void>;
-  constructor(python: string, native: string) {
-    this.child = spawn(python, ['-u', path.join(readerRoot, 'worker.py')], {
+  /** script：预检用 worker.py，导入用 importer.py（同样的逐行 JSON 协议）。 */
+  constructor(python: string, native: string, script: 'worker.py' | 'importer.py' = 'worker.py') {
+    this.child = spawn(python, ['-u', path.join(readerRoot, script)], {
       stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, QQ_IMPORT_NATIVE: native, PYTHONDONTWRITEBYTECODE: '1' },
     });
     // 不把 stderr 当协议，避免环境诊断泄漏密钥路径；失败在任务状态中显示受控代码。
