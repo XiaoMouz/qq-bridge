@@ -9,6 +9,10 @@
 //   pnpm cli media:tier                    立即执行一次冷热分层（平时服务端每天自动跑）
 //   pnpm cli inbox:reprocess <ignored|failed>  重新处理收件箱里被忽略 / 失败的上游事件（映射新增支持后用）
 //   pnpm cli messages:remap-gray-tips      把以前存成未知元素的 QQ 灰色提示（撤回、拍一拍、文件已接收……）改成系统提示
+//   pnpm cli import:backup --backup <目录> --keys <密钥清单> --scan <预检 scan.sqlite> --state <导入状态库> --qq <qq_account_id>
+//                          [--table msg_1_群号 ...] [--batches N] [--apply]
+//                                          把手机备份里生产没有的消息导入（默认只统计不写；--apply 才写库、拷媒体）。
+//                                          可中断续跑；明细写在 <导入状态库>.report.jsonl。见 imports/apply.ts。
 import { createDeps, startServer } from './app.ts';
 import { AuthService } from './auth/service.ts';
 import { loadConfig } from './config.ts';
@@ -17,6 +21,9 @@ import { createDb, rows, runMigrations } from './db/client.ts';
 import { dropPlayableCopies, reprocessMedia } from './media/reprocess.ts';
 import { remapGrayTips } from './messages/remap-gray-tips.ts';
 import { InboxProcessor } from './upstream/inbox.ts';
+import { BackupApplier } from './imports/apply.ts';
+import { importPython, prepareNative } from './imports/process.ts';
+import path from 'node:path';
 
 async function main(argv: string[]): Promise<void> {
   const [command, ...args] = argv;
@@ -144,8 +151,43 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify(result));
       return;
     }
+    case 'import:backup': {
+      const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
+      const tables = args.flatMap((a, i) => (a === '--table' && args[i + 1] ? [args[i + 1]!] : []));
+      const [backup, keys, scan, state, qq] = ['backup', 'keys', 'scan', 'state', 'qq'].map(flag);
+      if (!backup || !keys || !scan || !state || !qq) throw new Error('usage: pnpm cli import:backup --backup <dir> --keys <file> --scan <scan.sqlite> --state <state.sqlite> --qq <id> [--table t] [--batches n] [--apply]');
+      const apply = args.includes('--apply');
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      await runMigrations(db);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+        ...(config.FFMPEG_PATH ? { ffmpegPath: config.FFMPEG_PATH } : {}),
+      });
+      // 试跑用单独的游标库，不推进正式导入的进度。
+      const statePath = apply ? state : `${state}.dry-run`;
+      const work = path.dirname(path.resolve(state));
+      const applier = new BackupApplier(db, deps.ingest, deps.media, deps.processor, importPython(), await prepareNative(work), deps.logger.child({ component: 'backup-import' }));
+      let last = 0;
+      const summary = await applier.run({
+        backupPath: backup, keysPath: keys, scanPath: scan, statePath, reportPath: `${statePath}.report.jsonl`,
+        stagingDir: path.join(work, 'staging'), qqAccountId: Number(qq), dryRun: !apply,
+        ...(tables.length ? { tables } : {}), ...(flag('batches') ? { maxBatches: Number(flag('batches')) } : {}),
+        onProgress: (s, table) => {
+          if (Date.now() - last < 30_000) return;
+          last = Date.now();
+          console.error(JSON.stringify({ table, ...s }));
+        },
+      });
+      await db.$client.end();
+      console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', ...summary }));
+      return;
+    }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips|import:backup>');
   }
 }
 
