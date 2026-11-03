@@ -72,6 +72,23 @@ export interface ApplyOptions {
 
 /** 生产里这些结论都说明是同一条消息：保留生产的，不覆盖。 */
 const DUPLICATE = new Set(['same', 'same_identity_content_variant', 'same_identity_time_variant', 'same_identity_preserve_recalled']);
+/**
+ * 几个导入进程并行时，同一份热门表情在不同会话里被引用，blobs 的引用计数行加锁顺序不同会死锁
+ * （2026-11-04 实测 chat_storage / blobs 上 deadlock detected）。被选为牺牲方的事务整体回滚，等一下重做即可。
+ */
+async function retrying<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const code = (error as { code?: string; cause?: { code?: string } }).cause?.code ?? (error as { code?: string }).code;
+      if (attempt >= 8 || (code !== '40P01' && code !== '40001')) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt + Math.random() * 400));
+    }
+  }
+}
+/** 每个写事务最多多少条：事务越长，引用计数行锁得越久，实时入库要等越久。 */
+const WRITE_CHUNK = 50;
 /** 新建会话放进增量同步的条数（客户端首屏）；更早的翻页时取。 */
 const NEW_CHAT_FIRST_PAGE = 50;
 /**
@@ -285,20 +302,26 @@ export class BackupApplier {
       for (const p of pending) this.count(this.versionOf(ctx, p.msg.seq, p.msg.time) === 0 ? 'would_insert_history' : 'would_insert_gap');
       return;
     }
-    const result = await this.timed('write', () => this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId, items, { readThrough: !ctx.existedAtStart }));
-    const occupied = new Set(result.occupied);
+    const occupied = new Set<number>();
+    for (let i = 0; i < items.length; i += WRITE_CHUNK) {
+      const chunk = items.slice(i, i + WRITE_CHUNK);
+      const result = await this.timed('write', () => retrying(() => this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId, chunk, { readThrough: !ctx.existedAtStart })));
+      for (const seq of result.occupied) occupied.add(seq);
+    }
     for (const p of pending) {
       if (occupied.has(p.msg.seq)) {
         // 同一批里备份自己就有两条真消息同 seq（或别的写入抢先）：确认不是同一条后换替代 seq 再写。
         if (!(await this.occupiedByOther(ctx, p.msg.seq, p.record)) || (await this.reassignedBefore(ctx, p.record))) {
+          // 续跑时上次已写入、游标还没前进的那批：消息已在，合并转发可能还没写（写过的 fillForward 会跳过）。
           await this.note(p.record, 'already_imported');
+          if (p.record.forward) await this.fillForward(ctx, p.record, p.msg.seq, opts);
           continue;
         }
         const seq = await this.freeSyntheticSeq(ctx, p.msg.time);
         const raw = p.msg.raw as NtRawMessage;
         const retry = { ...p.msg, seq, raw: { ...raw, backupSource: { ...(raw.backupSource as object), seqReassigned: true } } };
-        await this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId,
-          [{ msg: retry, version: 0, known: await this.knownMedia(retry.media, p.record.nt.elements, p.record.media, '', opts) }], { readThrough: !ctx.existedAtStart });
+        const known = await this.knownMedia(retry.media, p.record.nt.elements, p.record.media, '', opts);
+        await retrying(() => this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId, [{ msg: retry, version: 0, known }], { readThrough: !ctx.existedAtStart }));
         await this.note(p.record, 'inserted_reassigned_seq', { seq });
         continue;
       }
@@ -456,7 +479,7 @@ export class BackupApplier {
         sql`select state from forward_bundles where chat_id = ${chat.id} and message_seq = ${seq} and path = ${level.path}`,
       );
       if (existing?.state === 'ready') { this.count('forward_known'); continue; }
-      await this.ingest.storeForward(opts.qqAccountId, chat.id, seq, level.path, nodes.length ? nodes : null, { known, missing: 'expired' });
+      await retrying(() => this.ingest.storeForward(opts.qqAccountId, chat.id, seq, level.path, nodes.length ? nodes : null, { known, missing: 'expired' }));
       this.count('forward_stored');
     }
   }
@@ -479,7 +502,7 @@ export class BackupApplier {
         this.count(`${event.kind}_${opts.dryRun ? 'would_insert' : 'inserted'}`);
       }
     }
-    if (events.length && !opts.dryRun) await this.timed('events', () => this.ingest.importChatEvents(opts.qqAccountId, ctx.scene, ctx.peerId, events));
+    if (events.length && !opts.dryRun) await this.timed('events', () => retrying(() => this.ingest.importChatEvents(opts.qqAccountId, ctx.scene, ctx.peerId, events)));
   }
 
   /** 拍一拍：和生产实时收到的一样存成 poke 事件，rawInfo 用灰条里的人和文字（<qq>/<img>/<nor>）。 */
@@ -557,7 +580,7 @@ export class BackupApplier {
     const operator = (revoke.operatorUid ? await this.uinOf(revoke.operatorUid) : null) ?? 0;
     if (row?.state === 'recalled') { this.count('recall_known'); return; }
     if (row) {
-      if (!opts.dryRun) await this.ingest.recall(opts.qqAccountId, ctx.scene, ctx.peerId, seq, operator, time);
+      if (!opts.dryRun) await retrying(() => this.ingest.recall(opts.qqAccountId, ctx.scene, ctx.peerId, seq, operator, time));
       this.count(opts.dryRun ? 'recall_would_apply' : 'recall_applied');
       return;
     }
@@ -570,8 +593,8 @@ export class BackupApplier {
     if (opts.dryRun) { this.count('recall_would_insert'); return; }
     const known = await this.knownMedia(msg.media, nt.elements, {}, '', opts);
     const version = this.versionOf(ctx, seq, time);
-    await this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId,
-      [{ msg, known, recalled: { by: operator || sender, at: time }, ...(version === undefined ? {} : { version }) }], { readThrough: !ctx.existedAtStart });
+    await retrying(() => this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId,
+      [{ msg, known, recalled: { by: operator || sender, at: time }, ...(version === undefined ? {} : { version }) }], { readThrough: !ctx.existedAtStart }));
     this.count('recall_inserted');
   }
 
@@ -585,7 +608,7 @@ export class BackupApplier {
         this.db,
         sql`select id from chats where qq_account_id = ${opts.qqAccountId} and scene = ${scene} and peer_id = ${ctx.peerId}`,
       );
-      if (chat) this.count('new_chat_first_page', await this.ingest.promoteImported(opts.qqAccountId, chat.id, NEW_CHAT_FIRST_PAGE));
+      if (chat) this.count('new_chat_first_page', await retrying(() => this.ingest.promoteImported(opts.qqAccountId, chat.id, NEW_CHAT_FIRST_PAGE)));
     }
   }
 }
