@@ -1,6 +1,5 @@
 """按源 filecontext 定位并流式散列，不展开 40GB 媒体副本。"""
 import ctypes
-from collections import OrderedDict
 import hashlib
 import os
 from pathlib import Path, PureWindowsPath
@@ -45,7 +44,7 @@ class MediaReader:
         self.root = root
         self.check = check
         self.dbs = {}
-        self.files = OrderedDict()
+        self.index = None
         for name, key in entries.items():
             if name != 'B31DB6832ED65FD588CF1F41904F3F33':
                 self.dbs[name] = open_backup(root / name, key, cache_mb=4)
@@ -67,21 +66,7 @@ class MediaReader:
             name = r['filename']
             if not isinstance(name, str) or not name or Path(name).name != name:
                 raise FileNotFoundError('media_loose_filename_invalid')
-            paths = self.files.get(name)
-            if paths is None:
-                # 松散文件逐次查找，只缓存 128 个定位；不把整个备份文件树塞进内存。
-                paths = []
-                for base, dirs, files in os.walk(self.root, followlinks=False):
-                    self.check()
-                    dirs[:] = [d for d in dirs if not (Path(base) / d).is_symlink()]
-                    if name in files:
-                        p = Path(base) / name
-                        if not p.is_symlink(): paths.append(p)
-                        if len(paths)>1: break
-                self.files[name] = paths
-                if len(self.files)>128: self.files.popitem(last=False)
-            else:
-                self.files.move_to_end(name)
+            paths = self.loose(name)
             if not paths: raise FileNotFoundError('media_loose_payload_missing')
             if len(paths) != 1: raise ValueError('media_loose_payload_ambiguous')
             p = paths[0]
@@ -102,6 +87,22 @@ class MediaReader:
             after = p.stat()
             if (sig.st_size, sig.st_mtime_ns, sig.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
                 raise RuntimeError('source_media_changed')
+
+    def loose(self, name):
+        # 2026-11-03：原来每个松散文件都完整遍历一次备份目录（找到后还要继续找以确认不重名），资源多时是 N×目录树。
+        # 每个进程只遍历一次；文件名→路径放临时 SQLite（超出缓存落盘），不把整个文件树常驻内存。
+        if self.index is None:
+            import sqlite3
+            index = sqlite3.connect('')
+            index.execute('CREATE TABLE files(name TEXT NOT NULL, path TEXT NOT NULL)')
+            for base, dirs, files in os.walk(self.root, followlinks=False):
+                self.check()
+                dirs[:] = [d for d in dirs if not (Path(base) / d).is_symlink()]
+                index.executemany('INSERT INTO files VALUES (?,?)',
+                    [(f, str(Path(base) / f)) for f in files if not (Path(base) / f).is_symlink()])
+            index.execute('CREATE INDEX files_name ON files(name)')
+            self.index = index
+        return [Path(row[0]) for row in self.index.execute('SELECT path FROM files WHERE name=? LIMIT 2', (name,))]
 
     def inspect(self, r):
         digests = {k: hashlib.new(k) for k in ('sha256', 'sha1', 'md5')}
@@ -127,6 +128,7 @@ class MediaReader:
 
     def close(self):
         for db in self.dbs.values(): db.close()
+        if self.index: self.index.close()
 
 
 class PhysicalCatalog:

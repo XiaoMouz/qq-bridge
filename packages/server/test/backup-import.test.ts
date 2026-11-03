@@ -159,3 +159,36 @@ it('在实际数据库中匹配重复消息/媒体并绑定账号、用户与群
     expect((await db.execute(sql`select count(*)::int as n from messages`)).rows[0]?.n).toBe(1);
   } finally { await test.stop(); }
 });
+
+it('松散媒体只遍历一次目录，重名、缺失和符号链接的判断不变', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-loose-'));
+  try {
+    const native = await prepareNative(temp);
+    const root = path.join(temp, 'backup');
+    const script = `
+import json, os, sys
+from pathlib import Path
+import media
+root = Path(sys.argv[1])
+for d in ('a', 'b'): (root / d).mkdir(parents=True)
+(root / 'a' / 'one.bin').write_bytes(b'1')
+(root / 'a' / 'dup.bin').write_bytes(b'1')
+(root / 'b' / 'dup.bin').write_bytes(b'2')
+(root / 'b' / 'link.bin').symlink_to(root / 'a' / 'one.bin')
+walks = [0]
+real = os.walk
+def counting(*args, **kwargs):
+    walks[0] += 1
+    return real(*args, **kwargs)
+media.os.walk = counting
+reader = media.MediaReader(root, {}, lambda: None)
+result = {'one': [str(p.relative_to(root)) for p in reader.loose('one.bin')], 'dup': len(reader.loose('dup.bin')),
+  'missing': reader.loose('none.bin'), 'link': reader.loose('link.bin'), 'again': len(reader.loose('one.bin')), 'walks': walks[0]}
+reader.close()
+print(json.dumps(result))`;
+    const { stdout } = await exec(importPython(), ['-c', script, root], {
+      env: { ...process.env, QQ_IMPORT_NATIVE: native, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: fileURLToPath(new URL('../src/imports/reader/', import.meta.url)) },
+    });
+    expect(JSON.parse(stdout)).toEqual({ one: ['a/one.bin'], dup: 2, missing: [], link: [], again: 1, walks: 1 });
+  } finally { await fs.rm(temp, { recursive: true, force: true }); }
+});
