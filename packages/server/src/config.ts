@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { importPython } from './imports/process.ts';
 
 const ConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -6,6 +7,10 @@ const ConfigSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   /** 媒体内容寻址存储的根目录。 */
   MEDIA_ROOT: z.string().default('./data/media'),
+  /** 本地备份目录/密钥清单的允许根目录，使用系统路径分隔符分隔；默认关闭。 */
+  BACKUP_IMPORT_ALLOWED_ROOTS: z.string().default(''),
+  BACKUP_IMPORT_PYTHON: z.string().default(importPython),
+  BACKUP_IMPORT_STATE_ROOT: z.string().optional(),
   /** 冷存储根目录（廉价大硬盘等）。不设置则不分层，所有原件都在 MEDIA_ROOT。 */
   MEDIA_COLD_ROOT: optionalString(z.string().min(1)),
   /** 媒体签名链接的密钥（至少 32 字节）。 */

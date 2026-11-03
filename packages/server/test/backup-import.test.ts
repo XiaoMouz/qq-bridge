@@ -1,0 +1,109 @@
+import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { expect, it } from 'vitest';
+import { sql } from 'drizzle-orm';
+import { prepareNative, ReaderProcess, importPython } from '../src/imports/process.ts';
+import { BackupMatcher, type BackupRecord } from '../src/imports/matcher.ts';
+import { startTestDb } from './helpers/db.ts';
+
+const exec = promisify(execFile);
+
+it('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌套上下文', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-parser-'));
+  try {
+    const native = await prepareNative(temp);
+    const { stdout } = await exec(importPython(), [fileURLToPath(new URL('./helpers/backup-fixture.py', import.meta.url)), temp], {
+      env: { ...process.env, QQ_IMPORT_NATIVE: native, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: fileURLToPath(new URL('../src/imports/reader/', import.meta.url)) },
+    });
+    const { record: r, writeBlocked } = JSON.parse(stdout);
+    expect(writeBlocked).toBe(true);
+    expect(r.localId).toBe('18446744073709551601');
+    expect(r.identityDisagreement).toBe(true);
+    expect(r.elements.map((e: any) => e.kind)).toEqual(['mention', 'mention_all', 'text', 'reply', 'face', 'super_face', 'image', 'miniapp', 'poke', 'voice', 'video', 'dynamic']);
+    expect(r.elements[0].targetUid).toBe('u_target');
+    expect(r.elements[3].reference).toMatchObject({ sequence: '8', senderUid: 'u_target', time: '1700000000', protocolMessageId: '18446744073709551600' });
+    expect(r.elements[3].snapshot[0].text).toBe('原消息\u2028换行\u2029继续');
+    expect(r.elements[6].identifiers).toContainEqual({ algorithm: 'md5', value: 'ab'.repeat(16), role: 'main' });
+    expect(JSON.parse(r.elements[7].payload).meta.detail.title).toBe('测试小程序');
+    expect(r.nodes[0]).toMatchObject({ time: 1699999999, senderUin: '9', path: [0] });
+    expect(r.nodes[0].elements[0].kind).toBe('image');
+    expect(r.elements[11].dynamic).toMatchObject({ type: 22, relatedUins: ['9', '10'], descriptions: [{ text: '密友绑定提醒' }, {}] });
+    expect(r.elements[8].grayTip).toMatchObject({ subElementType: 12, xmlElement: { content: expect.stringContaining('u_author') } });
+    const reader = new ReaderProcess(importPython(), native);
+    try {
+      await reader.request({ command: 'open', config: { backupPath: temp, keysPath: path.join(temp,'keys.json'),
+        statePath: path.join(temp,'scan.sqlite'), accountUin: '7', batchSize: 1 } });
+      for (let i=0;i<5;i++) {
+        const batch = await reader.request({ command: 'next' });
+        if (batch.records.length) {
+          expect(batch.records[0].elements[3].snapshot[0].text).toBe('原消息\u2028换行\u2029继续');
+          break;
+        }
+        await reader.request({ command: 'commit', matches: [], objects: [] });
+        if (i===4) throw new Error('未读到夹具消息');
+      }
+    } finally { await reader.stop(); }
+
+  } finally { await fs.rm(temp, { recursive: true, force: true }); }
+});
+
+it('在实际数据库中匹配重复消息/媒体并绑定账号、用户与群聊，拒绝同 seq 误合并', async () => {
+  const test = await startTestDb();
+  try {
+    const db = test.db;
+    await db.execute(sql`insert into accounts(id,username,password_hash) values(1,'fixture','unused');
+      insert into sync_state(account_id) values(1);
+      insert into qq_accounts(id,account_id,uin,uid) values(1,1,10,'u_self');
+      insert into peers(qq_account_id,kind,peer_id,uid,pts) values(1,'user',7,'u_author',1),(1,'group',42,null,1);
+      insert into group_members(qq_account_id,group_id,user_id) values(1,42,7);
+      insert into chats(id,qq_account_id,scene,peer_id,dialog_pts) values(1,1,'group',42,1)`);
+    const raw = { msgRandom: '53', senderUid: 'u_author', clientSeq: '88', sendStatus: 2,
+      elements: [{ elementType: 1, textElement: { content: '@测试', atType: 2, atNtUid: 'u_target' } }] };
+    await db.execute(sql`insert into messages(chat_id,seq,random,sender_uin,time,version,segments,source,raw)
+      values(1,12,53,7,to_timestamp(1700000010),1,'[]','live',${JSON.stringify(raw)}::jsonb)`);
+    const r: BackupRecord = { table: 'msg_1_42', sourceKey: ['msg_1_42', 1700000010, '12', '53'], scene: 'group', peer: '42',
+      seq: '12', clientSeq: '88', random: '53', time: 1700000010, senderUid: 'u_author', senderUin: '7', sendStatus: 2,
+      identityDisagreement: false, elements: [{ type: 1, kind: 'mention', text: '@测试', targetUid: 'u_target' }], nodes: [] };
+    const matcher = new BackupMatcher(db);
+    const first = await matcher.matchBatch(1, [r]);
+    expect(first[0]).toMatchObject({ status: 'same', chatId: 1, sender: { status: 'bound', userId: '7' } });
+    expect(await matcher.matchBatch(1, [r])).toEqual(first);
+    expect((await matcher.matchBatch(1, [{ ...r, time: r.time+1 }]))[0]).toMatchObject({
+      status: 'same_identity_time_variant', timeEvidence: { deltaSeconds: -1 }, messageId: first[0]!.messageId,
+    });
+    expect((await matcher.matchBatch(1, [{ ...r, time: r.time+2 }]))[0]?.status).toBe('seq_conflict');
+    expect((await matcher.matchBatch(1, [{ ...r, time: r.time+1, elements: [{ type: 1, kind: 'text', text: '另一条消息' }] }]))[0]?.status).toBe('seq_conflict');
+
+    expect((await matcher.matchBatch(1, [{ ...r, random: '999' }]))[0]?.status).toBe('seq_conflict');
+    const service = (await matcher.matchBatch(1, [{ ...r, senderUid: null, senderUin: null,
+      elements: [{ type: 8, kind: 'poke', grayTip: { subElementType: 12, xmlElement: {
+        content: '<gtip><qq uin="u_author"/><nor txt="拍了拍"/><qq uin="u_missing" jp="9"/></gtip>',
+      } } }],
+    }]))[0]!;
+    expect(service.sender.status).toBe('not_applicable');
+    expect(service.serviceElements?.[0]?.participants).toMatchObject([
+      { userId: '7', displayName: '7', binding: { status: 'bound' } },
+      { userId: '9', displayName: '9', binding: { status: 'unbound' } },
+    ]);
+
+    expect((await matcher.matchBatch(1, [{ ...r, senderUin: '8' }]))[0]?.sender.status).toBe('conflict');
+    expect((await matcher.matchBatch(1, [{ ...r, peer: '999' }]))[0]?.status).toBe('chat_unbound');
+    expect((await matcher.matchBatch(1, [{ ...r, elements: [{ type: 1, kind: 'mention', text: '@测试', targetUid: 'u_other' }] }]))[0]?.status).toBe('same_identity_content_variant');
+    const ark = { ...raw, elements: [{elementType: 10, arkElement: {bytesData: '{"app":"fixture","id":9007199254740992}'}}] };
+    await db.execute(sql`update messages set raw=${JSON.stringify(ark)}::jsonb where chat_id=1 and seq=12`);
+    expect((await matcher.matchBatch(1, [{...r,elements:[{type:10,kind:'card',payload:'{"app":"fixture","id":9007199254740993}'}]}]))[0]?.status).toBe('same_identity_content_variant');
+    await db.execute(sql`update messages set raw=${JSON.stringify(raw)}::jsonb where chat_id=1 and seq=12`);
+
+    const sha = 'ab'.repeat(32);
+    await db.execute(sql`insert into blobs(sha256,md5,md5_head,size,storage_key,state) values(${sha},'x','x',64,'x','present')`);
+    const objects = await matcher.matchObjects([{ resourceId: '1', status: 'available', sha256: sha, size: 64 }, { resourceId: '2', status: 'available', sha256: sha, size: 64 }]);
+    expect(objects.map(x => x.target.status)).toEqual(['reusable', 'reusable']);
+    await db.execute(sql`update messages set state='recalled' where chat_id=1 and seq=12`);
+    expect((await matcher.matchBatch(1, [r]))[0]?.status).toBe('same_identity_preserve_recalled');
+    expect((await db.execute(sql`select count(*)::int as n from messages`)).rows[0]?.n).toBe(1);
+  } finally { await test.stop(); }
+});

@@ -15,6 +15,7 @@ import {
   text,
   timestamp,
   unique,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
@@ -193,6 +194,7 @@ export const messages = pgTable(
   },
   (t) => [
     unique('messages_chat_seq_unique').on(t.chatId, t.seq),
+    index('messages_chat_time_idx').on(t.chatId, t.time),
     index('messages_version_idx').on(t.chatId, t.version),
     index('messages_text_pgroonga_idx').using('pgroonga', t.text),
     check('messages_state_check', sql`${t.state} in ('normal', 'recalled')`),
@@ -596,3 +598,24 @@ export const groupMembers = pgTable(
   },
   (t) => [primaryKey({ columns: [t.qqAccountId, t.groupId, t.userId] })],
 );
+
+/** 本地备份预检；原消息与媒体仍留在只读源目录。 */
+export const backupImportJobs = pgTable('backup_import_jobs', {
+  id: uuid('id').primaryKey(),
+  accountId: ref('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  qqAccountId: ref('qq_account_id').notNull().references(() => qqAccounts.id, { onDelete: 'cascade' }),
+  sourcePath: text('source_path').notNull(),
+  keysPath: text('keys_path').notNull(),
+  batchSize: integer('batch_size').notNull(),
+  state: text('state').notNull().default('queued'),
+  desiredState: text('desired_state').notNull().default('running'),
+  summary: jsonb('summary').notNull().default({}),
+  error: text('error'),
+  createdAt: ts('created_at').notNull().defaultNow(),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+}, t => [
+  index('backup_import_jobs_pending_idx').on(t.createdAt).where(sql`${t.state} in ('queued','running','pausing')`),
+  check('backup_import_jobs_batch_size_check', sql`${t.batchSize} between 1 and 500`),
+  check('backup_import_jobs_state_check', sql`${t.state} in ('queued','running','pausing','paused','completed','failed')`),
+  check('backup_import_jobs_desired_state_check', sql`${t.desiredState} in ('running','paused')`),
+]);

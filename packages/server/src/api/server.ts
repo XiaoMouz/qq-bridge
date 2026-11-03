@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { authInterceptor, errorInterceptor, type ApiDeps } from './context.ts';
 import { parseRange } from './media-urls.ts';
 import { registerServices } from './services.ts';
+import { registerImportRoutes } from './import-routes.ts';
 import { registerUploadRoutes } from './upload-routes.ts';
 import { RpcTiming } from './rpc-timing.ts';
 
@@ -32,6 +33,7 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
 
   app.get('/healthz', async () => ({ ok: true }));
   registerUploadRoutes(app, deps);
+  registerImportRoutes(app, deps);
 
   // 媒体下载：签名链接 + Range，支持边下边播。可选的文件名段只用于下载方识别类型和保存时的文件名。
   type MediaRequest = FastifyRequest<{ Params: { sha256: string; name?: string }; Querystring: { exp?: string; sig?: string } }>;

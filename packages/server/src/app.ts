@@ -5,6 +5,8 @@ import { buildServer } from './api/server.ts';
 import { registerQFaceRoutes } from './api/qface-routes.ts';
 import { MediaUrlSigner } from './api/media-urls.ts';
 import type { ApiDeps } from './api/context.ts';
+import { importPython } from './imports/process.ts';
+import { BackupImportService, type ImportOptions } from './imports/service.ts';
 import { AuthService } from './auth/service.ts';
 import type { Config } from './config.ts';
 import { sql } from 'drizzle-orm';
@@ -45,7 +47,7 @@ import { PushNotifier } from './push/notifier.ts';
 /** 组装服务端的全部依赖；测试与 CLI 共用。 */
 export function createDeps(
   db: Db,
-  opts: { mediaRoot: string; mediaColdRoot?: string; mediaUrlSecret: string; logLevel?: string; uploadMaxBytes?: number; ffmpegPath?: string },
+  opts: { mediaRoot: string; mediaColdRoot?: string; mediaUrlSecret: string; logLevel?: string; uploadMaxBytes?: number; ffmpegPath?: string; imports?: Partial<ImportOptions> },
 ): ApiDeps {
   const bus = new UpdateBus();
   const writers = new WriterRegistry(db, bus);
@@ -63,6 +65,7 @@ export function createDeps(
     void ingest.mediaPresenceChanged(sha256, present).catch((error: unknown) => logger.warn({ err: error, sha256 }, 'media presence update failed'));
   const deps: ApiDeps = {
     db,
+    imports: new BackupImportService(db, writers, { root: opts.imports?.root ?? path.join(root, '..', 'backup-imports'), allowedRoots: opts.imports?.allowedRoots ?? [], python: opts.imports?.python ?? importPython() }, logger.child({ component: 'imports' })),
     bus,
     writers,
     ingest,
@@ -121,6 +124,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
   await runMigrations(db);
   const deps = createDeps(db, {
     mediaRoot: config.MEDIA_ROOT,
+    imports: { root: config.BACKUP_IMPORT_STATE_ROOT ?? path.join(config.MEDIA_ROOT, '..', 'backup-imports'), allowedRoots: config.BACKUP_IMPORT_ALLOWED_ROOTS.split(path.delimiter).filter(Boolean), python: config.BACKUP_IMPORT_PYTHON },
     ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
     mediaUrlSecret: config.MEDIA_URL_SECRET,
     logLevel: config.LOG_LEVEL,
@@ -284,7 +288,9 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     };
   }
   if (upstream) deps.contacts.start(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
+  deps.imports.start();
   const close = async () => {
+    await deps.imports.stop();
     deps.contacts.stop();
     settingsSync?.stop();
     deps.tiering.stop();

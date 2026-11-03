@@ -1,4 +1,5 @@
 import { Code, ConnectError, createContextKey, type HandlerContext, type Interceptor } from '@connectrpc/connect';
+import type { BackupImportService } from '../imports/service.ts';
 import type { Logger } from 'pino';
 import { InvalidCredentialsError, type AuthContext, type AuthService } from '../auth/service.ts';
 import type { AdminService } from '../admin/service.ts';
@@ -32,6 +33,7 @@ import type { WriterRegistry } from '../sync/writer.ts';
 import type { MediaUrlSigner } from './media-urls.ts';
 
 export interface ApiDeps {
+  imports: BackupImportService;
   db: Db;
   bus: UpdateBus;
   writers: WriterRegistry;

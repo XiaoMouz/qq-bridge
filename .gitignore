@@ -34,3 +34,6 @@ macos/.build-app/
 macos/.build-signed/
 macos/.release/
 ios/.release/
+
+# 本地备份解密的独立 Python 依赖
+packages/server/.backup-import-venv/

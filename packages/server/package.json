@@ -8,7 +8,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "cli": "node --env-file-if-exists=../../deploy/.env --import tsx src/cli.ts"
+    "cli": "node --env-file-if-exists=../../deploy/.env --import tsx src/cli.ts",
+    "imports:setup": "python3 src/imports/reader/setup.py"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0",
