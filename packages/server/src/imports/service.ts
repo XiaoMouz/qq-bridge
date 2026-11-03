@@ -22,6 +22,7 @@ export class BackupImportService {
   private stopping = false;
   private running = false;
   private busy = false;
+  private again = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private active: { id: string; reader: ReaderProcess | null; paused: boolean } | null = null;
   private work: Promise<void> = Promise.resolve();
@@ -38,12 +39,21 @@ export class BackupImportService {
     this.wake();
   }
   private wake(): void {
-    if (!this.running || this.stopping || this.active || this.busy) return;
+    if (!this.running || this.stopping) return;
+    // 执行中的新任务由本轮结束后的复查接上；不能丢掉这次唤醒，否则空轮次之后不会再看。
+    if (this.active || this.busy) { this.again = true; return; }
     clearTimeout(this.timer);
     this.busy = true;
-    this.work = this.tick().catch(error => this.logger.error({ err: error }, 'backup import worker failed')).finally(() => {
+    this.again = false;
+    // 只在还有任务或拿不到锁时再看；没有任务就等 create / resume 唤醒，不常驻轮询数据库。
+    let retry: number | null = null;
+    this.work = this.tick().then(delay => { retry = delay; }, error => {
+      this.logger.error({ err: error }, 'backup import worker failed');
+      retry = 30_000;
+    }).finally(() => {
       this.busy = false;
-      if (!this.stopping) { this.timer = setTimeout(() => this.wake(), 3000); this.timer.unref(); }
+      if (this.again) retry = 0;
+      if (!this.stopping && retry !== null) { this.timer = setTimeout(() => this.wake(), retry); this.timer.unref(); }
     });
   }
   async stop(): Promise<void> {
@@ -146,11 +156,11 @@ export class BackupImportService {
   }
 
   private async update(job: Job, state: string, summary: unknown, error: string | null = null): Promise<void> {
-    await this.writers.forAccount(job.account_id).run(async w => {
-      await w.tx.execute(sql`update backup_import_jobs set state=${state},summary=${JSON.stringify(summary)}::jsonb,error=${error},updated_at=now() where id=${job.id}::uuid`);
-    });
+    // 任务表不参与同步、不发推送，不走账号单写者：每批进度不能排进实时消息入库的队列。
+    await this.db.execute(sql`update backup_import_jobs set state=${state},summary=${JSON.stringify(summary)}::jsonb,error=${error},updated_at=now() where id=${job.id}::uuid`);
   }
-  private async tick(): Promise<void> {
+  /** 返回下次检查的延迟；null 表示没有待跑任务。 */
+  private async tick(): Promise<number | null> {
     // 单会话 advisory lock 随连接释放，崩溃后可接管；不能靠进程内布尔变量防双 worker。
     const lease = await this.db.$client.connect();
     let locked = false;
@@ -161,12 +171,14 @@ export class BackupImportService {
     try {
       const result = await lease.query<{ locked: boolean }>('select pg_try_advisory_lock(718220261103::bigint) as locked');
       locked = result.rows[0]?.locked ?? false;
-      if (!locked || this.stopping) return;
+      if (this.stopping) return null;
+      if (!locked) return 30_000;
       const job = await maybeOne<Job>(this.db, sql`select * from backup_import_jobs
         where state in ('queued','running','pausing') order by created_at limit 1`);
-      if (!job) return;
-      if (job.desired_state === 'paused') { await this.update(job, 'paused', job.summary); return; }
-      await this.execute(job);
+      if (!job) return null;
+      if (job.desired_state === 'paused') await this.update(job, 'paused', job.summary);
+      else await this.execute(job);
+      return 3000;
     } finally {
       if (locked) await lease.query('select pg_advisory_unlock(718220261103::bigint)').catch(() => undefined);
       lease.off('error', lostLease);
@@ -191,6 +203,8 @@ export class BackupImportService {
         statePath: this.statePath(job.id), batchSize: job.batch_size, matchingVersion: MATCHER_VERSION,
       } })).state;
       await this.update(job, 'running', summary);
+      // 进度权威在 scan.sqlite；Postgres 只是展示副本，运行中最多 5 秒写一次，阶段变化、结束和暂停时立即写。
+      let written = { at: Date.now(), phase: summary.phase };
       while (!this.stopping && !this.active.paused) {
         const control = await this.job(job.account_id, job.id);
         if (control.desired_state === 'paused') { this.active.paused = true; break; }
@@ -198,8 +212,11 @@ export class BackupImportService {
         const matches = await this.matcher.matchBatch(job.qq_account_id, batch.records);
         const objects = await this.matcher.matchObjects(batch.objects);
         summary = (await reader.request({ command: 'commit', matches, objects })).state;
-        await this.update(job, summary.phase === 'done' ? 'completed' : 'running', summary);
-        if (summary.phase === 'done') return;
+        if (summary.phase === 'done') { await this.update(job, 'completed', summary); return; }
+        if (summary.phase !== written.phase || Date.now() - written.at >= 5000) {
+          await this.update(job, 'running', summary);
+          written = { at: Date.now(), phase: summary.phase };
+        }
         // 每批主动让出事件循环与数据库 writer；解密和 hash 始终在子进程。
         await new Promise<void>(resolve => setTimeout(resolve, 10));
       }
