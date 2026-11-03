@@ -178,6 +178,34 @@ export class BackupApplier {
     return this.summary;
   }
 
+  /**
+   * 媒体预取：把预检里唯一对应到文件的内容先拷进媒体库（与导入进程并行，按 sha256 分片）。
+   * 导入写消息时 findBlobBySha256 直接命中，不用逐条等解密、落盘、生成派生版本（2026-11-04 实测这是导入最慢的一段）。
+   */
+  async prefetchMedia(opts: Pick<ApplyOptions, 'backupPath' | 'keysPath' | 'scanPath' | 'statePath' | 'stagingDir' | 'onProgress'> & { shard: number; shards: number }): Promise<Record<string, number>> {
+    await fs.mkdir(opts.stagingDir, { recursive: true, mode: 0o700 });
+    this.reader = this.openReader();
+    const full = { ...opts, reportPath: '', qqAccountId: 0, dryRun: false } as ApplyOptions;
+    try {
+      await this.reader.request({ command: 'open', config: { backupPath: opts.backupPath, keysPath: opts.keysPath, scanPath: opts.scanPath, statePath: opts.statePath, tables: [] } });
+      let after: string | null = '';
+      while (after !== null) {
+        const page: { items: { sha256: string; mime: string | null }[]; after: string | null } =
+          await this.reader.request({ command: 'media_list', shard: opts.shard, shards: opts.shards, after, limit: 500 });
+        for (const item of page.items) {
+          const mime = item.mime ?? '';
+          const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('audio/') ? 'audio' : mime.startsWith('video/') ? 'video' : 'file';
+          await this.ensureBlob(item.sha256, kind, full);
+        }
+        after = page.after;
+        opts.onProgress?.(this.summary, after);
+      }
+    } finally {
+      await this.reader.stop();
+    }
+    return this.summary;
+  }
+
   /** 会话在导入开始时的状态（第一次碰到时记进导入状态库，续跑时沿用，不受已导入的消息影响）。 */
   private async context(table: string, scene: Scene): Promise<ChatContext> {
     const key = `chat:${table}:${scene}`;

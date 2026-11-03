@@ -186,8 +186,34 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', ...summary }));
       return;
     }
+    case 'import:backup-media': {
+      // 媒体预取：和 import:backup 并行跑，按 sha256 分片先把备份里已关联的文件拷进媒体库（见 BackupApplier.prefetchMedia）。
+      const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
+      const [backup, keys, scan, state, shard, shards] = ['backup', 'keys', 'scan', 'state', 'shard', 'shards'].map(flag);
+      if (!backup || !keys || !scan || !state || shard === undefined || !shards) throw new Error('usage: pnpm cli import:backup-media --backup <dir> --keys <file> --scan <scan.sqlite> --state <state.sqlite> --shard i --shards n');
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+        ...(config.FFMPEG_PATH ? { ffmpegPath: config.FFMPEG_PATH } : {}),
+      });
+      const work = path.dirname(path.resolve(state));
+      const applier = new BackupApplier(db, deps.ingest, deps.media, deps.processor, importPython(), await prepareNative(work), deps.logger.child({ component: 'backup-media' }));
+      let last = 0;
+      const summary = await applier.prefetchMedia({
+        backupPath: backup, keysPath: keys, scanPath: scan, statePath: state, stagingDir: path.join(work, 'staging'),
+        shard: Number(shard), shards: Number(shards),
+        onProgress: (s, after) => { if (Date.now() - last < 30_000) return; last = Date.now(); console.error(JSON.stringify({ after, ...s })); },
+      });
+      await db.$client.end();
+      console.log(JSON.stringify({ mode: 'media', ...summary }));
+      return;
+    }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips|import:backup>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips|import:backup|import:backup-media>');
   }
 }
 
