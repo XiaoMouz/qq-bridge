@@ -10,17 +10,24 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 LOGS="$HOME/Library/Logs/qqbridge"
-# Homebrew 的 opt 路径在 node 升级后不变。
-NODE=${NODE:-/opt/homebrew/opt/node/bin/node}
+# Homebrew 的 opt 路径在同一 formula 升级后不变，但换 formula 会失效：
+# 2026-11-03 只剩 node@24 时 plist 里的 opt/node 不存在，kickstart 后服务端起不来（EX_CONFIG）。
+# 依次找 node、版本号最大的 node@N；不用 fnm 等版本管理器的 shell 临时路径，它们会随终端会话消失。
+if [ -z "${NODE:-}" ]; then
+  NODE=/opt/homebrew/opt/node/bin/node
+  [ -x "$NODE" ] || NODE=$(ls -d /opt/homebrew/opt/node@*/bin/node 2>/dev/null | sort -t@ -k2 -n | tail -1)
+fi
 
-launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 if [ "${1:-}" = uninstall ]; then
+  launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
   rm -f "$PLIST"
   echo "removed $LABEL"
   exit 0
 fi
 
-[ -x "$NODE" ] || { echo "node not found at $NODE (set NODE=...)" >&2; exit 1; }
+# 先确认 node 可用再卸下旧服务：找不到时不能把正在运行的服务端停掉再退出。
+[ -x "$NODE" ] || { echo "node not found at ${NODE:-（未找到 Homebrew 的 node）} (set NODE=...)" >&2; exit 1; }
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
 mkdir -p "$LOGS" "$(dirname "$PLIST")"
 cat >"$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
