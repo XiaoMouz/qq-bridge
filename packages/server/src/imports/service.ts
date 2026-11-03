@@ -71,7 +71,8 @@ export class BackupImportService {
     const actual = await fs.realpath(input).catch(() => { throw new ImportError(400, '本地路径不存在'); });
     let allowed = false;
     for (const root of this.opts.allowedRoots) {
-      const realRoot = await fs.realpath(root);
+      // 允许目录是部署配置；它不存在是配置错误，不能变成接口 500。
+      const realRoot = await fs.realpath(root).catch(() => { throw new ImportError(503, 'BACKUP_IMPORT_ALLOWED_ROOTS 中的目录不存在'); });
       const relative = path.relative(realRoot, actual);
       if (relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))) allowed = true;
     }

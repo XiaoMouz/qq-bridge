@@ -10,10 +10,11 @@ import { sql } from 'drizzle-orm';
 import { prepareNative, ReaderProcess, importPython } from '../src/imports/process.ts';
 import { BackupMatcher, type BackupRecord } from '../src/imports/matcher.ts';
 import { startTestDb } from './helpers/db.ts';
+import { hasApsw } from './helpers/python.ts';
 
 const exec = promisify(execFile);
 
-it('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌套上下文', async () => {
+it.skipIf(!hasApsw)('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌套上下文', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-parser-'));
   try {
     const native = await prepareNative(temp);
@@ -69,6 +70,11 @@ it('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌�
       expect(file.resolution.status).toBe('resolved');
       expect(file.resolution.candidates.some((x:any)=>x.evidence.some((p:any)=>p.method==='native_message_single_typed_element'))).toBe(true);
       expect((await readReport(importPython(),path.join(temp,'scan.sqlite'),'media_links',0,100,'file','resolved') as any[]).length).toBe(1);
+      const statistics=await readReport(importPython(),path.join(temp,'scan.sqlite'),'statistics',0,500,'') as any[];
+      expect(statistics.length).toBeGreaterThan(0);
+      expect((await readReport(importPython(),path.join(temp,'scan.sqlite'),'statistics',0,500,'_message') as any[]).every(x=>x.kind==='_message')).toBe(true);
+      expect(await readReport(importPython(),path.join(temp,'scan.sqlite'),'details',0,100,'no_such_kind')).toEqual([]);
+      expect(Array.isArray(await readReport(importPython(),path.join(temp,'scan.sqlite'),'details',0,100,''))).toBe(true);
       const pointer=links.find(x=>x.resolution.status==='pointer_only');
       expect(pointer.resolution.reason).toBe('external_pointer_without_backed_payload');
       const recalled=links.find(x=>x.scope==='recalled_original');
@@ -160,7 +166,7 @@ it('在实际数据库中匹配重复消息/媒体并绑定账号、用户与群
   } finally { await test.stop(); }
 });
 
-it('松散媒体只遍历一次目录，重名、缺失和符号链接的判断不变', async () => {
+it.skipIf(!hasApsw)('松散媒体只遍历一次目录，重名、缺失和符号链接的判断不变', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-loose-'));
   try {
     const native = await prepareNative(temp);
@@ -193,7 +199,7 @@ print(json.dumps(result))`;
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
 });
 
-it('消息表的 (msgTime,msgSeq,msgRandom) 不唯一时拒绝翻页', async () => {
+it.skipIf(!hasApsw)('消息表的 (msgTime,msgSeq,msgRandom) 不唯一时拒绝翻页', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-key-'));
   try {
     const native = await prepareNative(temp);

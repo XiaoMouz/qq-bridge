@@ -12,12 +12,13 @@ import { importPython, prepareNative } from '../src/imports/process.ts';
 import { UpdateBus } from '../src/sync/bus.ts';
 import { WriterRegistry } from '../src/sync/writer.ts';
 import { startTestDb } from './helpers/db.ts';
+import { hasApsw } from './helpers/python.ts';
 
 const exec = promisify(execFile);
 const settle = (service: BackupImportService) => (service as unknown as { work: Promise<void> }).work;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-it('没有任务时不轮询，任务跑完后停下；进度不走账号单写者', async () => {
+it.skipIf(!hasApsw)('没有任务时不轮询，任务跑完后停下；进度不走账号单写者', async () => {
   const test = await startTestDb();
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-service-'));
   const backup = path.join(temp, 'backup');
@@ -68,3 +69,12 @@ it('没有任务时不轮询，任务跑完后停下；进度不走账号单写�
     await test.stop();
   }
 }, 120_000);
+
+it('允许目录配置不存在时返回 503', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-roots-'));
+  try {
+    const db = { execute: vi.fn() } as never;
+    const service = new BackupImportService(db, {} as never, { root: temp, allowedRoots: [path.join(temp, 'missing')], python: 'python3' }, pino({ level: 'silent' }));
+    await expect((service as unknown as { localPath(p: string): Promise<string> }).localPath(temp)).rejects.toMatchObject({ status: 503 });
+  } finally { await fs.rm(temp, { recursive: true, force: true }); }
+});

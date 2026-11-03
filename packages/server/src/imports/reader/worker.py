@@ -557,10 +557,10 @@ def report(path, view, cursor, limit, kind, status=''):
         r = db.execute('SELECT value FROM state WHERE id=1').fetchone()
         result = json.loads(r[0]) if r else None
     elif view == 'details':
-        rows = db.execute('SELECT id,kind,value FROM details WHERE id>? AND (?="" OR kind=?) ORDER BY id LIMIT ?', (cursor, kind, kind, limit)).fetchall()
+        rows = db.execute("SELECT id,kind,value FROM details WHERE id>? AND (?='' OR kind=?) ORDER BY id LIMIT ?", (cursor, kind, kind, limit)).fetchall()
         result = [{'id': r['id'], 'kind': r['kind'], **json.loads(r['value'])} for r in rows]
     elif view == 'statistics':
-        result = [dict(r) for r in db.execute('SELECT rowid AS id,* FROM stats WHERE rowid>? AND (?="" OR kind=?) ORDER BY rowid LIMIT ?', (cursor, kind, kind, limit))]
+        result = [dict(r) for r in db.execute("SELECT rowid AS id,* FROM stats WHERE rowid>? AND (?='' OR kind=?) ORDER BY rowid LIMIT ?", (cursor, kind, kind, limit))]
     elif view == 'chats':
         result = [dict(r) for r in db.execute('SELECT rowid AS id,* FROM inventory WHERE rowid>? ORDER BY rowid LIMIT ?', (cursor, limit))]
     elif view == 'bindings':
