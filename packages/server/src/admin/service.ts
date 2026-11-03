@@ -123,7 +123,8 @@ export class AdminService {
       this.db,
       sql`select count(*) filter (where r.fetch_state = 'pending')::int as pending, count(*) filter (where r.fetch_state = 'failed')::int as failed,
                  count(*) filter (where r.fetch_state = 'expired')::int as expired
-            from media_refs r join chats c on c.id = r.chat_id where c.qq_account_id in (${idList})`,
+            from media_refs r join chats c on c.id = r.chat_id where c.qq_account_id in (${idList})
+             and r.fetch_state in ('pending', 'failed', 'expired')`,
     );
     const outbox = await one<{ pending: number; failed: number }>(
       this.db,

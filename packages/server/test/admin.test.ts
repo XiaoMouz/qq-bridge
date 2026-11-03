@@ -49,6 +49,13 @@ describe('deep archive and archive status', () => {
     }
     await t.db.execute(sql`insert into upstream_events (queue_id, cursor, qq_account_id, kind, payload, state, received_at)
       values (${`status-${other.qqAccountId}`}, 1, ${other.qqAccountId}, 'test', '{}'::jsonb, 'pending', now())`);
+    for (const a of [acc, other]) {
+      const { chatId } = await ingest.ingestMessage(a.qqAccountId, textMessage('group', 970098, 1, 20002));
+      for (const state of ['pending', 'failed', 'expired', 'stored', 'on_demand', 'fetching']) {
+        await t.db.execute(sql`insert into media_refs (chat_id, ordinal, role, kind, fetch_state, time)
+          values (${chatId}, 0, 'original', 'image', ${state}, now())`);
+      }
+    }
     const admin = new AdminService(t.db, {
       upstream: () => null,
       history: () => null,
@@ -57,10 +64,12 @@ describe('deep archive and archive status', () => {
     });
     const status = await admin.status(acc.accountId);
     expect(status.inbox).toEqual({ pending: 1, failed: 1, ignored24h: 1 });
+    expect(status.media).toEqual({ pending: 1, failed: 1, expired: 1 });
     expect(status.qq).toHaveLength(1);
     expect(status.qq[0]!.lastEventAt).toEqual(latest);
     const noEvents = await admin.status(empty.accountId);
     expect(noEvents.inbox).toEqual({ pending: 0, failed: 0, ignored24h: 0 });
+    expect(noEvents.media).toEqual({ pending: 0, failed: 0, expired: 0 });
     expect(noEvents.qq[0]!.lastEventAt).toBeNull();
   });
 

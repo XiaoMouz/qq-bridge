@@ -385,6 +385,9 @@ export const mediaRefs = pgTable(
   },
   (t) => [
     index('media_refs_sha256_idx').on(t.sha256),
+    index('media_refs_discarded_sha256_idx').on(t.sha256).where(sql`${t.keepOriginal} = false`),
+    index('media_refs_attention_idx').on(t.fetchState, t.nextAttemptAt, t.chatId)
+      .where(sql`${t.fetchState} in ('pending', 'failed', 'expired')`),
     index('media_refs_chat_kind_time_idx').on(t.chatId, t.kind, t.time),
     index('media_refs_message_idx').on(t.chatId, t.messageSeq),
     index('media_refs_qq_md5_idx').on(t.qqMd5),
