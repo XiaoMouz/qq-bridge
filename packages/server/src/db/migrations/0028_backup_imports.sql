@@ -17,4 +17,6 @@ CREATE TABLE backup_import_jobs (
 CREATE INDEX backup_import_jobs_pending_idx ON backup_import_jobs(created_at) WHERE state IN ('queued','running','pausing');
 --> statement-breakpoint
 -- 候选只读取同会话 seq 或同一秒消息，不扫描整个 raw JSON。
-CREATE INDEX messages_chat_time_idx ON messages(chat_id,time);
+-- 2026-11-03：messages 约 140 万行、2 GB 在 USB 2.0 盘上，启动迁移里直接建会锁写入且拖住启动；
+-- 运行实例先 CONCURRENTLY 建立并验证有效性，再由迁移登记。
+CREATE INDEX IF NOT EXISTS messages_chat_time_idx ON messages(chat_id,time);
