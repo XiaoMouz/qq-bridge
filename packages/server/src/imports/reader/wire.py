@@ -27,9 +27,20 @@ def _varint(data: bytes, pos: int) -> tuple[int, int]:
     raise ProtoError("oversized varint")
 
 
+class Fields(list):
+    __slots__=('indexed',)
+    def __init__(self):super().__init__();self.indexed=None
+    def lookup(self,number):
+        if self.indexed is None:
+            index={}
+            for field in self:index.setdefault(field.number,[]).append(field)
+            self.indexed=index
+        return self.indexed.get(number,())
+
+
 def parse_fields(blob: bytes | memoryview) -> list[Field]:
     data = bytes(blob)
-    fields = []
+    fields = Fields()
     pos = 0
     while pos < len(data):
         tag, pos = _varint(data, pos)
@@ -58,7 +69,8 @@ def parse_fields(blob: bytes | memoryview) -> list[Field]:
 
 
 def values(fields: list[Field], number: int, wire: int | None = None):
-    return [f.value for f in fields if f.number == number and (wire is None or f.wire == wire)]
+    source=fields.lookup(number) if isinstance(fields,Fields) else fields
+    return [f.value for f in source if f.number == number and (wire is None or f.wire == wire)]
 
 
 def first(fields, number):

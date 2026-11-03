@@ -82,8 +82,8 @@ export class ReaderProcess {
   }
 }
 
-export async function readReport(python: string, statePath: string, view: string, cursor: number, limit: number, kind: string): Promise<unknown> {
-  const { stdout } = await exec(python, [path.join(readerRoot, 'worker.py'), 'report', statePath, view, String(cursor), String(limit), kind], {
+export async function readReport(python: string, statePath: string, view: string, cursor: number, limit: number, kind: string, status = ''): Promise<unknown> {
+  const { stdout } = await exec(python, [path.join(readerRoot, 'worker.py'), 'report', statePath, view, String(cursor), String(limit), kind, status], {
     timeout: 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
   });
   return JSON.parse(stdout);

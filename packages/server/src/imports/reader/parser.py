@@ -15,6 +15,8 @@ TYPES = {1: 'text', 2: 'image', 3: 'file', 4: 'voice', 5: 'video', 6: 'face',
          16: 'forward', 21: 'call', 23: 'online_file', 26: 'dynamic',
          27: 'face_bubble', 28: 'location', 49: 'bubble_video'}
 MEDIA = {2, 3, 4, 5, 11, 15, 23, 27, 49}
+# QQ在本备份中使用规范varint编码；媒体审计可跳过不含任何媒体类型标签的行。
+MEDIA_MARKERS=tuple(b'\xd0\xfc\x15'+bytes([ty]) for ty in MEDIA)
 HASH = re.compile(r'(?<![0-9a-fA-F])([0-9a-fA-F]{64}|[0-9a-fA-F]{40}|[0-9a-fA-F]{32})(?![0-9a-fA-F])')
 
 
@@ -27,27 +29,40 @@ def opaque(raw):
 
 
 def media_ids(fields, ty):
-    out = []
+    from media_links import UUID
+    out=[]
     for f in fields:
-        if not isinstance(f.value, bytes):
-            continue
-        s = text(f.value)
-        role = 'poster' if ty in (5, 49) and f.number in (45421, 45862) else 'main'
-        if f.number in (45406, 45407, 45408, 45424, 80903) or role == 'poster':
-            if s and re.fullmatch(r'[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', s):
-                digest = s.lower()
-            elif len(f.value) in (16, 20, 32):
-                digest = f.value.hex()
-            else:
-                continue
-            out.append({'algorithm': {32: 'md5', 40: 'sha1', 64: 'sha256'}[len(digest)], 'value': digest, 'role': role})
-        elif s and (f.number == 45402 or (ty == 2 and f.number in (45802, 45803, 45804)) or (ty == 3 and f.number == 45954)):
-            role = 'preview' if f.number in (45802, 45803, 45954) else 'main'
-            for digest in HASH.findall(s):
-                out.append({'algorithm': {32: 'md5', 40: 'sha1', 64: 'sha256'}[len(digest)], 'value': digest.lower(), 'role': role})
-        elif f.number == 45503 and s:
-            out.append({'algorithm': 'uuid', 'value': s, 'role': 'main'})
-    return [dict(t) for t in dict.fromkeys(tuple(x.items()) for x in out)]
+        if not isinstance(f.value,bytes):continue
+        value=text(f.value)
+        role='poster' if ty in (5,49) and f.number in (45421,45862) else 'main'
+        if f.number in (45406,45407,45408,45424,80903) or role=='poster':
+            if value and re.fullmatch(r'[a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}',value):h=value.lower()
+            elif len(f.value) in (16,20,32):h=f.value.hex()
+            else:continue
+            out.append({'algorithm':'emoji_id' if ty==11 and f.number==80903 else {32:'md5',40:'sha1',64:'sha256'}[len(h)],'value':h,'role':role,'field':str(f.number),'evidence':'emoji_resource_id' if ty==11 and f.number==80903 else 'protocol_hash'})
+        elif value and (f.number==45402 or (ty==2 and f.number in (45802,45803,45804)) or (ty==3 and f.number==45954)):
+            role='preview' if f.number in (45802,45803,45954) else 'main'
+            for h in HASH.findall(value):out.append({'algorithm':{32:'md5',40:'sha1',64:'sha256'}[len(h)],'value':h.lower(),'role':role,'field':str(f.number),'evidence':'content_path_or_url'})
+        elif f.number==45503 and value:
+            out.append({'algorithm':'uuid','value':value,'role':'main','field':str(f.number),'evidence':'explicit_file_uuid'})
+            for u in UUID.findall(value):out.append({'algorithm':'normalized_uuid','value':u.lower(),'role':'main','field':str(f.number),'evidence':'explicit_file_uuid'})
+    return list({tuple(x.items()):x for x in out}.values())
+
+
+def diagnostic_ids(fields, path=(), depth=0):
+    out=[]
+    if depth>4:return out
+    for f in fields:
+        if not isinstance(f.value,bytes) or not f.value or f.number in (80824,45503,45510):continue
+        label='.'.join(map(str,(*path,f.number)))
+        if len(f.value) in (16,20,32):out.append({'algorithm':{16:'md5',20:'sha1',32:'sha256'}[len(f.value)],'value':f.value.hex(),'field':label})
+        value=text(f.value)
+        if value:
+            for h in HASH.findall(value):out.append({'algorithm':{32:'md5',40:'sha1',64:'sha256'}[len(h)],'value':h.lower(),'field':label})
+        if f.number in (45600,45601,45856,45908,45925,80913,80941,80942,80970,80977,52137):
+            try:out.extend(diagnostic_ids(parse_fields(f.value),(*path,f.number),depth+1))
+            except ValueError:pass
+    return list({tuple(x.items()):x for x in out}.values())
 
 
 def parse_element(raw):
@@ -79,7 +94,14 @@ def parse_element(raw):
     elif ty in MEDIA:
         # 2026-11-03 对照 628 张真实重叠图片：45003 与 NapCat picSubType 完全一致。
         if ty==2 and first(f,45003)==1: out['kind']='custom_sticker'
-        out.update(identifiers=media_ids(f, ty), filename=text(first(f, 45402)),
+        if ty==11:out['packageId']=identifier(first(f,80810))
+        if ty==27:
+            out['builtinResource']={'type':'qq_emoji_bounce','id':identifier(first(f,52132)),
+              'name':text(first(f,52134)),'summary':text(first(f,52138)) or text(first(f,52139))}
+        ids=media_ids(f,ty)
+        known={(x['algorithm'],x['value'],x['field']) for x in ids}
+        extra_ids=[x for x in diagnostic_ids(f) if (x['algorithm'],x['value'],x['field']) not in known and not(ty==11 and x['field']=='80903')]
+        out.update(identifiers=ids, diagnosticIdentifiers=extra_ids, size=first(f,45405), filename=text(first(f, 45402)),
                    width=first(f, 45411 if ty == 2 else 45413), height=first(f, 45412 if ty == 2 else 45414),
                    duration=first(f, 45906 if ty == 4 else 45410))
     elif ty in (10, 16):
@@ -113,6 +135,7 @@ def parse_element(raw):
         sub=first(f,45003)
         tip={'subElementType':sub}
         if sub==1:
+            out['recalledElements']=[parse_element(raw) for raw in values(f,47710,2)]
             tip['revokeElement']={k:text(first(f,n)) for k,n in (
                 ('operatorUid',47703),('operatorNick',47714),('operatorMemRemark',47716),
                 ('origMsgSenderUid',47704),('origMsgSenderNick',47705),('origMsgSenderMemRemark',47707))}
@@ -189,9 +212,10 @@ def walk(record):
 
 def compact(record):
     """只在 IPC 中去掉可随时从源行重新读取的原字节，不复制整库明文。"""
+    def strip(element):
+        element['raw'].pop('base64',None)
+        for snapshot in element.get('snapshot',[]):strip(snapshot)
+        for recalled in element.get('recalledElements',[]):strip(recalled)
     for node in walk(record):
-        for element in node['elements']:
-            element['raw'].pop('base64', None)
-            for snap in element.get('snapshot', []):
-                snap['raw'].pop('base64', None)
+        for element in node['elements']:strip(element)
     return record

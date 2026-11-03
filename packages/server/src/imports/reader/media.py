@@ -3,7 +3,7 @@ import ctypes
 from collections import OrderedDict
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from msg0 import open_backup, _lib
 
 BLOCK = 512 * 1024
@@ -27,6 +27,10 @@ def mime(head):
     if head.startswith(b'\x89PNG'): return 'image/png'
     if head.startswith((b'GIF87a', b'GIF89a')): return 'image/gif'
     if head.startswith(b'RIFF') and head[8:12] == b'WEBP': return 'image/webp'
+    if head.startswith(b'BM'): return 'image/bmp'
+    if head.startswith((b'II*\0',b'MM\0*')): return 'image/tiff'
+    if head.startswith(b'ID3') or (len(head)>1 and head[0]==255 and head[1]&224==224): return 'audio/mpeg'
+    if head.startswith(b'%PDF-'): return 'application/pdf'
     if head.startswith(b'#!SILK_V3') or head[1:10] == b'#!SILK_V3': return 'audio/silk'
     if head.startswith(b'#!AMR'): return 'audio/amr'
     if head.startswith(b'OggS'): return 'audio/ogg'
@@ -103,11 +107,49 @@ class MediaReader:
         digests = {k: hashlib.new(k) for k in ('sha256', 'sha1', 'md5')}
         length, head = 0, b''
         for block in self.stream(r):
-            if not head: head = block[:64]
+            if not head: head = block[:4096]
             length += len(block)
             for digest in digests.values(): digest.update(block)
         if length != r['filesize']: raise ValueError('media_payload_size_mismatch')
-        return {**{k: d.hexdigest() for k, d in digests.items()}, 'size': length, 'mime': mime(head)}
+        result={**{k:d.hexdigest() for k,d in digests.items()},'size':length,'mime':mime(head)}
+        if head.startswith(b'[picFile,path=') and length<=4096:
+            import re
+            try:label=head.decode('utf-8')
+            except UnicodeDecodeError:label=head.decode('gb18030',errors='replace')
+            match=re.fullmatch(r'\[picFile,path=(.*)\]',label,re.S)
+            if match:
+                path=match.group(1);name=PureWindowsPath(path).name
+                ids=re.findall(r'(?<![0-9a-fA-F])([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})(?![0-9a-fA-F])',name)
+                result['mime']='application/x-qq-picture-pointer'
+                result['special']={'format':'qq_picfile_pointer','path':path,'filename':name,
+                    'identifiers':[{'algorithm':{32:'md5',40:'sha1',64:'sha256'}[len(h)],'value':h.lower()} for h in ids]}
+        return result
 
     def close(self):
         for db in self.dbs.values(): db.close()
+
+
+class PhysicalCatalog:
+    """内容散列的可复用目录；只复用源数据库签名相同的内嵌BLOB，松散文件每次重读。"""
+    def __init__(self,root,signatures):
+        import json,sqlite3
+        self.json=json
+        signature=json.dumps({'version':1,'files':signatures},sort_keys=True,separators=(',',':'))
+        name=hashlib.sha256(signature.encode()).hexdigest()
+        directory=Path(root);directory.mkdir(mode=0o700,parents=True,exist_ok=True)
+        self.path=directory/(name+'.sqlite')
+        self.db=sqlite3.connect(self.path)
+        self.db.executescript('PRAGMA journal_mode=WAL;CREATE TABLE IF NOT EXISTS payloads(resource TEXT PRIMARY KEY,value TEXT);CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);')
+        previous=self.db.execute("SELECT value FROM metadata WHERE key='signature'").fetchone()
+        if previous and previous[0]!=signature:raise ValueError('physical_catalog_signature_mismatch')
+        self.db.execute("INSERT OR IGNORE INTO metadata VALUES ('signature',?)",(signature,));self.db.commit()
+
+    def get(self,resource):
+        row=self.db.execute('SELECT value FROM payloads WHERE resource=?',(resource,)).fetchone()
+        return self.json.loads(row[0]) if row else None
+
+    def put(self,resource,value):
+        self.db.execute('INSERT OR REPLACE INTO payloads VALUES (?,?)',(resource,self.json.dumps(value)))
+
+    def commit(self):self.db.commit()
+    def close(self):self.db.close()

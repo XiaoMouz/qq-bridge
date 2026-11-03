@@ -16,7 +16,7 @@ interface Job {
   batch_size: number; state: string; desired_state: string; summary: Record<string, any>; error: string | null;
 }
 export interface ImportOptions { root: string; allowedRoots: string[]; python: string }
-const views = new Set(['state', 'details', 'statistics', 'chats', 'media', 'media_summary', 'media_occurrences', 'media_links', 'bindings']);
+const views = new Set(['state', 'details', 'statistics', 'chats', 'media', 'media_summary', 'media_occurrences', 'media_links', 'bindings', 'native_resources']);
 
 export class BackupImportService {
   private stopping = false;
@@ -132,14 +132,14 @@ export class BackupImportService {
     this.wake();
     return this.status(accountId, id);
   }
-  async report(accountId: number, id: string, view: string, cursor = 0, limit = 100, kind = ''): Promise<unknown> {
+  async report(accountId: number, id: string, view: string, cursor = 0, limit = 100, kind = '', status = ''): Promise<unknown> {
     await this.job(accountId, id);
     if (!views.has(view)) throw new ImportError(400, '未知明细类型');
     if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isInteger(limit) || limit < 1 || limit > 500) throw new ImportError(400, '分页参数无效');
     try { await fs.access(this.statePath(id)); } catch { return { items: [], ready: false }; }
     if (this.reports.size >= 2) throw new ImportError(429, '明细查询繁忙，请稍后重试');
     const key = randomUUID();
-    const pending = readReport(this.opts.python, this.statePath(id), view, cursor, limit, kind);
+    const pending = readReport(this.opts.python, this.statePath(id), view, cursor, limit, kind, status);
     this.reports.set(key, pending);
     try { const items = await pending; return { items, nextCursor: Array.isArray(items) && items.length ? items.at(-1)?.id ?? null : null, ready: true }; }
     finally { this.reports.delete(key); }
@@ -187,6 +187,7 @@ export class BackupImportService {
       this.active.reader = reader;
       summary = (await reader.request({ command: 'open', config: {
         backupPath: job.source_path, keysPath: job.keys_path, accountUin: String(qq.uin),
+        physicalCatalogRoot: path.join(this.opts.root,'physical-catalogs'),
         statePath: this.statePath(job.id), batchSize: job.batch_size, matchingVersion: MATCHER_VERSION,
       } })).state;
       await this.update(job, 'running', summary);

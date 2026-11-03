@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -27,7 +28,7 @@ it('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌�
     expect(r.elements[0].targetUid).toBe('u_target');
     expect(r.elements[3].reference).toMatchObject({ sequence: '8', senderUid: 'u_target', time: '1700000000', protocolMessageId: '18446744073709551600' });
     expect(r.elements[3].snapshot[0].text).toBe('原消息\u2028换行\u2029继续');
-    expect(r.elements[6].identifiers).toContainEqual({ algorithm: 'md5', value: 'ab'.repeat(16), role: 'main' });
+    expect(r.elements[6].identifiers).toContainEqual(expect.objectContaining({ algorithm: 'md5', value: createHash('md5').update(Buffer.from('\x89PNG\r\n\x1a\nfixture-original','latin1')).digest('hex'), role: 'main' }));
     expect(JSON.parse(r.elements[7].payload).meta.detail.title).toBe('测试小程序');
     expect(r.nodes[0]).toMatchObject({ time: 1699999999, senderUin: '9', path: [0] });
     expect(r.nodes[0].elements[0].kind).toBe('image');
@@ -36,16 +37,60 @@ it('解密加密页并无损解析 @、回复、表情、图片、卡片与嵌�
     const reader = new ReaderProcess(importPython(), native);
     try {
       await reader.request({ command: 'open', config: { backupPath: temp, keysPath: path.join(temp,'keys.json'),
-        statePath: path.join(temp,'scan.sqlite'), accountUin: '7', batchSize: 1 } });
-      for (let i=0;i<5;i++) {
+        statePath: path.join(temp,'scan.sqlite'), physicalCatalogRoot: path.join(temp,'catalogs'), accountUin: '7', batchSize: 1 } });
+      for (let i=0;i<30;i++) {
         const batch = await reader.request({ command: 'next' });
         if (batch.records.length) {
           expect(batch.records[0].elements[3].snapshot[0].text).toBe('原消息\u2028换行\u2029继续');
+          await reader.request({ command: 'commit', matches: [], objects: [] });
           break;
         }
         await reader.request({ command: 'commit', matches: [], objects: [] });
-        if (i===4) throw new Error('未读到夹具消息');
+        if (i===29) throw new Error('未读到夹具消息');
       }
+      let done=false;
+      for(let i=0;i<50;i++){
+        const batch=await reader.request({command:'next'});
+        const result=await reader.request({command:'commit',matches:[],objects:batch.objects.map((object:any)=>({object,target:{status:'new_payload'}}))});
+        if(result.state.phase==='done'){done=true;break;}
+      }
+      expect(done).toBe(true);
+      const {readReport}=await import('../src/imports/process.ts');
+      const links=await readReport(importPython(),path.join(temp,'scan.sqlite'),'media_links',0,100,'') as any[];
+      const image=links.find(x=>x.scope==='root'&&x.kind==='image');
+      expect(image.resolution.status).toBe('resolved');
+      const versions=image.resolution.candidates;
+      expect(new Set(versions.filter((x:any)=>x.role==='original').map((x:any)=>x.sha256)).size).toBe(1);
+      expect(versions.some((x:any)=>x.role==='preview')).toBe(true);
+      const video=links.find(x=>x.scope==='root'&&x.kind==='video');
+      expect(video.resolution.status).toBe('resolved');
+      expect(video.resolution.candidates.some((x:any)=>x.role==='poster')).toBe(true);
+      const file=links.find(x=>x.scope==='root'&&x.kind==='file');
+      expect(file.resolution.status).toBe('resolved');
+      expect(file.resolution.candidates.some((x:any)=>x.evidence.some((p:any)=>p.method==='native_message_single_typed_element'))).toBe(true);
+      expect((await readReport(importPython(),path.join(temp,'scan.sqlite'),'media_links',0,100,'file','resolved') as any[]).length).toBe(1);
+      const pointer=links.find(x=>x.resolution.status==='pointer_only');
+      expect(pointer.resolution.reason).toBe('external_pointer_without_backed_payload');
+      const recalled=links.find(x=>x.scope==='recalled_original');
+      expect(recalled.source.historicalOnly).toBe(true);
+      expect(recalled.sender_uid).toBe('u_original');
+      expect(recalled.resolution.evidence.historicalOnly).toBe(true);
+      expect((await readReport(importPython(),path.join(temp,'scan.sqlite'),'native_resources',0,100,'','recalled_message') as any[]).length).toBe(1);
+      const repeat=new ReaderProcess(importPython(),native);
+      try {
+        await repeat.request({command:'open',config:{backupPath:temp,keysPath:path.join(temp,'keys.json'),
+          statePath:path.join(temp,'repeat.sqlite'),physicalCatalogRoot:path.join(temp,'catalogs'),accountUin:'7',batchSize:10}});
+        let complete:any;
+        for(let i=0;i<30;i++){
+          const batch=await repeat.request({command:'next'});
+          complete=await repeat.request({command:'commit',matches:[],objects:batch.objects.map((object:any)=>({object,target:{status:'new_payload'}}))});
+          if(complete.state.phase==='done')break;
+        }
+        expect(complete.state.phase).toBe('done');
+        expect(complete.state.physicalCacheHits).toBe(6);
+        expect(complete.state.resourcesHashed).toBe(1);
+      } finally {await repeat.stop();}
+
     } finally { await reader.stop(); }
 
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
@@ -98,6 +143,13 @@ it('在实际数据库中匹配重复消息/媒体并绑定账号、用户与群
     expect((await matcher.matchBatch(1, [{...r,elements:[{type:10,kind:'card',payload:'{"app":"fixture","id":9007199254740993}'}]}]))[0]?.status).toBe('same_identity_content_variant');
     await db.execute(sql`update messages set raw=${JSON.stringify(raw)}::jsonb where chat_id=1 and seq=12`);
 
+
+    const stickerRaw={...raw,elements:[{elementType:11,marketFaceElement:{emojiId:'af'.repeat(16),emojiPackageId:'8'}}]};
+    await db.execute(sql`update messages set raw=${JSON.stringify(stickerRaw)}::jsonb where chat_id=1 and seq=12`);
+    const sticker={type:11,kind:'sticker',packageId:'8',identifiers:[{algorithm:'emoji_id',value:'af'.repeat(16),role:'main'}]};
+    expect((await matcher.matchBatch(1,[{...r,elements:[sticker]}]))[0]?.status).toBe('same');
+    expect((await matcher.matchBatch(1,[{...r,elements:[{...sticker,packageId:'9'}]}]))[0]?.status).toBe('same_identity_content_variant');
+    await db.execute(sql`update messages set raw=${JSON.stringify(raw)}::jsonb where chat_id=1 and seq=12`);
     const sha = 'ab'.repeat(32);
     await db.execute(sql`insert into blobs(sha256,md5,md5_head,size,storage_key,state) values(${sha},'x','x',64,'x','present')`);
     const objects = await matcher.matchObjects([{ resourceId: '1', status: 'available', sha256: sha, size: 64 }, { resourceId: '2', status: 'available', sha256: sha, size: 64 }]);

@@ -13,7 +13,7 @@ import sqlite3
 import sys
 import time
 
-VERSION = 6
+VERSION = 8
 MAIN = 'B31DB6832ED65FD588CF1F41904F3F33'
 TABLE = re.compile(r'^msg_(1|3)_\d+$')
 STOP = False
@@ -59,6 +59,16 @@ def connect(path):
       CREATE INDEX IF NOT EXISTS objects_md5 ON objects(md5);
       CREATE INDEX IF NOT EXISTS objects_sha1 ON objects(sha1);
     ''')
+    from media_links import schema
+    schema(db)
+    db.execute('CREATE INDEX IF NOT EXISTS objects_source_resource ON objects(source_res_id)')
+    if 'unavailable_reason' not in {r[1] for r in db.execute('PRAGMA table_info(objects)')}:
+        db.execute('ALTER TABLE objects ADD COLUMN unavailable_reason TEXT')
+    if 'special' not in {r[1] for r in db.execute('PRAGMA table_info(objects)')}:
+        db.execute("ALTER TABLE objects ADD COLUMN special TEXT NOT NULL DEFAULT '{}'")
+    columns={r[1] for r in db.execute('PRAGMA table_info(occurrences)')}
+    if 'element_key' not in columns:db.execute('ALTER TABLE occurrences ADD COLUMN element_key TEXT')
+    if 'resolution' not in columns:db.execute("ALTER TABLE occurrences ADD COLUMN resolution TEXT NOT NULL DEFAULT '{}'")
     return db
 
 
@@ -93,10 +103,10 @@ class Reader:
         current = self.db.execute('SELECT value FROM state WHERE id=1').fetchone()
         self.state = json.loads(current[0]) if current else {
             'version': VERSION, 'signatures': self.signatures, 'accountUin': self.account,
-            'phase': 'inventory', 'tableIndex': 0, 'cursor': None, 'processed': 0,
+            'phase': 'inventory', 'referenceTableIndex': 0, 'referenceCursor': 0, 'nativeReferences': 0, 'nativeContextCursor': 0, 'nativeIdentityTableIndex': 0, 'nativeIdentityCursor': None, 'nativeIdentityRows': 0, 'nativeIdentityTableRows': 0, 'nativeFinalizeCursor': 0, 'nativeContextGroupsChecked': 0, 'nativeSourceContexts': {}, 'tableIndex': 0, 'cursor': None, 'processed': 0,
             'totalMessages': 0, 'firstTime': None, 'lastTime': None, 'resourceTotal': None,
             'resourcesProcessed': 0, 'resourceCursor': 0, 'linkCursor': 0, 'linkedOccurrences': 0, 'counts': {}, 'elementCounts': {}, 'messageKinds': {},
-            'mediaBytes': 0, 'mediaOccurrences': 0, 'nestedNodes': 0, 'parseErrors': 0,
+            'physicalCacheHits': 0, 'resourcesHashed': 0, 'mediaBytes': 0, 'mediaOccurrences': 0, 'nestedNodes': 0, 'parseErrors': 0,
             'subtypeCounts': {}, 'matches': {}, 'accountEvidence': 0, 'accountEvidenceConflicts': 0, 'sourceSeqConflictGroups': 0,
         }
         if self.state['version'] != VERSION or self.state['signatures'] != self.signatures or self.state['accountUin'] != self.account:
@@ -105,8 +115,14 @@ class Reader:
         if current and self.state.get('matchingVersion',1)!=matching_version:
             raise ValueError('matching_policy_changed_create_new_task')
         self.state['matchingVersion']=matching_version
+        self.catalog=None
+        if cfg.get('physicalCatalogRoot'):
+            from media import PhysicalCatalog
+            self.catalog=PhysicalCatalog(cfg['physicalCatalogRoot'],self.signatures)
         self.media = None
         self.pending = False
+        self.pending_stats={}
+        self.pending_sequences={}
 
     def unchanged(self):
         check()
@@ -122,11 +138,13 @@ class Reader:
     def detail(self, kind, value):
         self.db.execute('INSERT INTO details(kind,value) VALUES (?,?)', (kind, dumps(value)))
 
-    def stat(self, scope, kind, record):
-        self.db.execute('''INSERT INTO stats VALUES (?,?,?,?,?,1,?,?)
-          ON CONFLICT(scope,kind,chat,sender_uid,sender_uin) DO UPDATE SET
-          count=count+1,first=min(first,excluded.first),last=max(last,excluded.last)''',
-          (scope, kind, record.get('table', ''), record.get('senderUid') or '', record.get('senderUin') or '', record.get('time'), record.get('time')))
+    def stat(self,scope,kind,record):
+        key=(scope,kind,record.get('table',''),record.get('senderUid') or '',record.get('senderUin') or '')
+        value=self.pending_stats.setdefault(key,[0,None,None]);value[0]+=1
+        timestamp=record.get('time')
+        if timestamp is not None:
+            value[1]=timestamp if value[1] is None else min(value[1],timestamp)
+            value[2]=timestamp if value[2] is None else max(value[2],timestamp)
 
     def reply(self, table, element):
         from wire import parse_fields, first, values, text
@@ -174,7 +192,7 @@ class Reader:
             self.stat(scope, '_message', node)
             for index, element in enumerate(node['elements']):
                 kind = element['kind']
-                if element['type']==7 and scope=='root':
+                if element['type']==7 and scope=='root' and self.cfg.get('resolveSourceReplies',True):
                     element['sourceRelation']=self.reply(record['table'],element)
                     self.count('counts','reply_target:'+element['sourceRelation']['status'])
                 self.count('counts', scope + ':' + kind)
@@ -188,19 +206,100 @@ class Reader:
                 if scope == 'root': kinds.add(kind)
                 if element['type'] in MEDIA:
                     self.state['mediaOccurrences'] += 1
-                    ids = element.get('identifiers') or [{'algorithm': '', 'value': '', 'role': 'main'}]
-                    source = dumps({'key': record['sourceKey'], 'path': node['path'], 'element': index})
-                    self.db.execute("""INSERT INTO occurrences(kind,scope,time,sender_uid,sender_uin,source,identifiers)
-                      VALUES (?,?,?,?,?,?,?)""", (kind,scope,node.get('time'),node.get('senderUid'),node.get('senderUin'),source,dumps(ids)))
+                    self.add_media_occurrence(record,node,element,index,scope)
+                # 引用元素内的原消息片段也能带媒体；与40900缓存节点分开记录位置。
+                if element['type']==8 and element.get('recalledElements'):
+                    self.add_recalled_media(record,node,element,index)
+                if element['type']==7:
+                    stack=[(q,(qi,),element.get('reference',{})) for qi,q in enumerate(element.get('snapshot',[]))]
+                    while stack:
+                        quote,quote_path,reference=stack.pop()
+                        if quote['type'] in MEDIA:
+                            self.state['mediaOccurrences']+=1
+                            quote_node={**node,'time':int(reference['time']) if reference.get('time') not in (None,'0','') else None,
+                              'senderUid':reference.get('senderUid'),'senderUin':reference.get('senderUin')}
+                            self.count('counts','reply_quote:'+quote['kind']);self.stat('reply_quote',quote['kind'],quote_node)
+                            self.add_media_occurrence(record,quote_node,quote,index,'reply_quote',quote_path)
+                        if quote['type']==7:
+                            stack.extend((q,(*quote_path,qi),quote.get('reference',{})) for qi,q in enumerate(quote.get('snapshot',[])))
         for kind in kinds: self.count('messageKinds', kind)
-        self.db.execute('INSERT INTO seqs VALUES (?,1) ON CONFLICT(seq) DO UPDATE SET count=count+1', (record['seq'],))
+        seq=record['seq'];self.pending_sequences[seq]=self.pending_sequences.get(seq,0)+1
+
+    def add_recalled_media(self,record,node,element,index):
+        from media_links import MEDIA_TYPES
+        original=element.get('grayTip',{}).get('revokeElement',{})
+        fragments=element.get('recalledElements',[])
+        root_node={**node,'elements':fragments,'senderUid':original.get('origMsgSenderUid'),'senderUin':None}
+        stack=[(item,['recalledElements',i],root_node) for i,item in enumerate(fragments)]
+        while stack:
+            item,path,owner=stack.pop()
+            if item['type'] in MEDIA_TYPES:
+                self.state['mediaOccurrences']+=1;self.count('counts','recalled_original:'+item['kind']);self.stat('recalled_original',item['kind'],owner)
+                self.add_media_occurrence(record,owner,item,index,'recalled_original',embedded_path=path)
+            if item['type']==7:
+                reference=item.get('reference',{})
+                quoted={**owner,'senderUid':reference.get('senderUid'),'senderUin':reference.get('senderUin'),
+                  'time':int(reference['time']) if reference.get('time') not in (None,'0','') else None}
+                stack.extend((child,[*path,'snapshot',i],quoted) for i,child in enumerate(item.get('snapshot',[])))
+
+    def add_media_occurrence(self,record,node,element,index,scope,quote_index=None,embedded_path=None):
+        # 序列化元素去重存描述；每一次出现保留作者、时间、根消息及嵌套位置。
+        descriptor={k:element.get(k) for k in ('type','kind','identifiers','diagnosticIdentifiers','size','builtinResource')}
+        if element.get('filename'):descriptor['filename']=Path(element['filename']).name
+        key=hashlib.sha256(dumps(descriptor).encode()).hexdigest()
+        self.db.execute('INSERT OR IGNORE INTO media_elements(key,descriptor) VALUES (?,?)',(key,dumps(descriptor)))
+        from media_links import MEDIA_TYPES
+        expected=MEDIA_TYPES.get(element['type'])
+        source={'key':record['sourceKey'],'path':node['path'],'element':index,'elementSha256':element['raw']['sha256'],
+            'sameKindCount':sum(MEDIA_TYPES.get(x['type'])==expected and x['type']!=27 for x in node['elements'])}
+        if embedded_path is not None:source['embeddedPath']=embedded_path
+        if scope=='recalled_original':source['historicalOnly']=True
+        if quote_index is not None:
+            path=list(quote_index) if isinstance(quote_index,(tuple,list)) else [quote_index]
+            source['quoteElement']=path[0];source['quotePath']=path
+        self.db.execute("""INSERT INTO occurrences(kind,scope,time,sender_uid,sender_uin,source,identifiers,element_key)
+          VALUES (?,?,?,?,?,?,?,?)""",(element['kind'],scope,node.get('time'),node.get('senderUid'),node.get('senderUin'),dumps(source),'[]',key))
+
+    def native_context(self,ref):
+        from wire import parse_fields,first,values,text
+        table=ref['chat'];timestamp=ref['time']
+        try:seq=int(ref['seq']);random=int(ref['random'])
+        except (ValueError,TypeError):return {'status':'reference_identity_incomplete'}
+        if timestamp is None:return {'status':'reference_timestamp_unavailable'}
+        rows=list(self.source.execute(f'SELECT msgTime,msgSeq,msgRandom,extensionData FROM "{table}" WHERE msgTime=? AND msgSeq=? AND msgRandom=? LIMIT 2',
+          (timestamp,seq,random)))
+        variant=False
+        if not rows:
+            rows=list(self.source.execute(f'SELECT msgTime,msgSeq,msgRandom,extensionData FROM "{table}" WHERE msgTime BETWEEN ? AND ? AND msgSeq=? AND msgRandom=? LIMIT 2',
+              (timestamp-2,timestamp+2,seq,random)))
+            if not rows:return {'status':'reference_time_unmatched','reason':'pending_conversation_wide_native_key_scan'}
+            variant=True
+        if len(rows)!=1:return {'status':'source_message_ambiguous'}
+        ts,sq,rnd,raw=rows[0]
+        try:
+            envelope=parse_fields(raw or b'');body_raw=first(envelope,5)
+            if not isinstance(body_raw,bytes):return {'status':'source_message_unparsed'}
+            body=parse_fields(body_raw);header=parse_fields(first(envelope,1) or b'')
+            types=[];recall=[]
+            for blob in values(body,40800,2):
+                e=parse_fields(blob);ty=first(e,45002);types.append(ty)
+                if ty==8 and first(e,45003)==1:recall.append({'operatorUid':text(first(e,47703)),'originalSenderUid':text(first(e,47704))})
+            status='recalled_message' if recall else 'service_message' if types and all(t in (1,8,21,26) for t in types) and any(t in (8,21,26) for t in types) else 'source_message_present'
+            result={'status':'timestamp_candidate' if variant else status,'messageKind':status,'sourceKey':[table,ts,str(sq),str(rnd)],
+              'senderUid':text(first(body,40020)),'senderUin':str(first(body,40033) or first(header,1)) if first(body,40033) or first(header,1) else None,
+              'elementTypes':types,'recalledPeople':recall,'historicalOnly':status!='source_message_present'}
+            if variant:result['nativeTimestamp']=timestamp;result['deltaSeconds']=ts-timestamp;result['identityConfirmed']=False
+            return result
+        except (ValueError,TypeError):return {'status':'source_message_unparsed'}
 
     def next(self):
-        from parser import parse_record, compact
+        from parser import parse_record, compact, MEDIA_MARKERS
         self.unchanged()
         if self.pending: raise ValueError('commit_required')
         self.db.execute('BEGIN IMMEDIATE')
         self.pending = True
+        self.pending_stats={}
+        self.pending_sequences={}
         phase = self.state['phase']
         records, objects = [], []
         if phase == 'inventory':
@@ -214,12 +313,33 @@ class Reader:
                     if v is not None: self.state[k] = v if self.state[k] is None else fn(self.state[k], v)
                 self.state['tableIndex'] += 1
             else:
-                self.state.update(phase='messages', tableIndex=0)
+                self.state.update(phase='references', tableIndex=0)
                 self.state['resourceTotal'] = self.source.execute('SELECT count(*) FROM filecontext').fetchone()[0]
+        elif phase == 'references':
+            from media_links import index_reference
+            index=self.state['referenceTableIndex']
+            if index>=len(self.tables):self.state['phase']='messages'
+            else:
+                chat=self.tables[index];table='res'+chat[3:]
+                exists=self.source.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone()
+                if not exists:
+                    self.detail('native_resource_table_missing',{'table':table})
+                    self.state.update(referenceTableIndex=index+1,referenceCursor=0)
+                else:
+                    rows=self.source.execute(f'SELECT rowid,msgSeq,msgRandom,msgSubType,filePath,fileSize,extraData,resinfoId FROM "{table}" WHERE rowid>? ORDER BY rowid LIMIT ?',
+                      (self.state['referenceCursor'],self.cfg['batchSize']))
+                    last=None
+                    for row in rows:
+                        check();last=row[0]
+                        status=index_reference(self.db,chat,row)
+                        self.state['nativeReferences']+=1
+                        if status!='ok':self.detail('native_metadata_unparsed',{'table':table,'row':last})
+                    if last:self.state['referenceCursor']=last
+                    else:self.state.update(referenceTableIndex=index+1,referenceCursor=0)
         elif phase == 'messages':
             index = self.state['tableIndex']
             if index >= len(self.tables):
-                self.state.update(phase='media', cursor=None)
+                self.state.update(phase='native_context', cursor=None)
             else:
                 name = self.tables[index]
                 cursor = self.state['cursor']
@@ -235,6 +355,13 @@ class Reader:
                     check()
                     rid, ts, seq, rnd, raw, extra = row
                     last = [ts, str(seq), str(rnd)]
+                    if self.cfg.get('mediaAuditOnly') and raw and not any(marker in raw for marker in MEDIA_MARKERS):
+                        self.state['processed']+=1
+                        self.state['rowsWithoutMediaSignature']=self.state.get('rowsWithoutMediaSignature',0)+1
+                        self.state['mediaAuditOnly']=True
+                        bytes_read+=len(raw)
+                        if time.monotonic()-started>0.5 or bytes_read>=4*1024*1024:break
+                        continue
                     try:
                         record = parse_record(name, row)
                     except (ValueError, TypeError, RecursionError) as e:
@@ -254,6 +381,62 @@ class Reader:
                         self.detail('source_seq_conflict', {'table': name, 'seq': seq, 'count': n})
                     self.db.execute('DELETE FROM seqs')
                     self.state.update(tableIndex=index+1, cursor=None)
+        elif phase == 'native_context':
+            rows=self.db.execute("""SELECT n.rowid AS id,n.chat,n.time,n.seq,n.random FROM native_refs n WHERE n.rowid>?
+              AND NOT EXISTS(SELECT 1 FROM native_message_context c WHERE c.chat=n.chat AND c.time IS n.time AND c.seq=n.seq AND c.random=n.random)
+              ORDER BY n.rowid LIMIT ?""",(self.state.get('nativeContextCursor',0),self.cfg['batchSize'])).fetchall()
+            started=time.monotonic()
+            for ref in rows:
+                check();self.state['nativeContextCursor']=ref['id']
+                found=self.db.execute('SELECT 1 FROM native_message_context WHERE chat=? AND time IS ? AND seq=? AND random=?',
+                  (ref['chat'],ref['time'],ref['seq'],ref['random'])).fetchone()
+                if found:continue
+                context=self.native_context(ref)
+                self.db.execute('INSERT INTO native_message_context VALUES (?,?,?,?,?,?)',
+                  (ref['chat'],ref['time'],ref['seq'],ref['random'],context['status'],dumps(context)))
+                self.state['nativeContextGroupsChecked']=self.state.get('nativeContextGroupsChecked',0)+1
+                counts=self.state.setdefault('nativeSourceContexts',{});counts[context['status']]=counts.get(context['status'],0)+1
+                if time.monotonic()-started>=0.5:break
+            if not rows:
+                self.state['nativeIdentityTables']=[r[0] for r in self.db.execute("SELECT DISTINCT chat FROM native_message_context WHERE status IN ('reference_time_unmatched','timestamp_candidate') ORDER BY chat")]
+                self.state['phase']='native_identity_scan'
+        elif phase == 'native_identity_scan':
+            tables=self.state['nativeIdentityTables'];index=self.state.get('nativeIdentityTableIndex',0)
+            if index>=len(tables):self.state['phase']='native_finalize'
+            else:
+                table=tables[index]
+                if getattr(self,'identity_table',None)!=table:
+                    self.identity_table=table
+                    wanted=self.db.execute("SELECT seq,random FROM native_message_context WHERE chat=? AND status IN ('reference_time_unmatched','timestamp_candidate') LIMIT 20001",(table,)).fetchall()
+                    self.identity_wanted={(r[0],r[1]) for r in wanted} if len(wanted)<=20000 else None
+                cursor=self.state.get('nativeIdentityCursor');where='WHERE (msgTime,msgSeq,msgRandom)>(?,?,?)' if cursor else ''
+                args=[int(x) for x in cursor] if cursor else [];args.append(10000)
+                # 只读覆盖主键索引，逐行查遍该会话所有时间，不用“附近没有”冒充“全库没有”。
+                rows=self.source.execute(f'SELECT msgTime,msgSeq,msgRandom FROM "{table}" {where} ORDER BY msgTime,msgSeq,msgRandom LIMIT ?',args)
+                last=None
+                for ts,seq,rnd in rows:
+                    check();last=[ts,str(seq),str(rnd)]
+                    wanted=(str(seq),str(rnd)) in self.identity_wanted if self.identity_wanted is not None else bool(self.db.execute("SELECT 1 FROM native_message_context WHERE chat=? AND seq=? AND random=? AND status IN ('reference_time_unmatched','timestamp_candidate') LIMIT 1",(table,str(seq),str(rnd))).fetchone())
+                    if wanted:self.db.execute('INSERT OR IGNORE INTO native_identity_candidates VALUES (?,?,?,?)',(table,str(seq),str(rnd),ts))
+                    self.state['nativeIdentityRows']=self.state.get('nativeIdentityRows',0)+1
+                    self.state['nativeIdentityTableRows']=self.state.get('nativeIdentityTableRows',0)+1
+                if last:self.state['nativeIdentityCursor']=last
+                else:
+                    self.db.execute('INSERT OR REPLACE INTO native_identity_coverage VALUES (?,?)',(table,self.state.get('nativeIdentityTableRows',0)))
+                    self.state.update(nativeIdentityTableIndex=index+1,nativeIdentityCursor=None,nativeIdentityTableRows=0)
+        elif phase == 'native_finalize':
+            rows=self.db.execute("SELECT rowid AS id,* FROM native_message_context WHERE rowid>? AND status IN ('reference_time_unmatched','timestamp_candidate') ORDER BY rowid LIMIT ?",(self.state.get('nativeFinalizeCursor',0),self.cfg['batchSize'])).fetchall()
+            for ref in rows:
+                check();self.state['nativeFinalizeCursor']=ref['id']
+                found=self.db.execute('SELECT time FROM native_identity_candidates WHERE chat=? AND seq=? AND random=? ORDER BY time LIMIT 513',(ref['chat'],ref['seq'],ref['random'])).fetchall()
+                if found:
+                    result={'status':'timestamp_candidate','identityConfirmed':False,'reason':'same_native_sequence_random_at_other_timestamp',
+                        'candidateTimes':[r[0] for r in found],'nativeTimestamp':ref['time'],'entireConversationScanned':True}
+                else:result={'status':'source_message_absent','reason':'native_sequence_random_absent_from_entire_conversation','entireConversationScanned':True}
+                self.db.execute('UPDATE native_message_context SET status=?,context=? WHERE rowid=?',(result['status'],dumps(result),ref['id']))
+            if not rows:
+                self.state['nativeSourceContexts']={r[0]:r[1] for r in self.db.execute('SELECT status,count(*) FROM native_message_context GROUP BY status')}
+                self.state['phase']='linking' if self.state['resourcesProcessed']==self.state['resourceTotal'] else 'media'
         elif phase == 'media':
             from media import MediaReader
             if self.media is None: self.media = MediaReader(self.root, self.keys, self.unchanged)
@@ -267,12 +450,16 @@ class Reader:
                 r = dict(zip(columns, row))
                 last = r['rowid']
                 obj = {'resourceId': str(r['rowid']), 'sourceResId': str(r['resId'])}
+                from media_links import register_catalog_aliases
+                register_catalog_aliases(self.db,str(r['resId']),r)
                 try:
-                    obj.update(self.media.inspect(r), status='available')
-                    for field, algorithm in (('md5','md5'),('sha','sha1'),('sha3','sha256')):
-                        value = r.get(field)
-                        if isinstance(value,str) and re.fullmatch('[a-fA-F0-9]{'+str({'md5':32,'sha1':40,'sha256':64}[algorithm])+'}',value):
-                            self.db.execute('INSERT OR IGNORE INTO aliases VALUES (?,?,?)',(str(r['rowid']),algorithm,value.lower()))
+                    cached=self.catalog.get(str(r['resId'])) if self.catalog and r['dbfileResid'] else None
+                    if cached and cached['size']==r['filesize'] and cached.get('mime')!='application/octet-stream':
+                        obj.update(cached,status='available');self.state['physicalCacheHits']+=1
+                    else:
+                        physical=self.media.inspect(r)
+                        obj.update(physical,status='available');self.state['resourcesHashed']+=1
+                        if self.catalog and r['dbfileResid']:self.catalog.put(str(r['resId']),physical)
                     self.state['mediaBytes'] += obj['size']
                 except (FileNotFoundError, ValueError, OSError) as e:
                     obj.update(status='unavailable', reason=str(e), size=r['filesize'])
@@ -287,22 +474,14 @@ class Reader:
             started=time.monotonic()
             for occurrence in pending:
                 check()
-                candidates={}
-                for ident in json.loads(occurrence['identifiers']):
-                    algorithm=ident['algorithm']
-                    if algorithm not in ('md5','sha1','sha256'): continue
-                    # 字段名严格白名单；值始终参数化，协议 hash 与实物 hash 的对应保留出处。
-                    query=f'SELECT o.res_id,o.sha256,o.size,o.mime,o.status,o.target FROM objects o WHERE o.{algorithm}=? UNION SELECT o.res_id,o.sha256,o.size,o.mime,o.status,o.target FROM aliases a JOIN objects o ON o.res_id=a.res_id WHERE a.algorithm=? AND a.digest=? LIMIT 33'
-                    for obj in self.db.execute(query,(ident['value'],algorithm,ident['value'])):
-                        key=(obj['res_id'],ident['role'])
-                        candidates[key]={**dict(obj),'role':ident['role'],'target':json.loads(obj['target'])}
-                payloads=list(candidates.values())
-                main={x['sha256'] for x in payloads if x['status']=='available' and x['role']=='main'}
-                status='ambiguous' if len(payloads)>=33 or len(main)>1 else 'resolved' if len(main)==1 else 'preview_only' if payloads else 'unresolved'
-                self.db.execute('UPDATE occurrences SET link_status=?,payloads=? WHERE id=?',(status,dumps(payloads),occurrence['id']))
+                from media_links import MediaLinker
+                if not hasattr(self,'linker'):self.linker=MediaLinker(self.db)
+                resolution=self.linker.resolve(occurrence)
+                self.db.execute('UPDATE occurrences SET link_status=?,payloads=?,resolution=? WHERE id=?',
+                  (resolution['status'],dumps(resolution['candidates']),dumps({k:v for k,v in resolution.items() if k!='candidates'}),occurrence['id']))
                 self.state['linkCursor']=occurrence['id']
                 self.state['linkedOccurrences']+=1
-                self.count('counts','media_link:'+status)
+                self.count('counts','media_link:'+resolution['status'])
                 if time.monotonic()-started>=0.5: break
             if not pending: self.state['phase']='done'
         return {'state': self.state, 'records': records, 'objects': objects}
@@ -310,6 +489,11 @@ class Reader:
     def commit(self, results):
         if not self.pending: raise ValueError('no_pending_batch')
         self.unchanged()
+        self.db.executemany('''INSERT INTO stats VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scope,kind,chat,sender_uid,sender_uin) DO UPDATE SET
+          count=count+excluded.count,first=CASE WHEN first IS NULL THEN excluded.first WHEN excluded.first IS NULL THEN first ELSE min(first,excluded.first) END,
+          last=CASE WHEN last IS NULL THEN excluded.last WHEN excluded.last IS NULL THEN last ELSE max(last,excluded.last) END''',
+          [(*key,*value) for key,value in self.pending_stats.items()])
+        self.db.executemany('INSERT INTO seqs VALUES (?,?) ON CONFLICT(seq) DO UPDATE SET count=count+excluded.count',self.pending_sequences.items())
         for item in results.get('matches', []):
             self.count('matches', item['status'])
             self.count('matches', 'sender_' + item['sender']['status'])
@@ -335,9 +519,10 @@ class Reader:
                   (item['sourceKey'][0],node.get('senderUid') or '',node.get('senderUin') or '',item['chatId'],binding['status'],binding['userId'],binding['evidence']))
         for item in results.get('objects', []):
             o = item['object']
-            self.db.execute('INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?,?,?,?,?)',
-                (o['resourceId'], o.get('sha256'), o.get('md5'), o.get('sha1'), o.get('size'), o.get('mime'), o['status'], dumps(item['target']),o.get('sourceResId')))
+            self.db.execute('INSERT OR REPLACE INTO objects(res_id,sha256,md5,sha1,size,mime,status,target,source_res_id,unavailable_reason,special) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                (o['resourceId'], o.get('sha256'), o.get('md5'), o.get('sha1'), o.get('size'), o.get('mime'), o['status'], dumps(item['target']),o.get('sourceResId'),o.get('reason'),dumps(o.get('special') or {})))
             self.count('matches', 'media_' + item['target']['status'])
+        if self.catalog:self.catalog.commit()
         self.state['updatedAt'] = time.time()
         self.db.execute('INSERT OR REPLACE INTO state VALUES (1,?)', (dumps(self.state),))
         self.db.commit()
@@ -348,9 +533,10 @@ class Reader:
         self.db.close()
         self.source.close()
         if self.media: self.media.close()
+        if self.catalog:self.catalog.close()
 
 
-def report(path, view, cursor, limit, kind):
+def report(path, view, cursor, limit, kind, status=''):
     db = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     db.row_factory = sqlite3.Row
     if view == 'state':
@@ -365,13 +551,33 @@ def report(path, view, cursor, limit, kind):
         result = [dict(r) for r in db.execute('SELECT rowid AS id,* FROM inventory WHERE rowid>? ORDER BY rowid LIMIT ?', (cursor, limit))]
     elif view == 'bindings':
         result = [dict(r) for r in db.execute('SELECT rowid AS id,* FROM bindings WHERE rowid>? ORDER BY rowid LIMIT ?',(cursor,limit))]
+    elif view == 'native_resources':
+        conditions=['n.rowid>?'];arguments=[cursor]
+        if kind:conditions.append('n.kind=?');arguments.append(kind)
+        if status:conditions.append('c.status=?');arguments.append(status)
+        arguments.append(limit)
+        query="""SELECT n.rowid AS id,n.*,o.sha256,o.mime,o.status AS payload_status,o.unavailable_reason,
+          c.status AS source_message_status,c.context FROM native_refs n LEFT JOIN objects o ON o.source_res_id=n.resource
+          LEFT JOIN native_message_context c ON c.chat=n.chat AND c.time IS n.time AND c.seq=n.seq AND c.random=n.random WHERE """+' AND '.join(conditions)+' ORDER BY n.rowid LIMIT ?'
+        result=[dict(r) for r in db.execute(query,arguments)]
+        for row in result:row['context']=json.loads(row['context']) if row['context'] else None
     elif view == 'media':
         result = [dict(r) for r in db.execute('SELECT rowid AS id,* FROM objects WHERE rowid>? ORDER BY rowid LIMIT ?', (cursor, limit))]
-        for r in result: r['target'] = json.loads(r['target'])
-    elif view in ('media_occurrences','media_links'):
-        result=[dict(r) for r in db.execute('SELECT * FROM occurrences WHERE id>? ORDER BY id LIMIT ?',(cursor,limit))]
         for r in result:
-            for field in ('source','identifiers','payloads'): r[field]=json.loads(r[field])
+            r['target']=json.loads(r['target'])
+            r['special']=json.loads(r.get('special') or '{}')
+    elif view in ('media_occurrences','media_links'):
+        conditions=['id>?'];arguments=[cursor]
+        if status:conditions.append('link_status=?');arguments.append(status)
+        if kind:conditions.append('kind=?');arguments.append(kind)
+        arguments.append(limit)
+        result=[dict(r) for r in db.execute('SELECT * FROM occurrences WHERE '+ ' AND '.join(conditions)+' ORDER BY id LIMIT ?',arguments)]
+        for r in result:
+            for field in ('source','identifiers','payloads','resolution'): r[field]=json.loads(r[field])
+            r['resolution'].setdefault('candidates',r['payloads'])
+            if r.get('element_key'):
+                descriptor=db.execute('SELECT descriptor FROM media_elements WHERE key=?',(r['element_key'],)).fetchone()
+                if descriptor:r['identifiers']=json.loads(descriptor[0]).get('identifiers',[])
     elif view == 'media_summary':
         # 磁盘索引完成后精确连接；不把协议 MD5 当实际 SHA-256 去重。
         result = dict(db.execute('''SELECT
@@ -384,6 +590,9 @@ def report(path, view, cursor, limit, kind):
         result['uniqueBytes'] = db.execute('SELECT coalesce(sum(size),0) FROM (SELECT max(size) AS size FROM objects WHERE sha256 IS NOT NULL GROUP BY sha256)').fetchone()[0]
         result['mediaTimeRange']=dict(db.execute('SELECT min(time) AS first,max(time) AS last,count(*) AS occurrences FROM occurrences').fetchone())
         result['sourceDuplicateResources']=max(0,(result['available'] or 0)-result['unique_payloads'])
+        audit=db.execute('SELECT value FROM media_catalog_state WHERE id=1').fetchone()
+        result['nativeSourceContexts']={row[0]:row[1] for row in db.execute('SELECT status,count(*) FROM native_message_context GROUP BY status')}
+        result['associationAudit']=json.loads(audit[0]) if audit else None
         result['occurrenceLinks']={r['link_status']:r['n'] for r in db.execute('SELECT link_status,count(*) AS n FROM occurrences GROUP BY link_status')}
     else: raise ValueError('unknown_report')
     db.close()
@@ -393,7 +602,7 @@ def report(path, view, cursor, limit, kind):
 def main():
     os.umask(0o077)
     if len(sys.argv) > 1 and sys.argv[1] == 'report':
-        print(dumps(report(sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6])))
+        print(dumps(report(sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5]), sys.argv[6], sys.argv[7] if len(sys.argv)>7 else '')))
         return
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)

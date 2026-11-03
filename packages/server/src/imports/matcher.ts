@@ -93,7 +93,8 @@ export function compareContent(source: BackupRecord, target: Target): { equal: b
     } else if ([2, 3, 4, 5, 11, 49].includes(a.type)) {
       const m = b.picElement ?? b.fileElement ?? b.pttElement ?? b.videoElement ?? b.marketFaceElement ?? {};
       const hashes = [m.md5HexStr, m.fileMd5, m.md5, m.emojiId, m.videoMd5, m.originVideoMd5].filter(Boolean).map((x: unknown) => String(x).toLowerCase());
-      const ids = a.identifiers?.filter(x => x.role === 'main' && x.algorithm === 'md5') ?? [];
+      const ids = a.identifiers?.filter(x => x.role === 'main' && (x.algorithm === 'md5' || (a.type === 11 && x.algorithm === 'emoji_id'))) ?? [];
+      if (a.type===11 && valid(a.packageId) && valid(m.emojiPackageId) && String(a.packageId)!==String(m.emojiPackageId)) reasons.push(`element_${i}:sticker_package_differs`);
       if (!ids.some(x => hashes.includes(x.value))) reasons.push(`element_${i}:media_identity_unverified`);
       // 文件字节是否可复用由 objects 的实际 SHA-256 判定，不由协议 MD5 推断。
     } else if (a.type === 7) {

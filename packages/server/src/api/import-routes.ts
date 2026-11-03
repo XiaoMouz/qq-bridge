@@ -29,8 +29,8 @@ export function registerImportRoutes(app: FastifyInstance, deps: ApiDeps): void 
     routes.post('/imports/:id/resume', async (request, reply) => reply.code(202).send(await deps.imports.resume(request.backupAccountId!, params.parse(request.params).id)));
     routes.get('/imports/:id/reports/:view', request => {
       const p = params.extend({ view: z.string() }).parse(request.params);
-      const q = z.object({ cursor: z.coerce.number().int().nonnegative().default(0), limit: z.coerce.number().int().min(1).max(500).default(100), kind: z.string().max(100).default('') }).parse(request.query);
-      return deps.imports.report(request.backupAccountId!, p.id, p.view, q.cursor, q.limit, q.kind);
+      const q = z.object({ cursor: z.coerce.number().int().nonnegative().default(0), limit: z.coerce.number().int().min(1).max(500).default(100), kind: z.string().max(100).default(''), status: z.string().max(100).default('') }).parse(request.query);
+      return deps.imports.report(request.backupAccountId!, p.id, p.view, q.cursor, q.limit, q.kind, q.status);
     });
   });
 }
