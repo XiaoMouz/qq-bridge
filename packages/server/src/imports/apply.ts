@@ -199,8 +199,10 @@ export class BackupApplier {
           sql`select min(seq) as seq, extract(epoch from min(time))::bigint as time from messages where chat_id = ${chat.id}`,
         )
       : null;
+    // 会话行在、但一条消息都没有（资料同步等先建了会话行，2026-11-04 实测群 162930392）：按新会话处理，
+    // 否则没有「生产最早一条」可比，整段备份都会被当成补洞分配 chat_pts，已读位置也不会跟着推进。
     const ctx: ChatContext = {
-      scene, peerId, existedAtStart: Boolean(chat),
+      scene, peerId, existedAtStart: Boolean(chat) && floor?.seq !== null && floor?.seq !== undefined,
       floorSeq: floor?.seq === null || floor?.seq === undefined ? null : Number(floor.seq),
       floorTime: floor?.time === null || floor?.time === undefined ? null : Number(floor.time),
     };
