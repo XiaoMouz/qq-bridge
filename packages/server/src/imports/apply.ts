@@ -50,7 +50,7 @@ export interface ExportRecord {
   forward?: { path: string; nodes: { sourcePath: number[]; nt: NtRawMessage & { elements: NtElement[] } }[] }[];
   reason?: string;
 }
-interface Batch { table: string | null; records: ExportRecord[]; cursor: [number, number, number] | null; tableDone: boolean; finished?: boolean }
+interface Batch { table: string | null; records: ExportRecord[]; cursor: [string, string, string] | null; tableDone: boolean; finished?: boolean }
 interface ChatContext { scene: Scene; peerId: number; existedAtStart: boolean; floorSeq: number | null; floorTime: number | null }
 
 export interface ApplyOptions {

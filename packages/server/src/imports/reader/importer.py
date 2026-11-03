@@ -90,7 +90,7 @@ class Exporter:
 
     def cursor(self, table):
         r = self.state.execute('SELECT time, seq, random, done FROM cursors WHERE tbl=?', (table,)).fetchone()
-        return (r[0], r[1], r[2]) if r and r[0] is not None else None, bool(r and r[3])
+        return (int(r[0]), int(r[1]), int(r[2])) if r and r[0] is not None else None, bool(r and r[3])
 
     def next(self, limit):
         for table in self.tables:
@@ -100,8 +100,10 @@ class Exporter:
             rows = list(self.source.execute(f'''SELECT _id,msgTime,msgSeq,msgRandom,extensionData,NULL FROM "{table}" {where}
                 ORDER BY msgTime,msgSeq,msgRandom LIMIT ?''', [*(cur or ()), limit]))
             if not rows: return {'table': table, 'records': [], 'cursor': None, 'tableDone': True}
+            # 游标经 Node 的 JSON 往返：灰条的 msgRandom 是 64 位整数，超过 2^53 会被舍入（2026-11-04 实测：舍小了反复读同一批、
+            # 舍大了跳过同一秒同 seq 的行），所以按字符串传，用的时候再转回整数。
             return {'table': table, 'records': [self.record(table, row) for row in rows],
-                    'cursor': list(rows[-1][1:4]), 'tableDone': False}
+                    'cursor': [str(v) for v in rows[-1][1:4]], 'tableDone': False}
         return {'table': None, 'records': [], 'cursor': None, 'tableDone': True, 'finished': True}
 
     def record(self, table, row):
@@ -154,7 +156,7 @@ class Exporter:
             self.state.execute('INSERT INTO cursors(tbl,done) VALUES (?,1) ON CONFLICT(tbl) DO UPDATE SET done=1', (table,))
         else:
             self.state.execute('''INSERT INTO cursors(tbl,time,seq,random,done) VALUES (?,?,?,?,0)
-              ON CONFLICT(tbl) DO UPDATE SET time=excluded.time, seq=excluded.seq, random=excluded.random''', (table, *cursor))
+              ON CONFLICT(tbl) DO UPDATE SET time=excluded.time, seq=excluded.seq, random=excluded.random''', (table, *(int(v) for v in cursor)))
         self.state.commit()
         return {'ok': True}
 
