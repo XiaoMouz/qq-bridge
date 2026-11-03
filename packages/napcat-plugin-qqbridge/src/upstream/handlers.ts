@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ChatType, msgApi, requireFn, session, uidByUin, type Peer } from '../core.js';
+import { ChatType, msgApi, requireFn, selfInfo, session, uidByUin, type Peer } from '../core.js';
 import type { NapCatPluginContext } from '../napcat.js';
 import { callAction } from './actions.js';
 import type { RpcHandler } from './link.js';
@@ -375,11 +375,17 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
         case ElementType.PTT:
           if (!locator.fileUuid || !api.getPttUrl) return { url: null };
           return { url: await packetUrl(() => api.getPttUrl(peerUid, locator.fileUuid, URL_TIMEOUT_MS)) };
-        case ElementType.FILE:
+        case ElementType.FILE: {
           if (!locator.fileUuid || !api.getFileUrl) return { url: null };
+          // 2026-10-30 私聊 87 MB 文件实测：传对方 uid 会使 0xE37_1200 超时；
+          // NapCat 专用 get_private_file_url 用主号 uid，立即拿到地址且 Range 请求成功。
+          const receiverUid = locator.chatType === ChatType.friend || locator.chatType === ChatType.temp
+            ? selfInfo(ctx.core).uid
+            : peerUid;
           return {
-            url: await packetUrl(() => api.getFileUrl(locator.chatType, peerUid, locator.fileUuid, locator.file10MMd5, URL_TIMEOUT_MS)),
+            url: await packetUrl(() => api.getFileUrl(locator.chatType, receiverUid, locator.fileUuid, locator.file10MMd5, URL_TIMEOUT_MS)),
           };
+        }
         default:
           return { url: null };
       }
