@@ -192,3 +192,26 @@ print(json.dumps(result))`;
     expect(JSON.parse(stdout)).toEqual({ one: ['a/one.bin'], dup: 2, missing: [], link: [], again: 1, walks: 1 });
   } finally { await fs.rm(temp, { recursive: true, force: true }); }
 });
+
+it('消息表的 (msgTime,msgSeq,msgRandom) 不唯一时拒绝翻页', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qq-import-key-'));
+  try {
+    const native = await prepareNative(temp);
+    const script = `
+import json, apsw
+from worker import unique_message_key
+db = apsw.Connection(':memory:')
+db.execute('CREATE TABLE msg_1_1(_id INTEGER, msgTime INTEGER, msgSeq INTEGER, msgRandom INTEGER, PRIMARY KEY(msgTime,msgSeq,msgRandom))')
+db.execute('CREATE TABLE msg_1_2(_id INTEGER PRIMARY KEY, msgTime INTEGER, msgSeq INTEGER, msgRandom INTEGER)')
+db.execute('CREATE INDEX msg_1_2_key ON msg_1_2(msgTime,msgSeq,msgRandom)')
+db.execute('CREATE TABLE msg_1_3(_id INTEGER, msgTime INTEGER, msgSeq INTEGER, msgRandom INTEGER)')
+db.execute('CREATE UNIQUE INDEX msg_1_3_key ON msg_1_3(msgRandom,msgSeq,msgTime)')
+db.execute('CREATE TABLE msg_1_4(_id INTEGER, msgTime INTEGER, msgSeq INTEGER, msgRandom INTEGER)')
+db.execute('CREATE UNIQUE INDEX msg_1_4_key ON msg_1_4(msgTime,msgSeq,msgRandom) WHERE msgSeq > 0')
+print(json.dumps([unique_message_key(db, t) for t in ('msg_1_1', 'msg_1_2', 'msg_1_3', 'msg_1_4')]))`;
+    const { stdout } = await exec(importPython(), ['-c', script], {
+      env: { ...process.env, QQ_IMPORT_NATIVE: native, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: fileURLToPath(new URL('../src/imports/reader/', import.meta.url)) },
+    });
+    expect(JSON.parse(stdout)).toEqual([true, false, true, false]);
+  } finally { await fs.rm(temp, { recursive: true, force: true }); }
+});

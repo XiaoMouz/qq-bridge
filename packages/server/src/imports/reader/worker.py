@@ -33,6 +33,18 @@ def dumps(value):
     return json.dumps(value, ensure_ascii=False, separators=(',', ':')).replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
 
 
+MESSAGE_KEY = {'msgTime', 'msgSeq', 'msgRandom'}
+
+
+def unique_message_key(source, table):
+    # 消息按 (msgTime,msgSeq,msgRandom) 翻页；只有这三列唯一时，批次边界才不会跳过同键的另一行。
+    # 部分唯一索引只约束其中一部分行，不算。
+    for _, index, unique, _origin, partial in source.execute(f'PRAGMA index_list("{table}")'):
+        if unique and not partial and {row[2] for row in source.execute(f'PRAGMA index_info("{index}")')} == MESSAGE_KEY:
+            return True
+    return False
+
+
 def connect(path):
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
@@ -99,6 +111,8 @@ class Reader:
         self.source.set_progress_handler(lambda: bool(STOP), 10000)
         self.tables = [r[0] for r in self.source.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name") if TABLE.fullmatch(r[0])]
         if not self.tables: raise ValueError('message_tables_missing')
+        # 夹具按源库结构以这三列为主键，但真实备份未逐表核实；不满足就拒绝，不静默漏读。
+        if not all(unique_message_key(self.source, name) for name in self.tables): raise ValueError('source_message_key_not_unique')
         self.db = connect(cfg['statePath'])
         current = self.db.execute('SELECT value FROM state WHERE id=1').fetchone()
         self.state = json.loads(current[0]) if current else {
