@@ -1,6 +1,7 @@
 // APNs 客户端：HTTP/2 + 令牌认证（.p8 密钥签 ES256 JWT）。不依赖第三方库。
 // 每个环境（sandbox / production）一条长连接，断了下次发送时重连；JWT 50 分钟换一次（Apple 要求 20–60 分钟）。
 import { createPrivateKey, sign, type KeyObject } from 'node:crypto';
+import { lookup } from 'node:dns';
 import http2 from 'node:http2';
 import type { Logger } from 'pino';
 
@@ -122,7 +123,11 @@ export class ApnsClient implements PushSender {
   private session(env: ApnsEnv): http2.ClientHttp2Session {
     const existing = this.sessions.get(env);
     if (existing && !existing.closed && !existing.destroyed) return existing;
-    const session = http2.connect(this.opts.origins?.[env] ?? DEFAULT_ORIGINS[env]);
+    // 2026-10-29 实测：本机到 APNs 的 IPv6 在 TLS 握手前被重置，生产和沙盒的 IPv4 均正常。
+    // 限定地址族，避免优先选中 IPv6 后每条推送都失败。
+    const session = http2.connect(this.opts.origins?.[env] ?? DEFAULT_ORIGINS[env], {
+      lookup: (hostname, options, callback) => lookup(hostname, { ...options, family: 4 }, callback),
+    });
     session.on('error', (error) => this.opts.logger?.warn({ err: error, env }, 'apns connection error'));
     session.on('close', () => {
       if (this.sessions.get(env) === session) this.sessions.delete(env);
