@@ -1006,13 +1006,14 @@ async function insertMessage(
   const flags = messageFlags(segments, selfUin);
   const reply = segments.find((s): s is Extract<Segment, { type: 'reply' }> => s.type === 'reply');
   const time = new Date(msg.time * 1000).toISOString();
+  // 卡片的纯文本由 plainText 解析卡片 JSON 得到，JSON 里的 \u0000 解析后才成 NUL（2026-11-04 频道帖子卡片），消息段去过 NUL 也管不到。
   const chatPts = opts.version === undefined ? await w.allocChatPts(chat.id) : null;
   const message = toMessage(
     await one(
       w.tx,
       sql`insert into messages (chat_id, seq, qq_msg_id, random, sender_uin, sender_name, time, kind, segments, text, reply_to_seq, flags, version, source, raw)
           values (${chat.id}, ${msg.seq}, ${msg.qqMsgId ?? null}, ${msg.random ?? null}, ${msg.senderId}, ${msg.senderName ? stripNul(msg.senderName) : null}, ${time}, ${service ? 'service' : 'normal'},
-                  ${pgJson(segments)}::jsonb, ${service ? serviceText(segments) : plainText(segments)}, ${reply?.seq ?? null}, ${flags}, ${chatPts ?? opts.version!},
+                  ${pgJson(segments)}::jsonb, ${stripNul(service ? serviceText(segments) : plainText(segments))}, ${reply?.seq ?? null}, ${flags}, ${chatPts ?? opts.version!},
                   ${msg.source}, ${msg.raw === undefined ? null : pgJson(msg.raw)}::jsonb)
           returning ${MESSAGE_COLUMNS}`,
     ),

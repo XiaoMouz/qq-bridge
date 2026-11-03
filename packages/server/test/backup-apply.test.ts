@@ -44,6 +44,13 @@ function text(table: string, seq: number, random: number, time: number, sender: 
     },
   };
 }
+function card(table: string, seq: number, time: number): ExportRecord {
+  const r = text(table, seq, 9000 + seq, time, 2001, '');
+  const json = JSON.stringify({ app: 'com.tencent.forum', desc: '频道帖子', prompt: '[频道帖子]\u0000标题', meta: {} });
+  r.nt.elements = [{ elementType: 10, elementId: '0', arkElement: { bytesData: json } }];
+  r.record.elements = [{ type: 10, kind: 'card', payload: json }];
+  return r;
+}
 function tip(table: string, seq: number, time: number, gray: Record<string, unknown>, kind = 'system'): ExportRecord {
   const r = text(table, seq, 0, time, 0, '');
   return { ...r, kind: 'tip', nt: { ...r.nt, senderUin: '0', elements: [{ elementType: 8, elementId: '0', grayTipElement: gray }] },
@@ -137,6 +144,7 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
       // 真实备份里有灰条文字末尾带 NUL：去重查询和写库都不能因此报错。
       tip(g, 1040, T0 + 1040, { subElementType: 17, jsonGrayTipElement: { jsonStr: JSON.stringify({ items: [{ type: 'nor', txt: '本群每分钟只能发5条消息\u0000' }] }) } }),
       text(g, 103, 9103, T0 + 1030, 2001, 'gap 103'),            // 生产离线漏掉的
+      card(g, 45, T0 - 450),                                      // 卡片 JSON 里带 \u0000
       text(g, 104, 9104, T0 - 9_000_000, 2001, 'old era 104'),   // 和生产 seq 104 撞号
     ],
     [`msg_3_${FRIEND}`]: [1, 2, 3].map((seq) => text(`msg_3_${FRIEND}`, seq, 500 + seq, T0 + seq, FRIEND, `new chat ${seq}`)),
