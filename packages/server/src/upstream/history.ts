@@ -223,7 +223,8 @@ export class HoleFiller {
       sql`select c.id as chat_id, lower(r) as lower, upper(r) as upper, upper(r) <= m.lo as deep
             from chats c cross join lateral (
               select min(seq) as lo, max(seq) as hi, range_agg(int8range(seq, seq + 1)) as k
-                from messages where chat_id = c.id
+                -- 备份导入的替代 seq 是负数（imports/apply.ts），不是 QQ 的 seq，不参与缺口计算。
+                from messages where chat_id = c.id and seq > 0
             ) m cross join lateral unnest(
               int8multirange(int8range(case when c.deep_archive_at is not null then 1 else m.lo end, m.hi + 1))
                 - (c.verified_ranges + coalesce(m.k, '{}'))

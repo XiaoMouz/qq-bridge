@@ -8,6 +8,8 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createDeps } from '../src/app.ts';
 import { rows, type Db } from '../src/db/client.ts';
 import { BackupApplier, type ExportRecord } from '../src/imports/apply.ts';
+import { HoleFiller } from '../src/upstream/history.ts';
+import { InboxProcessor } from '../src/upstream/inbox.ts';
 import { createTestAccount, type TestAccount } from './helpers/fixtures.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 
@@ -171,6 +173,15 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
   expect(chat).toMatchObject({ chat_pts: 3, read_inbox_max_seq: 3, unread_count: 0, top_seq: 3 });
   const versions = await rows<{ version: number }>(db, sql`select m.version from messages m join chats c on c.id = m.chat_id where c.peer_id = ${FRIEND} order by m.seq`);
   expect(versions.map((v) => v.version)).toEqual([1, 2, 3]);
+
+  // 导入覆盖的老历史段记为已核对（缺口补齐不去追这段）；生产原有范围不动。
+  const [ranges] = await rows<{ group_ranges: string; friend_ranges: string }>(db, sql`select
+    (select verified_ranges::text from chats where scene = 'group' and peer_id = ${GROUP}) as group_ranges,
+    (select verified_ranges::text from chats where scene = 'friend' and peer_id = ${FRIEND}) as friend_ranges`);
+  expect(ranges).toEqual({ group_ranges: '{[40,100)}', friend_ranges: '{[1,4)}' });
+  // 生产原有范围里 103 补上了，老历史段已核对，负数替代 seq 不算：没有缺口可补。
+  const filler = new HoleFiller(db, { call: async () => { throw new Error('should not call QQ'); } }, new InboxProcessor(db, deps.ingest), null);
+  expect(await filler.holes(acc.qqAccountId)).toEqual([]);
 
   // 再跑一遍：全部认出是已有的，不重复写。
   const before = await rows<{ n: number }>(db, sql`select count(*)::int as n from messages`);

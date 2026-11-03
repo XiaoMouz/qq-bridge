@@ -19,6 +19,7 @@ Node 24 + TypeScript（strict，直接用 `--import tsx` 跑，不编译），Fa
 | `calls/` | 通话状态机、LiveKit 令牌、网关客户端（见 [docs/calls.md](../../docs/calls.md)） |
 | `push/` | APNs（`apns.ts`，HTTP/2 + JWT）、通知决策（`notifier.ts`：消息、来电、VoIP） |
 | `dialogs/` `search/` `auth/` `admin/` | 会话设置、全文搜索、登录与设备令牌、系统状态与 QQ 扫码中转 |
+| `imports/` | 手机备份：预检（`service.ts` + `reader/worker.py`，dry-run 统计与媒体关联）、导入生产（`apply.ts` + `reader/importer.py`，CLI `import:backup`） |
 | `db/` | 连接、schema、`migrations/`（`NNNN_名字.sql` + `meta/_journal.json` 里加一条） |
 | `test/` | vitest（用真实 Postgres，见 `test/helpers`）；`fixtures` 在仓库根目录 |
 
@@ -30,6 +31,9 @@ Node 24 + TypeScript（strict，直接用 `--import tsx` 跑，不编译），Fa
 - **改 proto**：先改 `packages/protocol/proto`，再生成（见 protocol 的 AGENTS.md），然后在 `api/services.ts` 实现、`convert.ts` 转换。
 - **迁移**：只加不改；新列给默认值或可空。启动时自动跑。
 - **QQ 灰色提示**（elementType 8）：`upstream/napcat/gray-tip.ts` 按子类型白名单译成「文字 + 人」，整条都认得时存为 `kind = 'service'`（不算未读、不推送）；只有 uid 的人在入库时（`resolveTipPeople`）按本地资料换成号码和名字。新子类型先抓样本再加（L2），加完跑 `pnpm cli messages:remap-gray-tips` 重写已存的。
+- **备份导入**（`imports/apply.ts`）：备份行转成 NT 原始消息（`reader/ntraw.py`，字段号按真实重叠消息推导），再走和实时一样的 `mapRawMessage` → `insertMessage`，不另写存法。
+  生产已有的同一条一律保留生产的；比生产最早一条还旧的写 `version = 0`（不进增量同步，翻页时 GetHistory 取），落在生产范围里的补洞照常分配 chat_pts；
+  媒体先拷进媒体库再写消息（否则 `mediaStored` 会抬版本号）。备份的 `msgSeq` 列和生产 seq 同义，同 seq 的多行几乎都是手机本地插入的灰条 / 通话 / 发送失败。
 - **QQ 返回的 id 不一定稳定**（群文件 file_id 每次列出都变）：要记的东西用稳定的键（见 [lessons.md](../../docs/lessons.md) L2）。
 
 ## 运行与测试
@@ -40,6 +44,7 @@ launchctl kickstart -k gui/$(id -u)/com.xiaomouz.qqbridge.server
 tail -f ~/Library/Logs/qqbridge/server.log           # pino JSON
 pnpm cli migrate                                      # 手动迁移（一般启动时自动）
 pnpm cli messages:remap-gray-tips                     # 灰色提示映射改了之后，按 raw 重写已存的（可重跑）
+pnpm cli import:backup --backup <目录> --keys <密钥清单> --scan <预检 scan.sqlite> --state <导入状态库> --qq <id>   # 默认只统计；--apply 才写
 ```
 
 调试插件动作：`tools/qq.sh`，或容器里插件控制口的 `/v1/debug/raw?kind=ob11|methods|history`、`POST /v1/debug/rpc {"name":"x.xxx","params":{}}`。

@@ -541,16 +541,33 @@ export class BackupApplier {
     this.count('recall_inserted');
   }
 
-  /** 表读完：导入新建的会话把最新一页放进增量同步（见 IngestService.promoteImported）。 */
+  /**
+   * 表读完：
+   * - 导入新建的会话把最新一页放进增量同步（见 IngestService.promoteImported）；
+   * - 导入覆盖的那段记为已核对：缺口补齐只看 [最早一条, 最新一条]，老历史导进来后最早一条提前了好几年，
+   *   备份里本来就没有的 seq 会全变成缺口、让服务端不停向 QQ 要历史。导入前它从不自动追生产最早一条之前的，导入后也不。
+   *   往上翻到顶时的懒回填、深度归档不受影响（深度归档会跳过已核对的这段）。
+   */
   private async finishTable(table: string, opts: ApplyOptions): Promise<void> {
+    if (opts.dryRun) return;
     for (const scene of ['group', 'friend', 'temp'] as Scene[]) {
       const ctx = this.chats.get(`chat:${table}:${scene}`) ?? (await this.reader.request({ command: 'meta_get', key: `chat:${table}:${scene}` })).value as ChatContext | null;
-      if (!ctx || ctx.existedAtStart || opts.dryRun) continue;
-      const chat = await maybeOne<{ id: number }>(
+      if (!ctx) continue;
+      const chat = await maybeOne<{ id: number; lo: number | null; hi: number | null }>(
         this.db,
-        sql`select id from chats where qq_account_id = ${opts.qqAccountId} and scene = ${scene} and peer_id = ${ctx.peerId}`,
+        sql`select c.id, (select min(seq) from messages where chat_id = c.id and seq > 0) as lo,
+                   (select max(seq) from messages where chat_id = c.id and seq > 0) as hi
+              from chats c where c.qq_account_id = ${opts.qqAccountId} and c.scene = ${scene} and c.peer_id = ${ctx.peerId}`,
       );
-      if (chat) this.count('new_chat_first_page', await this.ingest.promoteImported(opts.qqAccountId, chat.id, NEW_CHAT_FIRST_PAGE));
+      if (!chat) continue;
+      const upper = ctx.existedAtStart ? ctx.floorSeq : chat.hi === null ? null : Number(chat.hi) + 1;
+      if (chat.lo !== null && upper !== null && Number(chat.lo) < upper) {
+        await this.db.execute(
+          sql`update chats set verified_ranges = verified_ranges + int8multirange(int8range(${Number(chat.lo)}, ${upper})) where id = ${chat.id}`,
+        );
+        this.count('verified_ranges_marked');
+      }
+      if (!ctx.existedAtStart) this.count('new_chat_first_page', await this.ingest.promoteImported(opts.qqAccountId, chat.id, NEW_CHAT_FIRST_PAGE));
     }
   }
 }
