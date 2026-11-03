@@ -134,6 +134,8 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
       text(g, 101, 7101, T0 + 1010, 2001, 'live 101'),          // 生产已有
       tip(g, 1020, T0 + 1020, { subElementType: 12, xmlElement: { content: '<gtip><qq uin="u_2001"/><nor txt="拍了拍"/></gtip>' } }, 'poke'),
       tip(g, 1031, T0 + 1031, { subElementType: 12, xmlElement: { content: '<gtip><qq uin="u_2001"/><nor txt="拍了拍"/></gtip>' } }, 'poke'),
+      // 真实备份里有灰条文字末尾带 NUL：去重查询和写库都不能因此报错。
+      tip(g, 1040, T0 + 1040, { subElementType: 17, jsonGrayTipElement: { jsonStr: JSON.stringify({ items: [{ type: 'nor', txt: '本群每分钟只能发5条消息\u0000' }] }) } }),
       text(g, 103, 9103, T0 + 1030, 2001, 'gap 103'),            // 生产离线漏掉的
       text(g, 104, 9104, T0 - 9_000_000, 2001, 'old era 104'),   // 和生产 seq 104 撞号
     ],
@@ -145,7 +147,8 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
   expect((await rows(db, sql`select 1 from messages where seq = 50`)).length).toBe(0);
 
   const summary = await runImport(tables, { [PNG_SHA]: PNG });
-  expect(summary).toMatchObject({ duplicate: 1, inserted_gap: 1, media_copied: 1, poke_duplicate: 1, poke_inserted: 1, recall_inserted: 1 });
+  expect(summary).toMatchObject({ duplicate: 1, inserted_gap: 1, media_copied: 1, poke_duplicate: 1, poke_inserted: 1, recall_inserted: 1, gray_tip_inserted: 1 });
+  expect(await rows(db, sql`select data->>'text' as text from chat_events where kind = 'gray_tip'`)).toEqual([{ text: '本群每分钟只能发5条消息' }]);
 
   const [history] = await message('group', GROUP, 50);
   expect(history).toMatchObject({ version: 0, source: 'backfill', state: 'normal' });
@@ -190,5 +193,6 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
   expect(again.inserted_history ?? 0).toBe(0);
   expect(again.recall_known).toBe(1);
   expect(again.poke_duplicate).toBe(2);
+  expect(again.gray_tip_duplicate).toBe(1);
   expect(await rows(db, sql`select count(*)::int as n from messages`)).toEqual(before);
 }, 120_000);

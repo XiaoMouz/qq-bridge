@@ -16,6 +16,7 @@ import type { IncomingMedia, IncomingMessage, Scene, Segment } from '@qqbridge/d
 import { sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { maybeOne, rows, type Db } from '../db/client.ts';
+import { stripNul } from '../db/nul.ts';
 import { resolveTipPeople, type ForwardNodeInput, type IngestService } from '../ingest/service.ts';
 import { findBlobBySha256, type ReusableBlob } from '../media/accounting.ts';
 import type { MediaProcessor } from '../media/processing.ts';
@@ -122,6 +123,12 @@ export class BackupApplier {
     this.summary[key] = (this.summary[key] ?? 0) + n;
   }
 
+  /** 各阶段累计耗时（毫秒），进度里和计数一起输出，方便看慢在哪。 */
+  private async timed<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const started = performance.now();
+    try { return await fn(); } finally { this.count(`ms_${key}`, Math.round(performance.now() - started)); }
+  }
+
   private async note(record: { sourceKey: SourceKey }, outcome: string, extra: Record<string, unknown> = {}): Promise<void> {
     this.count(outcome);
     await this.report.write(JSON.stringify({ sourceKey: record.sourceKey, outcome, ...extra }) + '\n');
@@ -140,9 +147,9 @@ export class BackupApplier {
         backupPath: opts.backupPath, keysPath: opts.keysPath, scanPath: opts.scanPath, statePath: opts.statePath, tables: opts.tables ?? [],
       } });
       for (let n = 0; opts.maxBatches === undefined || n < opts.maxBatches; n++) {
-        const batch: Batch = await this.reader.request({ command: 'next', limit: opts.batchSize ?? 200 });
+        const batch: Batch = await this.timed('read', () => this.reader.request({ command: 'next', limit: opts.batchSize ?? 200 }));
         if (batch.finished || !batch.table) break;
-        if (batch.records.length) await this.apply(batch.table, batch.records, opts);
+        if (batch.records.length) await this.timed('apply', () => this.apply(batch.table!, batch.records, opts));
         if (batch.tableDone) await this.finishTable(batch.table, opts);
         await this.reader.request({ command: 'commit', table: batch.table, cursor: batch.cursor, tableDone: batch.tableDone });
         opts.onProgress?.(this.summary, batch.table);
@@ -197,7 +204,10 @@ export class BackupApplier {
     return ctx.floorTime !== null && time < ctx.floorTime ? 0 : undefined;
   }
 
-  private async apply(table: string, records: ExportRecord[], opts: ApplyOptions): Promise<void> {
+  private async apply(table: string, input: ExportRecord[], opts: ApplyOptions): Promise<void> {
+    // Postgres 的 text / jsonb 存不了 NUL；不只写库，去重、匹配的查询参数也会报错，所以进来就统一去掉。
+    // （2026-11-04 群 1062402186 的「本群每分钟只能发5条消息」末尾带 NUL，是灰条 JSON 里的 \u0000，见 applyTips。）
+    const records = input.map(stripNul);
     const byScene = new Map<Scene, ExportRecord[]>();
     for (const r of records) {
       if (r.kind === 'unparsed') { await this.note(r, 'unparsed', { reason: r.reason }); continue; }
@@ -209,7 +219,7 @@ export class BackupApplier {
       const ctx = await this.context(table, scene);
       await this.applyMessages(ctx, list.filter((r) => r.kind === 'message'), opts);
       await this.applyTips(ctx, list.filter((r) => r.kind === 'tip' || r.kind === 'call'), opts);
-      if (!opts.dryRun) await this.markVerified(ctx);
+      if (!opts.dryRun) await this.timed('verified', () => this.markVerified(ctx));
     }
   }
 
@@ -242,7 +252,7 @@ export class BackupApplier {
     const needMatch = records.filter((r) => ctx.existedAtStart && !(ctx.floorSeq !== null && Number(r.nt.msgSeq) > 0 && Number(r.nt.msgSeq) < ctx.floorSeq));
     const matches = new Map<ExportRecord, { status: string; messageId?: string }>();
     if (needMatch.length) {
-      const results = await this.matcher.matchBatch(opts.qqAccountId, needMatch.map((r) => r.record));
+      const results = await this.timed('match', () => this.matcher.matchBatch(opts.qqAccountId, needMatch.map((r) => r.record)));
       results.forEach((m, i) => matches.set(needMatch[i]!, m));
     }
     const items: Parameters<IngestService['importMessages']>[3][number][] = [];
@@ -275,7 +285,7 @@ export class BackupApplier {
       for (const p of pending) this.count(this.versionOf(ctx, p.msg.seq, p.msg.time) === 0 ? 'would_insert_history' : 'would_insert_gap');
       return;
     }
-    const result = await this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId, items, { readThrough: !ctx.existedAtStart });
+    const result = await this.timed('write', () => this.ingest.importMessages(opts.qqAccountId, ctx.scene, ctx.peerId, items, { readThrough: !ctx.existedAtStart }));
     const occupied = new Set(result.occupied);
     for (const p of pending) {
       if (occupied.has(p.msg.seq)) {
@@ -401,11 +411,11 @@ export class BackupApplier {
     else {
       const file = path.join(opts.stagingDir, `${randomUUID()}.part`);
       try {
-        const got = await this.reader.request({ command: 'extract', sha256, path: file });
+        const got = await this.timed('extract', () => this.reader.request({ command: 'extract', sha256, path: file }));
         if (got.missing) this.count('media_extract_failed');
         else {
-          await this.media.storeBlob(createReadStream(file), { kind, expectedSha256: sha256 });
-          await this.processor?.process(sha256, kind);
+          await this.timed('store', () => this.media.storeBlob(createReadStream(file), { kind, expectedSha256: sha256 }));
+          await this.timed('derive', async () => { await this.processor?.process(sha256, kind); });
           blob = await findBlobBySha256(this.db, sha256);
           this.count('media_copied');
         }
@@ -460,15 +470,16 @@ export class BackupApplier {
       for (const tip of r.tips ?? []) {
         const revoke = tip.grayTip?.subElementType === 1 ? tip.grayTip.revokeElement : null;
         if (revoke) { await this.applyRecall(ctx, r, tip, revoke, opts); continue; }
-        const event = tip.kind === 'poke' ? await this.pokeEvent(ctx, tip, time) : await this.tipEvent(ctx, r, tip, time);
+        // 灰条的 JSON 里 \u0000 转义解析后才变成 NUL，进来时的清理管不到，生成后再清一次。
+        const event = stripNul(tip.kind === 'poke' ? await this.pokeEvent(ctx, tip, time) : await this.tipEvent(ctx, r, tip, time));
         if (!event) { await this.note(r, 'tip_unmapped', { type: tip.type }); continue; }
-        if (await this.eventKnown(ctx, event)) { this.count(`${event.kind}_duplicate`); continue; }
+        if (await this.timed('event_dedup', () => this.eventKnown(ctx, event))) { this.count(`${event.kind}_duplicate`); continue; }
         const version = this.eventVersion(ctx, time);
         events.push({ ...event, ...(version === undefined ? {} : { version }) });
         this.count(`${event.kind}_${opts.dryRun ? 'would_insert' : 'inserted'}`);
       }
     }
-    if (events.length && !opts.dryRun) await this.ingest.importChatEvents(opts.qqAccountId, ctx.scene, ctx.peerId, events);
+    if (events.length && !opts.dryRun) await this.timed('events', () => this.ingest.importChatEvents(opts.qqAccountId, ctx.scene, ctx.peerId, events));
   }
 
   /** 拍一拍：和生产实时收到的一样存成 poke 事件，rawInfo 用灰条里的人和文字（<qq>/<img>/<nor>）。 */
