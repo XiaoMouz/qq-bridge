@@ -201,18 +201,6 @@ def main():
             elif command == 'meta_set':
                 exporter.state.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', (req['key'], dumps(req['value']))); exporter.state.commit()
                 response = {'ok': True}
-            elif command == 'media_list':
-                # 媒体预取（apply.ts prefetchMedia）：预检里唯一对应到文件的内容，按 sha256 首位十六进制分片，sha256 顺序分页。
-                exporter.state.execute('CREATE INDEX IF NOT EXISTS occ_sha ON occ(sha256) WHERE sha256 IS NOT NULL')
-                shard, shards = int(req['shard']), int(req['shards'])
-                rows = exporter.state.execute("SELECT DISTINCT sha256 FROM occ WHERE sha256 > ? ORDER BY sha256 LIMIT ?",
-                                              (req.get('after') or '', int(req.get('limit', 500)) * shards)).fetchall()
-                items = []
-                for (sha,) in rows:
-                    if int(sha[0], 16) % shards != shard: continue
-                    mime = exporter.scan.execute('SELECT mime FROM objects WHERE sha256=? LIMIT 1', (sha,)).fetchone()
-                    items.append({'sha256': sha, 'mime': mime[0] if mime else None})
-                response = {'items': items, 'after': rows[-1][0] if rows else None}
             elif command == 'extract':
                 # 单个媒体读不出来不影响整个导入：消息照常写，媒体记为拿不到。
                 try: response = exporter.extract(req['sha256'], req['path'])
