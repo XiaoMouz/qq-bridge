@@ -31,7 +31,7 @@ import type { ChatStorageSummary } from '../media/service.ts';
 import type { StickerItem } from '../media/stickers.ts';
 import { DialogPrefsError } from '../dialogs/prefs.ts';
 import { OutboxError } from '../outbox/service.ts';
-import { SearchQueryError, searchMessages } from '../search/messages.ts';
+import { SearchQueryError, SearchTimeoutError, searchMessages } from '../search/messages.ts';
 import { UpstreamCallError } from '../upstream/hub.ts';
 import { getChatDifference, getChatDifferences, getDifference, getHistory, getState, listDialogs, NotFoundError } from '../sync/difference.ts';
 import { subscribe, type StreamEvent } from '../sync/subscribe.ts';
@@ -479,6 +479,7 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         };
       } catch (error) {
         if (error instanceof SearchQueryError) throw new ConnectError(error.message, Code.InvalidArgument);
+        if (error instanceof SearchTimeoutError) throw new ConnectError('搜索超时，换个更具体的词或缩小范围', Code.DeadlineExceeded);
         throw error;
       }
     },
