@@ -6,6 +6,8 @@ struct MacStorageReference: Identifiable, Sendable {
   let id: Int64
   let scene: Qqbridge_V1_Scene
   let peerID: Int64
+  /// 引用它的消息（合并转发里的是外层那条，备份导入的可能是负数；0 = 没有消息，如群文件）。
+  var seq: Int64 = 0
 }
 
 @MainActor protocol MacStorageReferencesService {
@@ -23,14 +25,14 @@ struct MacSessionStorageReferencesService: MacStorageReferencesService {
       let store = session.store, sha256 = sha256
       return try await Task.detached(priority: .utility) {
         try store.chatsReferencing(sha256).map {
-          MacStorageReference(id: $0.chatId, scene: .unspecified, peerID: 0)
+          MacStorageReference(id: $0.chatId, scene: .unspecified, peerID: 0, seq: $0.seq)
         }
       }.value
     case .server:
       var request = Qqbridge_V1_ListMediaUsagesRequest()
       request.sha256 = sha256
       let response = try await session.api.media.listMediaUsages(request: request, headers: session.api.headers).get()
-      return response.usages.map { MacStorageReference(id: $0.chatID, scene: $0.scene, peerID: $0.peerID) }
+      return response.usages.map { MacStorageReference(id: $0.chatID, scene: $0.scene, peerID: $0.peerID, seq: $0.messageSeq) }
     }
   }
 }

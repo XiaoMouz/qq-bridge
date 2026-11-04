@@ -1,5 +1,4 @@
 import QQBridgeKit
-import QQBridgeProto
 import QuickLook
 import SwiftUI
 
@@ -12,6 +11,7 @@ struct MacStorageItemsView: View {
   @State private var list: MacStorageItemsViewModel
   @State private var sharing: StorageItemModel?
   @State private var opener: MacStorageFileViewModel
+  @Environment(AppModel.self) private var app
 
   init(session: Session, source: StorageChatsView.Source, group: StorageGroup, chatID: Int64?, title: String,
        service: (any MacStorageItemsService)? = nil, fileService: (any MacStorageFileService)? = nil) {
@@ -34,6 +34,15 @@ struct MacStorageItemsView: View {
         ForEach(list.items) { item in
           StorageItemCell(item: item, onShared: { sharing = item }, onOpen: { open(item) })
             .overlay { if opener.opening == item.id { ProgressView().padding(8).background(.regularMaterial, in: Circle()) } }
+            // 和 iOS 一样（863dd85）：右键「在聊天中查看」跳到引用它的那条消息。
+            .contextMenu {
+              if item.canShowInChat {
+                Button("在聊天中查看", systemImage: "text.bubble") { app.openMessage(chatId: item.chatId, seq: item.seq) }
+              }
+              if item.refChats > 1 {
+                Button("被 \(item.refChats) 个会话引用", systemImage: "link") { sharing = item }
+              }
+            }
             .onAppear { list.reached(item.id) }
         }
       }
@@ -79,13 +88,14 @@ struct MacStorageItemsView: View {
 
   private func open(_ item: StorageItemModel) {
     opener.cancel(); opener.error = nil
-    var media = Qqbridge_V1_MediaInfo()
-    media.sha256 = item.sha256; media.thumbSha256 = item.thumbSha256 ?? ""
-    media.state = item.purged ? .purged : .stored
     switch item.group {
-    case .image, .sticker, .video:
-      let target = MediaTarget(kind: item.group == .video ? .video : .image, media: media, chatId: item.chatId, seq: item.seq)
+    case .image, .sticker:
+      // 媒体窗口顶栏有「在聊天中查看」；图片能左右翻这一页里的其他图片（同 iOS）。
+      var target = item.mediaTarget(.image)
+      target.gallery = list.items.filter { $0.group == .image || $0.group == .sticker }.map { $0.mediaTarget(.image) }
       MacMediaWindows.shared.open(.message(target, session, item.chatId))
+    case .video:
+      MacMediaWindows.shared.open(.message(item.mediaTarget(.video), session, item.chatId))
     default:
       opener.open(item)
     }

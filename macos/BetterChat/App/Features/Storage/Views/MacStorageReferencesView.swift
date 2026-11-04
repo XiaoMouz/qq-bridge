@@ -23,7 +23,8 @@ struct MacStorageReferencesView: View {
         Button {
           model.cancel()
           onClose()
-          app.pendingChat = chat.id
+          // 有出处的消息就跳到那条看上下文，没有（群文件）只打开会话（同 iOS 的 SharedChatsSheet）。
+          if chat.seq != 0 { app.openMessage(chatId: chat.id, seq: chat.seq) } else { app.pendingChat = chat.id }
         } label: {
           HStack(spacing: 12) {
             AvatarView(sha256: titles.avatar(chat.id, session: session), title: title, seed: chat.peerID, size: 34)
