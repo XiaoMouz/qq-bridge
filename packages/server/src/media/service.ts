@@ -3,7 +3,8 @@ import fs from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import { originalPurgeable, resolveRule, type MediaKind, type RefRetention, type Scene } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
-import { maybeOne, one, rows, toDate, type Db } from '../db/client.ts';
+import { maybeOne, one, rows, toDate, type Db, type Queryable } from '../db/client.ts';
+import { SharedResults, STATS_TIMEOUT_MS, withStatementTimeout } from '../db/shared.ts';
 import { NotFoundError } from '../sync/difference.ts';
 import { setBlobPresence } from './accounting.ts';
 import { retentionPolicies } from './policies.ts';
@@ -111,7 +112,13 @@ async function readHead(file: string): Promise<Buffer> {
   }
 }
 
+/** 分类统计要扫 media_refs / blobs 全表；内容几分钟内变化不大，缓存一会儿。 */
+const CATEGORIES_TTL_MS = 2 * 60_000;
+
 export class MediaService {
+  /** 存储页的统计：同样的请求同时只跑一份（见 db/shared.ts）。 */
+  private stats = new SharedResults();
+
   constructor(
     private readonly db: Db,
     private readonly backend: StorageBackend,
@@ -253,7 +260,11 @@ export class MediaService {
       await tx.execute(sql`update blobs set tier = 'hot', cold_since = null where sha256 = ${sha256}`);
       return { purged: true, size: row.size };
     });
-    if (result.purged) this.onPresenceChanged?.(sha256, false);
+    if (result.purged) {
+      this.onPresenceChanged?.(sha256, false);
+      // 存储页的分类统计有缓存：清理完马上回到存储页要看到空间变少。
+      this.stats.invalidate();
+    }
     return result;
   }
 
@@ -408,9 +419,15 @@ export class MediaService {
     }));
   }
 
-  async storageOverview(accountId: number, limit = 100): Promise<StorageOverview> {
+  storageOverview(accountId: number, limit = 100): Promise<StorageOverview> {
+    return this.stats.run(`overview:${accountId}:${limit}`, () =>
+      withStatementTimeout(this.db, STATS_TIMEOUT_MS, (tx) => this.loadStorageOverview(tx, accountId, limit)),
+    );
+  }
+
+  private async loadStorageOverview(db: Queryable, accountId: number, limit: number): Promise<StorageOverview> {
     const totals = await one<{ physical: number; blob_count: number; logical: number; hot: number; cold: number }>(
-      this.db,
+      db,
       sql`with mine as (
             select c.id from chats c join qq_accounts q on q.id = c.qq_account_id where q.account_id = ${accountId}
           ), used as (
@@ -427,7 +444,7 @@ export class MediaService {
             from t`,
     );
     const chats = await rows(
-      this.db,
+      db,
       sql`select s.chat_id, c.scene, c.peer_id, s.logical_bytes, s.exclusive_bytes, s.blob_count,
                  coalesce(t.hot, 0)::bigint as hot_bytes, coalesce(t.cold, 0)::bigint as cold_bytes
             from chat_storage s join chats c on c.id = s.chat_id join qq_accounts q on q.id = c.qq_account_id
@@ -464,9 +481,17 @@ export class MediaService {
    * 服务端上所有内容按用途分类（去重后，每份内容只算一次）。优先级：消息里的媒体（按第一次出现时的角色和类型）
    * → 群文件 → 头像 → 服务端生成的派生内容（缩略图、预览图、语音转码）→ 其他。
    */
-  async storageCategories(): Promise<StorageCategoryStat[]> {
+  storageCategories(): Promise<StorageCategoryStat[]> {
+    return this.stats.run(
+      'categories',
+      () => withStatementTimeout(this.db, STATS_TIMEOUT_MS, (tx) => this.loadStorageCategories(tx)),
+      { ttlMs: CATEGORIES_TTL_MS, stale: true },
+    );
+  }
+
+  private async loadStorageCategories(db: Queryable): Promise<StorageCategoryStat[]> {
     const list = await rows<{ category: string; bytes: number; count: number }>(
-      this.db,
+      db,
       sql`with first_ref as (
             select distinct on (sha256) sha256, role, kind from media_refs where sha256 is not null order by sha256, id
           ), cls as (

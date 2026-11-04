@@ -249,9 +249,14 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
   const retentionDaily = setInterval(runRetention, 24 * 3600_000);
   retentionFirst.unref();
   retentionDaily.unref();
-  // 存储页「消息」一类要扫整张消息表：启动 1 分钟后先在后台算好，打开存储页不用等。
+  // 存储页的两项慢统计（各会话消息条数约 3 秒、分类统计约 10 秒，2026-11-04 实测）：启动 1 分钟后先在后台
+  // 依次算好，打开存储页不用等；之后过期了也是先给旧值、后台重算。
   const storageWarm = setTimeout(
-    () => void deps.storageBrowser.warm().catch((error: unknown) => deps.logger.warn({ err: error }, 'storage warm failed')),
+    () =>
+      void (async () => {
+        await deps.storageBrowser.warm();
+        await deps.media.storageCategories();
+      })().catch((error: unknown) => deps.logger.warn({ err: error }, 'storage warm failed')),
     60_000,
   );
   storageWarm.unref();

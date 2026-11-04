@@ -1,8 +1,10 @@
 // 存储页的浏览：某几类内容在各会话的占用（MediaService.ListStorageChats）、某个会话里的具体内容（ListStorageItems）。
 // 类别和 MediaService.storageCategories 一致：image / qq_thumb / sticker / video / record / file / group_file，
-// 另有 message = 消息本身（按行大小算，全表扫描较慢，结果缓存 5 分钟）。
+// 另有 message = 消息本身（各会话条数 × 全表平均每行大小的估算，缓存 1 小时）。
+// 这些查询都经 SharedResults：同样的请求同时只跑一份，每条带 STATS_TIMEOUT_MS 超时。
 import { sql, type SQL } from 'drizzle-orm';
-import { rows, type Db } from '../db/client.ts';
+import { rows, type Db, type Tx } from '../db/client.ts';
+import { SharedResults, STATS_TIMEOUT_MS, withStatementTimeout } from '../db/shared.ts';
 import type { Scene } from '@qqbridge/domain';
 
 export const MEDIA_CATEGORIES = ['image', 'qq_thumb', 'sticker', 'video', 'record', 'file'] as const;
@@ -40,18 +42,29 @@ export interface StorageItemRow {
   thumbSha256: string | null;
 }
 
-const MESSAGE_TTL_MS = 5 * 60_000;
+const MESSAGE_TTL_MS = 60 * 60_000;
+/** 表大小：pg_total_relation_size 要逐个文件 stat，负载高时 1 秒多。 */
+const TABLE_SIZE_TTL_MS = 60_000;
 
 export class StorageBrowser {
-  private messageCache = new Map<number, { at: number; rows: StorageChatRow[] }>();
-  private messageRefresh = new Map<number, Promise<StorageChatRow[]>>();
+  private shared = new SharedResults();
 
   constructor(private readonly db: Db) {}
 
+  private query<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    return withStatementTimeout(this.db, STATS_TIMEOUT_MS, fn);
+  }
+
   /** 消息本身占的空间（整张表，含索引）。 */
-  async messageBytes(): Promise<number> {
-    const [r] = await rows<{ n: number }>(this.db, sql`select pg_total_relation_size('messages')::bigint as n`);
-    return Number(r?.n ?? 0);
+  messageBytes(): Promise<number> {
+    return this.shared.run(
+      'messageBytes',
+      async () => {
+        const [r] = await rows<{ n: number }>(this.db, sql`select pg_total_relation_size('messages')::bigint as n`);
+        return Number(r?.n ?? 0);
+      },
+      { ttlMs: TABLE_SIZE_TTL_MS, stale: true },
+    );
   }
 
   /** 消息条数：用表统计信息估算（不扫全表）。 */
@@ -60,14 +73,18 @@ export class StorageBrowser {
     return Number(r?.n ?? 0);
   }
 
-  async chats(accountId: number, categories: string[], limit = 100): Promise<StorageChatRow[]> {
-    const cats = categories.filter(Boolean);
+  chats(accountId: number, categories: string[], limit = 100): Promise<StorageChatRow[]> {
+    const cats = [...new Set(categories.filter(Boolean))].sort();
+    return this.shared.run(`chats:${accountId}:${cats.join(',')}:${limit}`, () => this.loadChats(accountId, cats, limit));
+  }
+
+  private async loadChats(accountId: number, cats: string[], limit: number): Promise<StorageChatRow[]> {
     const out: StorageChatRow[] = [];
     if (cats.includes('message')) out.push(...(await this.messageChats(accountId)));
     const media = cats.filter((c) => (MEDIA_CATEGORIES as readonly string[]).includes(c));
     if (media.length > 0) {
-      const list = await rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
-        this.db,
+      const list = await this.query((tx) => rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
+        tx,
         sql`with refs as (
               select distinct r.chat_id, r.sha256 from media_refs r
                 join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
@@ -77,19 +94,19 @@ export class StorageBrowser {
               from refs join blobs b on b.sha256 = refs.sha256 and b.state = 'present'
               join chats c on c.id = refs.chat_id
              group by 1, 2, 3 order by bytes desc limit ${limit}`,
-      );
+      ));
       out.push(...list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count })));
     }
     if (cats.includes('group_file')) {
-      const list = await rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
-        this.db,
+      const list = await this.query((tx) => rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
+        tx,
         sql`select c.id as chat_id, c.scene, c.peer_id, sum(b.size)::bigint as bytes, count(*)::int as count
               from group_file_blobs g join blobs b on b.sha256 = g.sha256 and b.state = 'present'
               join qq_accounts q on q.id = g.qq_account_id
               join chats c on c.qq_account_id = g.qq_account_id and c.scene = 'group' and c.peer_id = g.group_id
              where q.account_id = ${accountId}
              group by 1, 2, 3 order by bytes desc limit ${limit}`,
-      );
+      ));
       out.push(...list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count })));
     }
     // 同一会话出现在几类里：合起来。
@@ -104,7 +121,14 @@ export class StorageBrowser {
     return [...merged.values()].sort((a, b) => b.bytes - a.bytes).slice(0, limit);
   }
 
-  async items(accountId: number, chatId: number | null, categories: string[], offset: number, limit: number): Promise<StorageItemRow[]> {
+  items(accountId: number, chatId: number | null, categories: string[], offset: number, limit: number): Promise<StorageItemRow[]> {
+    const cats = [...new Set(categories.filter(Boolean))].sort();
+    return this.shared.run(`items:${accountId}:${chatId ?? 0}:${cats.join(',')}:${offset}:${limit}`, () =>
+      this.loadItems(accountId, chatId, cats, offset, limit),
+    );
+  }
+
+  private async loadItems(accountId: number, chatId: number | null, categories: string[], offset: number, limit: number): Promise<StorageItemRow[]> {
     const media = categories.filter((c) => (MEDIA_CATEGORIES as readonly string[]).includes(c));
     const parts: SQL[] = [];
     if (media.length > 0) {
@@ -136,9 +160,11 @@ export class StorageBrowser {
     }
     if (parts.length === 0) return [];
     const union = sql.join(parts.map((p) => sql`(${p})`), sql` union all `);
-    const list = await rows<Record<string, unknown>>(
-      this.db,
-      sql`select * from (${union}) x order by (state = 'present') desc, size desc, sha256 limit ${limit} offset ${offset}`,
+    const list = await this.query((tx) =>
+      rows<Record<string, unknown>>(
+        tx,
+        sql`select * from (${union}) x order by (state = 'present') desc, size desc, sha256 limit ${limit} offset ${offset}`,
+      ),
     );
     return list.map((r) => ({
       sha256: r.sha256 as string,
@@ -156,42 +182,37 @@ export class StorageBrowser {
     }));
   }
 
-  /** 各会话消息本身的大小（按行算），缓存 5 分钟。 */
   /**
-   * 各会话消息本身占的空间：要扫整张消息表（2026-10-24 实测内置盘约 2.4 秒，原来在 Ext1 上最长 12 秒）。
-   * 有结果就先给（过期了在后台重算，同时只算一次），只有从没算过时才等；服务端启动后也会先在后台算好（warm）。
+   * 各会话消息本身占的空间：条数 × 全表平均每行（含索引、TOAST）。原来按 sum(pg_column_size(m.*)) 逐行算，
+   * m.* 要把 TOAST 里的大字段读出来解开，等于把整张表读一遍：2026-10-24 约 2.4 秒，备份导入后（1100 万行、15 GB）
+   * 2026-11-04 实测 289 秒；改成按 (chat_id, seq) 索引数条数后约 2.2 秒。图片、卡片多的会话会被略微低估，排序基本不变。
+   * 有结果就先给（过期了后台重算，同时只算一次），只有从没算过时才等；服务端启动后先在后台算好（warm）。
    */
-  private async messageChats(accountId: number): Promise<StorageChatRow[]> {
-    const cached = this.messageCache.get(accountId);
-    if (cached) {
-      if (Date.now() - cached.at >= MESSAGE_TTL_MS) void this.refreshMessageChats(accountId).catch(() => undefined);
-      return cached.rows;
-    }
-    return this.refreshMessageChats(accountId);
+  private messageChats(accountId: number): Promise<StorageChatRow[]> {
+    return this.shared.run(`messages:${accountId}`, () => this.loadMessageChats(accountId), { ttlMs: MESSAGE_TTL_MS, stale: true });
   }
 
   /** 后台先把各账号的消息占用算好（启动后调用一次）。 */
   async warm(): Promise<void> {
-    for (const a of await rows<{ id: number }>(this.db, sql`select id from accounts`)) await this.refreshMessageChats(a.id);
+    for (const a of await rows<{ id: number }>(this.db, sql`select id from accounts`)) await this.messageChats(a.id);
   }
 
-  private refreshMessageChats(accountId: number): Promise<StorageChatRow[]> {
-    const running = this.messageRefresh.get(accountId);
-    if (running) return running;
-    const task = (async () => {
-      const list = await rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
-        this.db,
-        sql`select m.chat_id, c.scene, c.peer_id, sum(pg_column_size(m.*))::bigint as bytes, count(*)::int as count
-              from messages m join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
+  private async loadMessageChats(accountId: number): Promise<StorageChatRow[]> {
+    const list = await this.query((tx) =>
+      rows<{ chat_id: number; scene: Scene; peer_id: number; bytes: number; count: number }>(
+        tx,
+        sql`with n as (
+              select chat_id, count(*) as count from messages group by chat_id
+            ), per as (
+              select pg_total_relation_size('messages')::float8 / greatest(reltuples, 1) as b from pg_class where oid = 'messages'::regclass
+            )
+            select n.chat_id, c.scene, c.peer_id, (n.count * per.b)::bigint as bytes, n.count::int as count
+              from n cross join per join chats c on c.id = n.chat_id join qq_accounts q on q.id = c.qq_account_id
              where q.account_id = ${accountId}
-             group by 1, 2, 3 order by bytes desc limit 200`,
-      );
-      const out = list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count }));
-      this.messageCache.set(accountId, { at: Date.now(), rows: out });
-      return out;
-    })().finally(() => this.messageRefresh.delete(accountId));
-    this.messageRefresh.set(accountId, task);
-    return task;
+             order by n.count desc limit 200`,
+      ),
+    );
+    return list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count }));
   }
 }
 
