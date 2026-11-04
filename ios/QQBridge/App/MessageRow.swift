@@ -2176,7 +2176,7 @@ struct MarkdownBlock: View {
       ForEach(Array(Self.parts(content).enumerated()), id: \.offset) { _, part in
         switch part {
         case .text(let a):
-          Text(a).tint(outgoing ? .white : .accentColor).textSelection(.enabled)
+          Text(a).tint(outgoing ? .white : .accentColor).bubbleTextSelection()
         case .image(let url, let ratio):
           AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: { RippleCanvas() }
             .frame(width: 240, height: ratio.map { min(240 * $0, 520) } ?? 180)
@@ -2241,5 +2241,16 @@ struct BotKeyboard: View {
       }
     }
     .frame(minWidth: 220)
+  }
+}
+
+extension View {
+  /// 气泡里的文字：手机上能长按选择；Mac 不能选（2026-11-04 用户反馈一个气泡里右键有文字菜单和消息菜单两种，见 MacMessageText）。
+  @ViewBuilder func bubbleTextSelection() -> some View {
+    #if targetEnvironment(macCatalyst)
+    self
+    #else
+    textSelection(.enabled)
+    #endif
   }
 }

@@ -335,7 +335,7 @@ struct ForwardSegmentView: View {
 
   @ViewBuilder private var content: some View {
     switch segment.kind {
-    case .text(let t): Text(t.text).textSelection(.enabled)
+    case .text(let t): Text(t.text).bubbleTextSelection()
     case .mention(let m): Text("@\(m.name.isEmpty ? String(m.userID) : m.name)").bold()
     case .face(let f): QQFace.inline(f.faceID, name: f.name)
     case .image(let i) where i.sticker:

@@ -3,8 +3,8 @@
 // 1. 选中文字会连带选到末尾给时间留位的透明字（拷出来带着「17:33」）；
 // 2. 选中时整段文字外面有一圈焦点框；
 // 3. 右键气泡总是先进文字选区，很难弹出消息菜单。
-// 现在：拖动选择文字；右键落在已选中的文字上弹系统的文字菜单（查询、翻译、拷贝、共享、朗读……），
-// 其余地方右键交给气泡的消息菜单；时间位只占排版、不进选区。
+// 2026-11-04 用户反馈：右键选中的文字弹系统文字菜单、别处弹消息菜单，一个气泡两种菜单很怪。
+// 现在不能选文字（要拷贝用消息菜单的「复制」）：单击只给链接和 @ 徽章，右键一律交给气泡的消息菜单。
 #if targetEnvironment(macCatalyst)
 import SwiftUI
 import UIKit
@@ -86,7 +86,7 @@ struct MacMessageText: UIViewRepresentable {
       case .mention(let userId, let name, let avatar):
         let badge = MentionBadgeRenderer.render(name: name, avatar: avatar, outgoing: outgoing)
         let piece = NSMutableAttributedString(attributedString: attachment(badge.image, y: badge.baselineOffset, attrs: base))
-        // 徽章当成链接：单击在输入框里 @ TA，右键看资料（见 Coordinator）。
+        // 徽章当成链接：单击在输入框里 @ TA（见 Coordinator）。
         if let url = URL(string: "\(Self.mentionScheme)://\(userId)") {
           piece.addAttribute(.link, value: url, range: NSRange(location: 0, length: piece.length))
         }
@@ -119,13 +119,9 @@ struct MacMessageText: UIViewRepresentable {
     var parent: MacMessageText?
 
     func textViewDidChangeSelection(_ view: UITextView) {
-      // 选区不能伸进时间位（全选、拖过头时都会）。
-      guard let view = view as? MacMessageTextView else { return }
-      let limit = view.contentLength
-      let range = view.selectedRange
-      guard NSMaxRange(range) > limit else { return }
-      let start = min(range.location, limit)
-      view.selectedRange = NSRange(location: start, length: max(0, limit - start))
+      // 不选文字：在链接上拖动等仍可能产生选区，立刻收掉。（isSelectable 要留着，否则链接点不了。）
+      guard view.selectedRange.length > 0 else { return }
+      view.selectedRange = NSRange(location: view.selectedRange.location, length: 0)
     }
 
     func textView(_ view: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
@@ -138,16 +134,6 @@ struct MacMessageText: UIViewRepresentable {
       }
       return defaultAction
     }
-
-    func textView(_ view: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
-      guard let parent, case .link(let url) = textItem.content else { return .init(menu: defaultMenu) }
-      guard url.scheme == MacMessageText.mentionScheme, let id = Int64(url.host() ?? "") else { return .init(menu: defaultMenu) }
-      let name = parent.context.name(of: id)
-      return .init(menu: UIMenu(children: [
-        UIAction(title: "提及\(name)", image: UIImage(systemName: "at")) { _ in parent.context.actions.mention(id) },
-        UIAction(title: "查看\(name)的资料", image: UIImage(systemName: "person.crop.circle")) { _ in parent.context.actions.showProfile(id) },
-      ]))
-    }
   }
 }
 
@@ -157,16 +143,11 @@ final class MacMessageTextView: UITextView {
 
   override var canBecomeFocused: Bool { false }
 
-  /// 右键：落在已选中的文字或链接（含 @ 徽章）上才归文字；其余穿过去交给气泡的消息菜单。
+  /// 只有左键点在链接（含 @ 徽章）上才归文字；右键和别处都穿过去交给气泡（消息菜单、点按）。
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     guard let hit = super.hitTest(point, with: event) else { return nil }
-    guard let event, event.buttonMask.contains(.secondary) else { return hit }
-    return selectionContains(point) || linkAt(point) ? hit : nil
-  }
-
-  private func selectionContains(_ point: CGPoint) -> Bool {
-    guard selectedRange.length > 0, let range = selectedTextRange else { return false }
-    return selectionRects(for: range).contains { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }
+    if let event, event.buttonMask.contains(.secondary) { return nil }
+    return linkAt(point) ? hit : nil
   }
 
   private func linkAt(_ point: CGPoint) -> Bool {
