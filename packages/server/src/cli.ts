@@ -206,6 +206,7 @@ async function main(argv: string[]): Promise<void> {
       const summary = await applier.repairMedia({
         backupPath: backup, keysPath: keys, scanPath: scan, statePath: state, stagingDir: path.join(work, 'staging'), mapPath: map,
         ...(flag('limit') ? { limit: Number(flag('limit')) } : {}),
+        ...(flag('shards') ? { shard: Number(flag('shard') ?? 0), shards: Number(flag('shards')) } : {}),
         onProgress: (s, after) => { if (Date.now() - last < 30_000) return; last = Date.now(); console.error(JSON.stringify({ after, ...s })); },
       });
       await db.$client.end();

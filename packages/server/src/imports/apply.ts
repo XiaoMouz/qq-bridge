@@ -200,7 +200,7 @@ export class BackupApplier {
    * 原图没存的用手机的预览大图。视频、语音、文件只认原件（不拿封面图冒充视频）。
    * 老历史消息只改内容不抬版本号（mediaStored keepHistoryVersion），合并转发只改缓存。
    */
-  async repairMedia(opts: Pick<ApplyOptions, 'backupPath' | 'keysPath' | 'scanPath' | 'statePath' | 'stagingDir' | 'onProgress'> & { mapPath: string; limit?: number }): Promise<Record<string, number>> {
+  async repairMedia(opts: Pick<ApplyOptions, 'backupPath' | 'keysPath' | 'scanPath' | 'statePath' | 'stagingDir' | 'onProgress'> & { mapPath: string; limit?: number; shard?: number; shards?: number }): Promise<Record<string, number>> {
     const map = new Map<string, { sha256: string; size: number; mime: string | null; role: string }>();
     for (const line of (await fs.readFile(opts.mapPath, 'utf8')).split('\n')) {
       if (!line) continue;
@@ -217,7 +217,9 @@ export class BackupApplier {
       for (;;) {
         const refs = await rows<{ id: number; kind: string; qq_md5: string }>(
           this.db,
-          sql`select id, kind, qq_md5 from media_refs where fetch_state = 'expired' and qq_md5 is not null and id > ${after} order by id limit 2000`,
+          // 分片按引用 id 取模：几个进程并行，落盘（HDD-1 上每份约 0.5 秒）不互相等。
+          sql`select id, kind, qq_md5 from media_refs where fetch_state = 'expired' and qq_md5 is not null and id > ${after}
+                 and id % ${opts.shards ?? 1} = ${opts.shard ?? 0} order by id limit 2000`,
         );
         if (!refs.length) break;
         for (const ref of refs) {
