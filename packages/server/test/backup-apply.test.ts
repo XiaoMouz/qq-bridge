@@ -235,4 +235,17 @@ it('好友的私聊表里混着临时会话消息：并进同一个好友会话�
   expect(await rows(db, sql`select seq, version from messages where chat_id = ${into!.id} order by seq`)).toEqual([{ seq: 20, version: 1 }, { seq: 21, version: 0 }]);
   expect(await rows(db, sql`select id from chats where id = ${from!.id}`)).toEqual([]);
   expect(await rows(db, sql`select entity, entity_key from tombstones where entity_key = ${String(from!.id)}`)).toEqual([{ entity: 'chat', entity_key: String(from!.id) }]);
+
+  // 目标会话也是导入建的、里面只有灰条事件（没有消息、chat_pts 0）：合并后算已读、有顶部消息、最新一页进增量同步。
+  const lone = 900005;
+  const lt = `msg_3_${lone}`;
+  const bot = text(lt, 2, 702, T0 + 2, lone, 'bot reply');
+  bot.scene = 'temp'; bot.nt.chatType = 100; bot.record.scene = 'temp';
+  await runImport({ [lt]: [bot] });
+  await deps.ingest.importChatEvents(acc.qqAccountId, 'friend', lone, [{ kind: 'gray_tip', time: T0, data: { text: 'tip' } }]);
+  const [lf] = await rows<{ id: number }>(db, sql`select id from chats where scene = 'temp' and peer_id = ${lone}`);
+  const [li] = await rows<{ id: number }>(db, sql`select id from chats where scene = 'friend' and peer_id = ${lone}`);
+  await deps.ingest.mergeImportedChat(acc.qqAccountId, lf!.id, li!.id);
+  expect(await rows(db, sql`select top_seq, read_inbox_max_seq, unread_count, chat_pts > 0 as synced from chats where id = ${li!.id}`))
+    .toEqual([{ top_seq: 2, read_inbox_max_seq: 2, unread_count: 0, synced: true }]);
 }, 120_000);

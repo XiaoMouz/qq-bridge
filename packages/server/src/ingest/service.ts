@@ -252,7 +252,7 @@ export class IngestService {
    */
   async mergeImportedChat(qqAccountId: number, fromChatId: number, intoChatId: number): Promise<{ messages: number; events: number }> {
     const qq = await this.qqAccount(qqAccountId);
-    return this.writers.forAccount(qq.accountId).run(async (w) => {
+    const result = await this.writers.forAccount(qq.accountId).run(async (w) => {
       const locked = await rows<{ id: number }>(w.tx, sql`select id from chats where id in (${fromChatId}, ${intoChatId}) order by id for update`);
       if (locked.length !== 2) throw new NotFoundError(`chat ${fromChatId} or ${intoChatId} not found`);
       const clash = await maybeOne(w.tx, sql`select 1 as x from messages a join messages b on b.chat_id = ${intoChatId} and b.seq = a.seq where a.chat_id = ${fromChatId} limit 1`);
@@ -271,10 +271,28 @@ export class IngestService {
       const pts = await w.allocPts();
       await w.tx.execute(sql`insert into tombstones (account_id, pts, entity, entity_key) values (${qq.accountId}, ${pts}, 'chat', ${String(fromChatId)})`);
       w.emit({ type: 'tombstone', pts, tombstone: { pts, entity: 'chat', key: String(fromChatId) } });
+      // 移过来的是老历史：算已读；比目标会话原来的最新一条还新时更新会话顶部（2026-11-04 实测：目标会话也是导入建的、
+      // 里面只有灰条事件时，原来停在已读 0、没有顶部消息，客户端显示一个空会话挂 1 条未读）。
+      const top = await maybeOne<{ seq: number; time: string }>(
+        w.tx,
+        sql`select seq, time from messages where chat_id = ${intoChatId} order by seq desc limit 1`,
+      );
+      if (top) {
+        await w.tx.execute(
+          sql`update chats set top_seq = ${top.seq}, top_time = ${top.time}
+               where id = ${intoChatId} and (top_seq is null or top_seq < ${top.seq})`,
+        );
+        const maxMoved = Math.max(...moved.map((m) => Number((m as { seq: number }).seq)));
+        if (moved.length) await w.tx.execute(sql`update chats set read_inbox_max_seq = greatest(read_inbox_max_seq, ${maxMoved}) where id = ${intoChatId}`);
+      }
       await recomputeUnread(w.tx, intoChatId, qq.uin);
       w.touchDialog(intoChatId);
       return { messages: moved.length, events: events.length };
     });
+    // 目标会话还没有任何进增量同步的消息（同样是导入建的）：像导入新会话一样把最新一页放进来，客户端首屏才拉得到。
+    const synced = await maybeOne(this.db, sql`select 1 as x from messages where chat_id = ${intoChatId} and version > 0 limit 1`);
+    if (!synced) await this.promoteImported(qqAccountId, intoChatId, 50);
+    return result;
   }
 
   /**
