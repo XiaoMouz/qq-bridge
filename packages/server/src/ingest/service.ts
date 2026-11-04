@@ -22,7 +22,7 @@ import { sql } from 'drizzle-orm';
 import type { CallRecord } from '../calls/service.ts';
 import { maybeOne, one, rows, type Db, type Tx } from '../db/client.ts';
 import { pgJson, stripNul } from '../db/nul.ts';
-import { addUsage, findReusableBlob, reusedMediaPatch, type ReusableBlob } from '../media/accounting.ts';
+import { addUsage, findReusableBlob, removeUsage, reusedMediaPatch, type ReusableBlob } from '../media/accounting.ts';
 import { NotFoundError } from '../sync/difference.ts';
 import { CHAT_EVENT_COLUMNS, MESSAGE_COLUMNS, PEER_COLUMNS, toChatEvent, toMessage, toPeer, type Update } from '../sync/rows.ts';
 import type { WriteContext, WriterRegistry } from '../sync/writer.ts';
@@ -241,6 +241,39 @@ export class IngestService {
       await one(w.tx, sql`select id from chats where id = ${chatId} for update`);
       await setReadMarker(w.tx, chatId, throughSeq, qq.uin);
       w.touchDialog(chatId);
+    });
+  }
+
+  /**
+   * 把导入建出来的会话并进同一个人的另一个会话，删掉原会话并发 tombstone（客户端据此删掉本地的会话和消息）。
+   * 2026-11-04 实测：手机备份里同一个人的私聊表混着 chatType 100（临时会话，比如删好友后又加回来那段）的消息，
+   * seq 和好友会话是同一套、正好卡在好友消息的空档里；按 chatType 拆成两个会话就成了「一个人两个会话」。
+   * 移过来的都是导入的老历史（比目标会话生产原有的都旧），一律 version 0；seq 撞上就整体放弃。
+   */
+  async mergeImportedChat(qqAccountId: number, fromChatId: number, intoChatId: number): Promise<{ messages: number; events: number }> {
+    const qq = await this.qqAccount(qqAccountId);
+    return this.writers.forAccount(qq.accountId).run(async (w) => {
+      const locked = await rows<{ id: number }>(w.tx, sql`select id from chats where id in (${fromChatId}, ${intoChatId}) order by id for update`);
+      if (locked.length !== 2) throw new NotFoundError(`chat ${fromChatId} or ${intoChatId} not found`);
+      const clash = await maybeOne(w.tx, sql`select 1 as x from messages a join messages b on b.chat_id = ${intoChatId} and b.seq = a.seq where a.chat_id = ${fromChatId} limit 1`);
+      if (clash) throw new Error(`chat ${fromChatId} has seqs already used in ${intoChatId}`);
+      const live = await maybeOne(w.tx, sql`select 1 as x from messages where chat_id = ${fromChatId} and not raw ? 'backupSource' limit 1`);
+      if (live) throw new Error(`chat ${fromChatId} has messages not from the backup import`);
+      for (const ref of await rows<{ sha256: string }>(w.tx, sql`select sha256 from media_refs where chat_id = ${fromChatId} and sha256 is not null`)) {
+        await removeUsage(w.tx, fromChatId, ref.sha256);
+        await addUsage(w.tx, intoChatId, ref.sha256);
+      }
+      const moved = await rows(w.tx, sql`update messages set chat_id = ${intoChatId}, version = 0 where chat_id = ${fromChatId} returning seq`);
+      await w.tx.execute(sql`update media_refs set chat_id = ${intoChatId} where chat_id = ${fromChatId}`);
+      await w.tx.execute(sql`update forward_bundles set chat_id = ${intoChatId} where chat_id = ${fromChatId}`);
+      const events = await rows(w.tx, sql`update chat_events set chat_id = ${intoChatId}, version = 0 where chat_id = ${fromChatId} returning id`);
+      await w.tx.execute(sql`delete from chats where id = ${fromChatId}`);
+      const pts = await w.allocPts();
+      await w.tx.execute(sql`insert into tombstones (account_id, pts, entity, entity_key) values (${qq.accountId}, ${pts}, 'chat', ${String(fromChatId)})`);
+      w.emit({ type: 'tombstone', pts, tombstone: { pts, entity: 'chat', key: String(fromChatId) } });
+      await recomputeUnread(w.tx, intoChatId, qq.uin);
+      w.touchDialog(intoChatId);
+      return { messages: moved.length, events: events.length };
     });
   }
 

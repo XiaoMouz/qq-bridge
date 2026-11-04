@@ -180,6 +180,20 @@ export class BackupApplier {
     return this.summary;
   }
 
+  private readonly friends = new Map<number, boolean>();
+  /** 生产里已有和他的好友会话，或资料里标着是好友。 */
+  private async isFriend(peerId: number): Promise<boolean> {
+    if (this.friends.has(peerId)) return this.friends.get(peerId)!;
+    const hit = await maybeOne<{ x: number }>(
+      this.db,
+      sql`select 1 as x from chats where qq_account_id = ${this.qqAccountId} and scene = 'friend' and peer_id = ${peerId}
+          union all select 1 from peers where qq_account_id = ${this.qqAccountId} and kind = 'user' and peer_id = ${peerId} and is_friend
+          limit 1`,
+    );
+    this.friends.set(peerId, Boolean(hit));
+    return Boolean(hit);
+  }
+
   /** 会话在导入开始时的状态（第一次碰到时记进导入状态库，续跑时沿用，不受已导入的消息影响）。 */
   private async context(table: string, scene: Scene): Promise<ChatContext> {
     const key = `chat:${table}:${scene}`;
@@ -231,6 +245,15 @@ export class BackupApplier {
     // Postgres 的 text / jsonb 存不了 NUL；不只写库，去重、匹配的查询参数也会报错，所以进来就统一去掉。
     // （2026-11-04 群 1062402186 的「本群每分钟只能发5条消息」末尾带 NUL，是灰条 JSON 里的 \u0000，见 applyTips。）
     const records = input.map(stripNul);
+    // 私聊表里的临时会话消息（chatType 100）：这个人是好友时并进好友会话，不另建一个（见 IngestService.mergeImportedChat）。
+    if (table.startsWith('msg_3_') && records.some((r) => r.scene === 'temp') && (await this.isFriend(Number(table.split('_')[2])))) {
+      for (const r of records) {
+        if (r.scene !== 'temp') continue;
+        r.scene = 'friend';
+        r.nt = { ...r.nt, chatType: 1 };
+        r.record = { ...r.record, scene: 'friend' };
+      }
+    }
     const byScene = new Map<Scene, ExportRecord[]>();
     for (const r of records) {
       if (r.kind === 'unparsed') { await this.note(r, 'unparsed', { reason: r.reason }); continue; }

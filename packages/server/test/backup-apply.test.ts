@@ -210,3 +210,29 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
   expect(again.gray_tip_duplicate).toBe(1);
   expect(await rows(db, sql`select count(*)::int as n from messages`)).toEqual(before);
 }, 120_000);
+
+it('好友的私聊表里混着临时会话消息：并进同一个好友会话；已拆开的能合并回去', async () => {
+  const peer = 900003;
+  await db.execute(sql`insert into peers (qq_account_id, kind, peer_id, uid, pts, is_friend) values (${acc.qqAccountId}, 'user', ${peer}, 'u_900003', 1, true)`);
+  const t = `msg_3_${peer}`;
+  const temp = text(t, 11, 611, T0 + 11, peer, 'temp era');
+  temp.scene = 'temp'; temp.nt.chatType = 100; temp.record.scene = 'temp';
+  await runImport({ [t]: [text(t, 10, 610, T0 + 10, peer, 'friend era'), temp] });
+  const chats = await rows<{ scene: string; n: number }>(db, sql`select c.scene, count(m.*)::int as n from chats c left join messages m on m.chat_id = c.id
+    where c.qq_account_id = ${acc.qqAccountId} and c.peer_id = ${peer} group by c.scene`);
+  expect(chats).toEqual([{ scene: 'friend', n: 2 }]);
+
+  // 已经按 chatType 拆成两个会话的（早先导入的结果）：合并回好友会话，删掉临时会话并发 tombstone。
+  const other = 900004;
+  const tt = `msg_3_${other}`;
+  const split = text(tt, 21, 621, T0 + 21, other, 'split temp');
+  split.scene = 'temp'; split.nt.chatType = 100; split.record.scene = 'temp';
+  await runImport({ [tt]: [split] });
+  await runImport({ [tt]: [text(tt, 20, 620, T0 + 20, other, 'split friend')] });
+  const [from] = await rows<{ id: number }>(db, sql`select id from chats where scene = 'temp' and peer_id = ${other}`);
+  const [into] = await rows<{ id: number }>(db, sql`select id from chats where scene = 'friend' and peer_id = ${other}`);
+  expect(await deps.ingest.mergeImportedChat(acc.qqAccountId, from!.id, into!.id)).toEqual({ messages: 1, events: 0 });
+  expect(await rows(db, sql`select seq, version from messages where chat_id = ${into!.id} order by seq`)).toEqual([{ seq: 20, version: 1 }, { seq: 21, version: 0 }]);
+  expect(await rows(db, sql`select id from chats where id = ${from!.id}`)).toEqual([]);
+  expect(await rows(db, sql`select entity, entity_key from tombstones where entity_key = ${String(from!.id)}`)).toEqual([{ entity: 'chat', entity_key: String(from!.id) }]);
+}, 120_000);
