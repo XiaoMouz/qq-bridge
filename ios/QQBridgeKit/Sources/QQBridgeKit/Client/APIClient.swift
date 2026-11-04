@@ -17,6 +17,8 @@ public protocol SyncAPI: Sendable {
   func getChatDifference(chatId: Int64, chatPts: Int64, limit: UInt32) async throws -> Qqbridge_V1_GetChatDifferenceResponse
   func getChatDifferences(_ chats: [(chatId: Int64, chatPts: Int64)], perChatLimit: UInt32) async throws -> [Qqbridge_V1_ChatDifferenceResult]
   func getHistory(chatId: Int64, beforeSeq: Int64?, limit: UInt32) async throws -> Qqbridge_V1_GetHistoryResponse
+  /// 从某条消息往前（older，不含）、往后（newer，不含）或前后各一半（around，含锚点）取一页：跳到很早的消息时用。
+  func getHistory(chatId: Int64, anchorSeq: Int64, direction: Qqbridge_V1_HistoryDirection, limit: UInt32) async throws -> Qqbridge_V1_GetHistoryResponse
   /// 先回放差量、再推实时更新；连接断开时以错误结束。
   func subscribe(pts: Int64) -> AsyncThrowingStream<Qqbridge_V1_SubscribeResponse, any Error>
 }
@@ -151,6 +153,15 @@ public final class APIClient: SyncAPI {
     req.chatID = chatId
     if let beforeSeq { req.anchorSeq = beforeSeq }
     req.direction = .older
+    req.limit = limit
+    return try await messages.getHistory(request: req, headers: headers).get()
+  }
+
+  public func getHistory(chatId: Int64, anchorSeq: Int64, direction: Qqbridge_V1_HistoryDirection, limit: UInt32) async throws -> Qqbridge_V1_GetHistoryResponse {
+    var req = Qqbridge_V1_GetHistoryRequest()
+    req.chatID = chatId
+    req.anchorSeq = anchorSeq
+    req.direction = direction
     req.limit = limit
     return try await messages.getHistory(request: req, headers: headers).get()
   }

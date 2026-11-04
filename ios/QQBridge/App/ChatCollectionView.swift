@@ -31,6 +31,10 @@ struct ChatCollectionView: UIViewControllerRepresentable {
   let onReachTop: () -> Void
   /// 是否停在最底部（标已读、回到底部按钮用）。
   var onBottomChange: (Bool) -> Void = { _ in }
+  /// 历史窗口（ChatHistoryWindow）：滚到离底部不远时往下接一页。
+  var onReachBottom: (() -> Void)? = nil
+  /// 历史窗口：底部不是最新消息，往下接进来的一页不能把视图顶到这页的最后一条，停在底部时也保持正在看的位置。
+  var keepsPositionAtBottom = false
   /// 现在屏幕上看得到的消息 seq（"有人@我"据此把看过的移掉）。
   var onVisibleSeqs: (Set<Int64>) -> Void = { _ in }
   /// 用户在滚动时，屏幕最上面那条的时间（顶部日期徽章用）；停下后 nil。
@@ -49,6 +53,8 @@ struct ChatCollectionView: UIViewControllerRepresentable {
     context.bubbleFrames.windowLocator = { [weak controller] seq in controller?.windowFrame(ofMessage: seq) }
     controller.onReachTop = onReachTop
     controller.onBottomChange = onBottomChange
+    controller.onReachBottom = onReachBottom
+    controller.keepsPositionAtBottom = keepsPositionAtBottom
     controller.onVisibleSeqs = onVisibleSeqs
     controller.onScrollDate = onScrollDate
     controller.fileDropReceiver.onDrop = onFileDrop
@@ -64,6 +70,8 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   var onScrollDate: ((Int64?) -> Void)?
   var onReachTop: (() -> Void)?
   var onBottomChange: ((Bool) -> Void)?
+  var onReachBottom: (() -> Void)?
+  var keepsPositionAtBottom = false
   var onVisibleSeqs: ((Set<Int64>) -> Void)?
   private var reportedBottom: Bool?
   private var reportedVisible: Set<Int64> = []
@@ -295,7 +303,7 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
 
     // 不在底部时（往上翻着看历史）：不管底下来了新消息、顶上收掉了旧消息，还是中间的消息高度变了，
     // 都以屏幕上一条正在看的消息为锚点，提交后把它放回原来的屏幕位置，正在看的内容不跳。
-    let keep = !oldIds.isEmpty && animatingTo == nil && (!isAtBottom || selecting)
+    let keep = !oldIds.isEmpty && animatingTo == nil && (!isAtBottom || selecting || keepsPositionAtBottom)
     let anchor = keep ? visibleAnchor() : nil
     if let anchor { keptAnchor = anchor }
 
@@ -308,14 +316,14 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
   }
 
   private func contentSizeChanged() {
-    guard !restoring, animatingTo == nil, let anchor = keptAnchor, !isAtBottom || selecting else { return }
+    guard !restoring, animatingTo == nil, let anchor = keptAnchor, !isAtBottom || selecting || keepsPositionAtBottom else { return }
     restore(anchor, needsLayout: false)
   }
 
   /// 记下正在看的位置（不在底部时）。
   private func captureAnchor() {
     guard !restoring, animatingTo == nil else { return }
-    keptAnchor = (!isAtBottom || selecting) ? visibleAnchor() : nil
+    keptAnchor = (!isAtBottom || selecting || keepsPositionAtBottom) ? visibleAnchor() : nil
   }
 
   /// 锚点：屏幕中间那条可见消息的 id，以及它的顶边相对可见区域的位置。
@@ -409,6 +417,8 @@ final class ChatCollectionController: UIViewController, UICollectionViewDelegate
     // 翻转后更早的消息在内容的末尾：离末尾不远就往前翻页。
     let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
     if scrollView.isTracking || scrollView.isDecelerating, remaining < 600 { onReachTop?() }
+    // 翻转后更新的消息在内容的开头：历史窗口里离开头不远就往后接一页。
+    if scrollView.isTracking || scrollView.isDecelerating, scrollView.contentOffset.y < -scrollView.contentInset.top + 600 { onReachBottom?() }
     reportPosition()
     captureAnchor()
     if scrollView.isTracking || scrollView.isDecelerating, !isAtBottom { reportTopDate() }

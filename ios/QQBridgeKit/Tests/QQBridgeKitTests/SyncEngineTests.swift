@@ -10,6 +10,8 @@ final class FakeServer: SyncAPI, @unchecked Sendable {
   var differencePages: [Int64: Qqbridge_V1_Difference] = [:]  // 按请求的 pts 返回
   var chatPages: [String: Qqbridge_V1_GetChatDifferenceResponse] = [:]  // "chatId:chatPts"
   var history: [String: Qqbridge_V1_GetHistoryResponse] = [:]  // "chatId:beforeSeq"
+  /// 历史窗口：按 "chatId:方向:锚点" 返回（方向是 older / newer / around）。
+  var historyPages: [String: Qqbridge_V1_GetHistoryResponse] = [:]
   var calls: [String] = []
   var stateError: APIError?
   var differenceOverride: (@Sendable (Int64) async throws -> Qqbridge_V1_Difference)?
@@ -54,6 +56,12 @@ final class FakeServer: SyncAPI, @unchecked Sendable {
   func getHistory(chatId: Int64, beforeSeq: Int64?, limit: UInt32) async throws -> Qqbridge_V1_GetHistoryResponse {
     record("history:\(chatId):\(beforeSeq.map(String.init) ?? "-")")
     return lock.withLock { history["\(chatId):\(beforeSeq.map(String.init) ?? "-")"] } ?? .init()
+  }
+
+  func getHistory(chatId: Int64, anchorSeq: Int64, direction: Qqbridge_V1_HistoryDirection, limit: UInt32) async throws -> Qqbridge_V1_GetHistoryResponse {
+    let key = "\(chatId):\(direction):\(anchorSeq)"
+    record("page:" + key)
+    return lock.withLock { historyPages[key] } ?? .init()
   }
 
   func subscribe(pts: Int64) -> AsyncThrowingStream<Qqbridge_V1_SubscribeResponse, any Error> {
@@ -232,6 +240,58 @@ func eventually(_ condition: () throws -> Bool) async throws {
     #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(47, 51)])
     #expect(try await engine.loadOlder(5) == 0)  // 到头
     #expect(server.callLog.contains("history:5:47"))
+  }
+
+  /// 跳到很早的消息（2026-11-04，备份导入的老消息离最新几十万条）：目标前后一页记成独立区间，上下各自往外接，
+  /// 往下接到服务端没有更多时并进最新那段。
+  @Test func historyWindowLoadsAroundTargetAndJoinsNewest() async throws {
+    let store = try LocalStore.inMemory()
+    let server = FakeServer()
+    server.chatPages["5:0"] = chatPage(chatPts: 9, [message(5, 1000), message(5, 1001)])
+    let engine = SyncEngine(api: server, store: store, options: options)
+    try await engine.openChat(5)
+
+    var around = Qqbridge_V1_GetHistoryResponse()
+    around.messages = [message(5, 10), message(5, 11), message(5, 12)]
+    server.historyPages["5:around:11"] = around
+    #expect(try await engine.loadAround(5, seq: 11, limit: 3) == SeqRange(10, 12))
+    #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(10, 12), SeqRange(1000, 1001)])
+    #expect(try store.loadedRange(chatId: 5, containing: 11)! == (SeqRange(10, 12), false))
+
+    var older = Qqbridge_V1_GetHistoryResponse()
+    older.messages = [message(5, -2), message(5, 8)]  // 备份导入的替代 seq 是负数；9 服务端没有（缺口）
+    server.historyPages["5:older:10"] = older
+    #expect(try await engine.loadOlder(5, before: 10, limit: 2) == 2)
+    #expect(try store.chatState(chatId: 5).loadedRanges.first == SeqRange(-2, 12))
+
+    var newer = Qqbridge_V1_GetHistoryResponse()
+    newer.messages = [message(5, 13), message(5, 14), message(5, 15)]
+    server.historyPages["5:newer:12"] = newer
+    #expect(try await engine.loadNewer(5, after: 12, limit: 3) == 3)
+    #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(-2, 15), SeqRange(1000, 1001)])
+
+    // 不满一页：服务端在 15 之后只剩这些，这一段一直接到最新那段。
+    var last = Qqbridge_V1_GetHistoryResponse()
+    last.messages = [message(5, 999)]
+    server.historyPages["5:newer:15"] = last
+    #expect(try await engine.loadNewer(5, after: 15, limit: 3) == 1)
+    #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(-2, 1001)])
+    #expect(try store.loadedRange(chatId: 5, containing: -2)! == (SeqRange(-2, 1001), true))
+  }
+
+  @Test func historyWindowObservationFollowsTheAnchorRange() async throws {
+    let store = try LocalStore.inMemory()
+    try store.applyChat(chatId: 5, messages: [message(5, 10), message(5, 11)], events: [], newChatPts: 9, contiguous: SeqRange(10, 11))
+    try store.applyChat(chatId: 5, messages: [message(5, 100)], events: [], newChatPts: nil, contiguous: SeqRange(100, 100))
+    var it = store.observeChatWindow(chatId: 5, anchor: 11).makeAsyncIterator()
+    let first = try await it.next()!
+    #expect(first.range == SeqRange(10, 11) && !first.joinsNewest && first.items.map(\.id).count == 2)
+    try store.applyChat(chatId: 5, messages: [message(5, 12)], events: [], newChatPts: nil, contiguous: SeqRange(12, 99))
+    let joined = try await it.next()!
+    #expect(joined.range == SeqRange(10, 100) && joined.joinsNewest && joined.items.count == 4)
+    var none = store.observeChatWindow(chatId: 5, anchor: 50_000).makeAsyncIterator()
+    let missing = try await none.next()!
+    #expect(missing.range == nil && missing.items.isEmpty)
   }
 
   @Test func prefetchesOnlyChatsThatAreNewOrBehind() async throws {

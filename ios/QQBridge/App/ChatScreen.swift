@@ -29,6 +29,8 @@ struct ChatScreen: View {
   @State private var selfUin: Int64 = 0
   /// 正在往上找某条消息（跳到 @、回复引用）。
   @State private var messageJump = ChatMessageJump()
+  /// 跳到离最新很远的消息时只显示目标前后那一段（见 ChatHistoryWindow）。
+  @State private var historyWindow = ChatHistoryWindow()
   private var searchingFor: Int64? { messageJump.target }
   @State private var composer = Composer()
   @State private var members = GroupMembers()
@@ -222,10 +224,12 @@ struct ChatScreen: View {
       onReachTop: loadOlder,
       onBottomChange: { bottom in
         atBottom = bottom
-        if bottom, let last = items.lastMessageSeq { bottomMark = max(bottomMark, last) }
+        if bottom, !historyWindow.isActive, let last = items.lastMessageSeq { bottomMark = max(bottomMark, last) }
         markReadIfNeeded()
         if bottom { trimIfStillAtBottom() }
       },
+      onReachBottom: reachBottomAction,
+      keepsPositionAtBottom: historyWindow.isActive,
       onVisibleSeqs: { visible in mentionsSeen(visible) },
       onScrollDate: { time in showScrollDay(time) },
       scrollRequest: scrollRequest,
@@ -247,10 +251,10 @@ struct ChatScreen: View {
     )
     // 往上翻时顶部的日期（今天 / 昨天 / 日期），透明玻璃徽章；在向服务端要更早的消息时显示加载中。
     .overlay(alignment: .top) {
-      if history.isLoading || searchingFor != nil, notice == nil {
+      if history.isLoading || searchingFor != nil || historyWindow.isLoading, notice == nil {
         HStack(spacing: 6) {
           ProgressView().controlSize(.small)
-          Text(searchingFor != nil ? "正在往上查找消息…" : "正在加载更早的消息").font(.footnote)
+          Text(loadingText).font(.footnote)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -315,12 +319,9 @@ struct ChatScreen: View {
           .transition(.scale.combined(with: .opacity))
         }
         ZStack {
-          if !atBottom {
-            FloatingChatButton(systemImage: "chevron.down", count: newMessageCount) {
-              messageJump.cancel()
-              bottomMark = items.lastMessageSeq ?? bottomMark
-              scrollRequest = ChatScrollRequest(target: .bottom)
-            }
+          if !atBottom || historyWindow.isActive {
+            // 历史窗口里底部不是最新消息：这个按钮回到最新（见 returnToLatest）。
+            FloatingChatButton(systemImage: "chevron.down", count: bottomButtonCount, action: bottomButtonTapped)
             .transition(.scale.combined(with: .opacity))
           }
         }
@@ -500,10 +501,11 @@ struct ChatScreen: View {
     }
     .task { if VoiceRecorder.holdFakeRecording { try? await recorder.start() } }
     #endif
-    .task(id: ChatMessageObservation.Request(limit: history.limit, retry: messageObservation.retry)) {
+    .task(id: ChatMessageObservation.Request(limit: history.limit, retry: messageObservation.retry, anchor: historyWindow.anchor)) {
       if selfUin == 0, let d = try? session.store.dialog(chatId: chatId) {
         selfUin = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
       }
+      if let anchor = historyWindow.anchor { await observeHistoryWindow(anchor: anchor); return }
       let observedLimit = history.limit
       await messageObservation.observe(limit: observedLimit,
         using: SessionChatMessageObservationService(session: session, chatId: chatId)) { list in
@@ -560,6 +562,7 @@ struct ChatScreen: View {
     .onDisappear {
       messageObservation.cancel()
       messageJump.cancel()
+      historyWindow.close()
       history.cancel()
       retirePasteHint()
       model.chatDisappeared(visibleToken)
@@ -901,7 +904,7 @@ struct ChatScreen: View {
 
   /// 新到的消息：不在底部时，里面的 @我 / 回复我 / @全体成员 加进"有人@我"（最新的在最前）。
   private func noteNewMessages() {
-    guard let last = items.lastMessageSeq else { return }
+    guard !historyWindow.isActive, let last = items.lastMessageSeq else { return }
     if newestSeen == 0 {
       newestSeen = last
       if bottomMark == 0 { bottomMark = last }
@@ -1050,6 +1053,9 @@ struct ChatScreen: View {
     } else if let error = latestError {
       ChatHistoryFailure(title: "最新消息同步失败", message: error, retry: { latestRequest = UUID() }, retryLabel: "重新同步最新消息")
         .padding(.bottom, 6)
+    } else if let error = historyWindow.error, !historyWindow.isLoading, notice == nil {
+      ChatHistoryFailure(message: error, retry: retryHistoryWindow, dismiss: historyWindow.dismissError)
+        .padding(.bottom, 6)
     } else if let failure = messageJump.failure, notice == nil {
       ChatHistoryFailure(title: "无法定位消息", message: failure.message, retry: { Task { await jump(to: failure.seq) } }, dismiss: messageJump.dismissFailure, retryLabel: "重新定位消息")
         .padding(.bottom, 6)
@@ -1079,7 +1085,7 @@ struct ChatScreen: View {
 
   /// 回到底部、停了一会儿：把翻页时加载的大量旧消息收回到最近一屏，免得列表越翻越重。
   private func trimIfStillAtBottom() {
-    guard history.limit > 120 else { return }
+    guard history.limit > 120, !historyWindow.isActive else { return }
     Task {
       try? await Task.sleep(for: .seconds(1.5))
       guard atBottom, searchingFor == nil, !history.isLoading else { return }
@@ -1089,6 +1095,121 @@ struct ChatScreen: View {
 
   @discardableResult
   private func jump(to seq: Int64, delay: Duration = .zero) async -> Bool {
+    if historyWindow.isActive {
+      if historyWindow.contains(seq) {
+        scrollToMessage(seq)
+        return true
+      }
+      returnToLatest(scroll: false)
+    }
+    guard await needsHistoryWindow(seq) else { return await jumpInLatest(to: seq, delay: delay) }
+    if delay > .zero { try? await Task.sleep(for: delay) }
+    messageJump.cancel()
+    switch await historyWindow.open(at: seq, using: windowService) {
+    case .opened:
+      // 列表观察到这条消息时再滚过去（observeHistoryWindow）。
+      return true
+    case .inNewest:
+      return await jumpInLatest(to: seq)
+    case .failed(let message):
+      if !message.isEmpty { show("无法定位消息：\(message)") }
+      return false
+    }
+  }
+
+  /// 目标离最新那段远（不在最新那段、并且差一千多条或是备份导入的负 seq）：打开历史窗口，不从最新一页页往上接。
+  /// 首屏还没建立时先追平一次，免得把「本地还空着」当成「很远」。
+  private func needsHistoryWindow(_ seq: Int64) async -> Bool {
+    guard seq != 0 else { return false }
+    if (try? session.store.chatState(chatId: chatId).loadedRanges.isEmpty) ?? true {
+      try? await session.sync.catchUpChat(chatId)
+    }
+    guard let newest = try? session.store.chatState(chatId: chatId).loadedRanges.last else { return false }
+    if seq >= newest.lo { return false }
+    return seq < 0 || newest.lo - seq > 1000
+  }
+
+  /// 历史窗口里滚到底部附近：往下接一页（单独成属性，见 lessons L5）。
+  private var reachBottomAction: (() -> Void)? {
+    guard historyWindow.isActive else { return nil }
+    return { loadNewerInWindow() }
+  }
+
+  private var bottomButtonCount: Int { historyWindow.isActive ? 0 : newMessageCount }
+
+  private func bottomButtonTapped() {
+    messageJump.cancel()
+    if historyWindow.isActive { returnToLatest(); return }
+    bottomMark = items.lastMessageSeq ?? bottomMark
+    scrollRequest = ChatScrollRequest(target: .bottom)
+  }
+
+  private var windowService: SessionChatHistoryWindowService { SessionChatHistoryWindowService(session: session, chatId: chatId) }
+
+  private var loadingText: String {
+    if historyWindow.opening || searchingFor != nil { return "正在查找消息…" }
+    if historyWindow.loadingNewer { return "正在加载更新的消息" }
+    return "正在加载更早的消息"
+  }
+
+  private func scrollToMessage(_ seq: Int64) {
+    scrollRequest = ChatScrollRequest(target: .item("m\(seq)"))
+    highlight.flash(seq)
+  }
+
+  /// 历史窗口的一次快照：显示这一段；等着的目标出现了就滚过去；往下接到了最新那段就回到正常显示，位置不动。
+  private func observeHistoryWindow(anchor: Int64) async {
+    await messageObservation.observeWindow(anchor: anchor,
+      using: SessionChatMessageObservationService(session: session, chatId: chatId)) { snapshot in
+        guard historyWindow.anchor == anchor else { return }
+        guard snapshot.range != nil else {
+          // 本地这一段没了（被裁剪、会话重置）：回到最新。
+          returnToLatest()
+          show("那段历史已从本机清掉，回到最新")
+          return
+        }
+        items = snapshot.items.filter { if case .event(let e) = $0 { e.kind != "card_change" } else { true } }
+        lookup.update(items)
+        itemsVersion += 1
+        historyWindow.update(range: snapshot.range)
+        if let target = historyWindow.pendingTarget, items.contains(where: { if case .message(let m) = $0 { m.seq == target } else { false } }) {
+          historyWindow.pendingTarget = nil
+          scrollToMessage(target)
+        }
+        if snapshot.joinsNewest, historyWindow.pendingTarget == nil { leaveWindowKeepingPosition() }
+      }
+  }
+
+  /// 往下翻到和最新那段接上了：改回正常显示（显示的条数覆盖到这一段的开头，列表内容不变、位置不跳）。
+  private func leaveWindowKeepingPosition() {
+    let count = items.reduce(0) { n, item in if case .message = item { n + 1 } else { n } }
+    history.reveal(through: count + 20)
+    historyWindow.close()
+    newestSeen = 0
+  }
+
+  /// 点了「回到最新」：关掉历史窗口，滚到最底下。
+  private func returnToLatest(scroll: Bool = true) {
+    historyWindow.close()
+    newestSeen = 0
+    if scroll { scrollRequest = ChatScrollRequest(target: .bottom) }
+  }
+
+  private func loadNewerInWindow() {
+    Task { await historyWindow.loadNewer(using: windowService) }
+  }
+
+  private func retryHistoryWindow() {
+    historyWindow.dismissError()
+    Task {
+      await historyWindow.loadOlder(using: windowService)
+      await historyWindow.loadNewer(using: windowService)
+    }
+  }
+
+  /// 在最新那段里定位（目标不远：从最新一页页往上接）。
+  @discardableResult
+  private func jumpInLatest(to seq: Int64, delay: Duration = .zero) async -> Bool {
     await messageJump.jump(to: seq, delay: delay,
       using: SessionChatMessageJumpService(session: session, chatId: chatId), history: history) { target in
       scrollRequest = ChatScrollRequest(target: .item("m\(target)"))
@@ -1102,7 +1223,8 @@ struct ChatScreen: View {
     // Mac keeps syncing while another app is active; arrival is not evidence of reading.
     guard UIApplication.shared.applicationState == .active, model.openChatId == chatId else { return }
     #endif
-    guard atBottom, let last = items.lastMessageSeq, last > lastMarked else { return }
+    // 历史窗口的底部不是最新消息：看到了也不算读到最新。
+    guard atBottom, !historyWindow.isActive, let last = items.lastMessageSeq, last > lastMarked else { return }
     guard (dialog?.unreadCount ?? 1) > 0 || last > (dialog?.readInboxMaxSeq ?? 0) else { return }
     lastMarked = last
     Task { _ = try? await session.api.markRead(chatId: chatId, maxSeq: last) }
@@ -1401,6 +1523,10 @@ struct ChatScreen: View {
   /// 往上翻页：本地还有更早的就先放宽窗口，没有了再向服务端要（服务端没有的会现场向 QQ 拉）。
   private func loadOlder() {
     guard searchingFor == nil else { return }
+    if historyWindow.isActive {
+      Task { await historyWindow.loadOlder(using: windowService) }
+      return
+    }
     history.load(using: SessionChatHistoryPagingService(session: session, chatId: chatId))
   }
 

@@ -293,6 +293,47 @@ public actor SyncEngine {
     return res.messages.count
   }
 
+  // MARK: 历史窗口（跳到很早的消息）
+  // 2026-11-04：备份导入的老消息离最新可能有几十万条（好烫好烫里 2025-07 的一张图上面还有 34.7 万条），
+  // 从最新一段一页页往上接不现实。改为直接取目标前后一页，记成一段独立的已加载区间，聊天页只显示这一段，
+  // 上下翻页各自往外接；往下接到和最新那段相连时，LocalStore.merge 会把两段并成一段。
+
+  /// 取 seq 前后各一半（含它自己）的一页，记成一段已加载区间。返回这一段；服务端一条都没有时为 nil。
+  @discardableResult
+  public func loadAround(_ chatId: Int64, seq: Int64, limit: UInt32 = 100) async throws -> SeqRange? {
+    let res = try await api.getHistory(chatId: chatId, anchorSeq: seq, direction: .around, limit: limit)
+    try Task.checkCancellation()
+    let range = Self.span(res.messages)
+    try store.applyChat(chatId: chatId, messages: res.messages, events: res.events, newChatPts: nil, contiguous: range)
+    return range
+  }
+
+  /// 历史窗口往上翻：取 before 之前（不含）的一页，和窗口接成一段 [这一页最早的, before - 1]。返回条数，0 = 到头了。
+  @discardableResult
+  public func loadOlder(_ chatId: Int64, before: Int64, limit: UInt32 = 100) async throws -> Int {
+    let res = try await api.getHistory(chatId: chatId, anchorSeq: before, direction: .older, limit: limit)
+    try Task.checkCancellation()
+    let range = res.messages.map(\.seq).min().map { SeqRange($0, before - 1) }
+    try store.applyChat(chatId: chatId, messages: res.messages, events: res.events, newChatPts: nil, contiguous: range)
+    return res.messages.count
+  }
+
+  /// 历史窗口往下翻：取 after 之后（不含）的一页，和窗口接成一段 [after + 1, 这一页最新的]。
+  /// 不满一页说明服务端在 after 之后已经没有更多：这一段一直延伸到本地最新那段，两段并成一段（窗口回到最新）。
+  /// 返回条数。
+  @discardableResult
+  public func loadNewer(_ chatId: Int64, after: Int64, limit: UInt32 = 100) async throws -> Int {
+    let res = try await api.getHistory(chatId: chatId, anchorSeq: after, direction: .newer, limit: limit)
+    try Task.checkCancellation()
+    var hi = res.messages.map(\.seq).max() ?? after
+    if res.messages.count < Int(limit), let newest = try store.chatState(chatId: chatId).loadedRanges.last, newest.hi > after {
+      hi = max(hi, newest.hi)
+    }
+    let range = hi > after ? SeqRange(after + 1, hi) : nil
+    try store.applyChat(chatId: chatId, messages: res.messages, events: res.events, newChatPts: nil, contiguous: range)
+    return res.messages.count
+  }
+
   /// 取单条消息（例如回复引用的那条本地还没有）：放进本地库，但不并入已加载区间。同一条同时只取一次。
   @discardableResult
   public func fetchMessage(chatId: Int64, seq: Int64) async -> Qqbridge_V1_Message? {

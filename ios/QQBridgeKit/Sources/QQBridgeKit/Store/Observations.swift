@@ -26,6 +26,15 @@ public struct DialogItem: Sendable, Identifiable, Equatable {
   public var isMuted: Bool { ["muted", "archived"].contains(dialog.notifyPolicy) }
 }
 
+/// 历史窗口的一次快照（见 observeChatWindow）。
+public struct ChatWindowSnapshot: Sendable, Equatable {
+  public let items: [ChatItem]
+  /// 窗口这一段的 seq 区间；本地没有时为 nil。
+  public let range: SeqRange?
+  /// 这一段已经和最新那段连在一起。
+  public let joinsNewest: Bool
+}
+
 /// 聊天页里的一项：消息、服务事件（灰条），或者还在发件箱里的消息。
 public enum ChatItem: Sendable, Identifiable, Equatable {
   case message(Qqbridge_V1_Message)
@@ -152,6 +161,37 @@ extension LocalStore {
       items.sort { a, b in a.time == b.time ? a.id < b.id : a.time < b.time }
       let pending = Self.pairOutbox(outbox, messages: messages, presentSeqs: present, selfUin: selfUin)
       return items + pending.map { .outgoing($0) }
+    }
+    .removeDuplicates()
+    .values(in: db)
+  }
+
+  /// 历史窗口（跳到很早的消息，见 SyncEngine.loadAround）：包含 anchor 的那段已加载区间里的消息和这段时间的服务事件。
+  /// 上下翻页把区间接长了会自动推新的；这段并进了最新那段时 joinsNewest = true（聊天页据此回到正常显示）。
+  /// 本地没有包含 anchor 的区间（还没加载、被裁剪掉）时 range 为 nil、items 为空。
+  public func observeChatWindow(chatId: Int64, anchor: Int64) -> AsyncValueObservation<ChatWindowSnapshot> {
+    ValueObservation.tracking { db in
+      let ranges = try LocalStore.chatState(chatId, db).loadedRanges
+      guard let index = ranges.firstIndex(where: { $0.lo <= anchor && anchor <= $0.hi }) else {
+        return ChatWindowSnapshot(items: [], range: nil, joinsNewest: false)
+      }
+      let range = ranges[index]
+      let joinsNewest = index == ranges.count - 1
+      let messages = try Data.fetchAll(
+        db,
+        sql: "select data from message where chatId = ? and seq between ? and ? order by seq",
+        arguments: [chatId, range.lo, range.hi]
+      ).map { try Qqbridge_V1_Message(serializedBytes: $0) }
+      let from = messages.first?.time ?? 0
+      let to = joinsNewest ? Int64.max : (messages.last?.time ?? 0)
+      let events = try Data.fetchAll(
+        db,
+        sql: "select data from chatEvent where chatId = ? and time between ? and ? order by time, id",
+        arguments: [chatId, from, to]
+      ).map { try Qqbridge_V1_ChatEvent(serializedBytes: $0) }
+      var items: [ChatItem] = messages.map { .message($0) } + events.map { .event($0) }
+      items.sort { a, b in a.time == b.time ? a.id < b.id : a.time < b.time }
+      return ChatWindowSnapshot(items: items, range: range, joinsNewest: joinsNewest)
     }
     .removeDuplicates()
     .values(in: db)

@@ -57,6 +57,14 @@ struct RootView: View {
     }
     // 点了通知：切到消息页，由会话列表打开对应会话。
     .onChange(of: model.pendingChat) { _, chatId in if chatId != nil { tab = 0 } }
+    #if DEBUG
+    // 调试：-debugJump <chatId>:<seq> 启动后直接打开这个会话（跳转由 ChatScreen 接手）；模拟器打不了中文，不好从列表找会话。
+    .task {
+      guard let spec = UserDefaults.standard.string(forKey: "debugJump"), let id = spec.split(separator: ":").first.flatMap({ Int64($0) }) else { return }
+      try? await Task.sleep(for: .seconds(2))
+      model.pendingChat = id
+    }
+    #endif
     .sheet(isPresented: $showQqLogin) { QqLoginSheet(session: session) }
     // App 内横幅：别的会话来消息（前台不发系统通知）。
     .overlay(alignment: .top) {

@@ -245,6 +245,15 @@ extension LocalStore {
     }
   }
 
+  /// 包含 seq 的那段已加载区间，以及它是不是最新那段（跳转时决定在最新那段里滚过去，还是打开历史窗口）。
+  public func loadedRange(chatId: Int64, containing seq: Int64) throws -> (range: SeqRange, isNewest: Bool)? {
+    try db.read { db in
+      let ranges = try Self.chatState(chatId, db).loadedRanges
+      guard let i = ranges.firstIndex(where: { $0.lo <= seq && seq <= $0.hi }) else { return nil }
+      return (ranges[i], i == ranges.count - 1)
+    }
+  }
+
   /// 定位消息需要同一次快照里的区间和目标，nil 下界表示首屏还未建立，不能当成历史已经到头。
   public func historyTargetWindow(chatId: Int64, seq: Int64) throws -> (floor: Int64?, count: Int, countFromTarget: Int, containsTarget: Bool) {
     try db.read { db in
