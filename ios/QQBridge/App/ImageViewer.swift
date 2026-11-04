@@ -886,9 +886,9 @@ struct ChatPicker: View {
 
 /// 写相册：performChanges 的闭包在 Photos 的后台队列上跑，不能带主线程隔离（否则 Swift 6 运行时断言崩溃）。
 enum PhotoSaver {
-  nonisolated static func add(_ file: URL) async throws {
+  nonisolated static func add(_ file: URL, video: Bool = false) async throws {
     try await PHPhotoLibrary.shared().performChanges { @Sendable in
-      PHAssetCreationRequest.forAsset().addResource(with: .photo, fileURL: file, options: nil)
+      PHAssetCreationRequest.forAsset().addResource(with: video ? .video : .photo, fileURL: file, options: nil)
     }
   }
 }

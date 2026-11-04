@@ -1,5 +1,6 @@
 // 大图 / 视频查看、合并转发、表情面板、会话内搜索、共享媒体。
 import AVKit
+import Photos
 import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
@@ -49,6 +50,10 @@ struct MediaViewer: View {
   @State private var fetching = false
   @State private var visible = false
   @State private var dragProgress: CGFloat = 0
+  /// 能保存的视频文件（能播放了才有）；保存中不重复点。
+  @State private var savable: String?
+  @State private var saving = false
+  @State private var toast: String?
 
   var body: some View {
     if target.kind == .image {
@@ -69,11 +74,12 @@ struct MediaViewer: View {
         .ignoresSafeArea()
       VStack(spacing: 8) {
         // 关闭按钮单独一行，不压在播放器自带的按钮（全屏、静音）上。
-        if showsCloseButton || target.canShowInChat { HStack {
+        HStack {
           Spacer()
           if target.canShowInChat {
             ShowInChatButton { close { model.openMessage(chatId: target.chatId, seq: target.seq) } }
           }
+          saveButton
           if showsCloseButton { Button(action: close) {
             Image(systemName: "xmark")
               .font(.system(size: 16, weight: .bold))
@@ -90,7 +96,6 @@ struct MediaViewer: View {
         }
         .padding(.horizontal, 16)
         .opacity(dragProgress == 0 ? 1 : 0)
-        }
         ZStack {
           if let player = playback.player {
             // 系统播放器：自带全屏、画中画、隔空播放、静音、进度。
@@ -112,14 +117,102 @@ struct MediaViewer: View {
       }
       .scaleEffect(visible ? 1 : 0.92)
       .opacity(visible ? 1 : 0)
+      if let toast {
+        Text(toast).font(.footnote).padding(.horizontal, 14).padding(.vertical, 8)
+          .glassEffect(.regular, in: Capsule())
+          .transition(.opacity)
+      }
     }
     .onAppear { withAnimation(.spring(duration: 0.3, bounce: 0.15)) { visible = true } }
     .task { await playback.load { await videoURL() } }
     .onDisappear { playback.close() }
     #if targetEnvironment(macCatalyst)
     .background(MacMediaKeyboard(close: close))
-    .onAppear { mediaWindow?.registerCleanup("video", action: playback.close) }
+    .onAppear {
+      mediaWindow?.registerCleanup("video", action: playback.close)
+      // 媒体窗口的右键菜单（播放器自己的控件区域以外）：和顶栏的保存按钮一样。
+      mediaWindow?.menu = {
+        guard savable != nil else { return UIMenu(children: [UIAction(title: "视频还在加载", attributes: .disabled) { _ in }]) }
+        return UIMenu(children: [
+          UIAction(title: "保存", image: UIImage(systemName: "square.and.arrow.down")) { _ in Task { await saveVideo(toPhotos: false) } },
+          UIAction(title: "保存到相册", image: UIImage(systemName: "photo.on.rectangle")) { _ in Task { await saveVideo(toPhotos: true) } },
+        ])
+      }
+    }
     #endif
+  }
+
+  /// 顶栏的「保存」：手机存相册；Mac 存到设置里的下载目录，右键可存相册（和看大图一样）。
+  private var saveButton: some View {
+    Button {
+      #if targetEnvironment(macCatalyst)
+      Task { await saveVideo(toPhotos: false) }
+      #else
+      Task { await saveVideo(toPhotos: true) }
+      #endif
+    } label: {
+      HStack(spacing: 6) {
+        if saving { ProgressView().controlSize(.small).tint(.white) } else { Image(systemName: "square.and.arrow.down") }
+        Text("保存")
+      }
+      .font(.subheadline.weight(.semibold))
+      .foregroundStyle(.white)
+      .padding(.horizontal, 14)
+      .frame(height: 40)
+      .background(Capsule().fill(.black.opacity(0.55)))
+    }
+    .buttonStyle(.plain)
+    .disabled(savable == nil || saving)
+    .opacity(savable == nil ? 0.5 : 1)
+    .accessibilityLabel("保存视频")
+    #if targetEnvironment(macCatalyst)
+    .contextMenu {
+      Button("保存到相册", systemImage: "photo.on.rectangle") { Task { await saveVideo(toPhotos: true) } }
+    }
+    .help("保存到设置中的下载目录；右键可保存到相册")
+    #endif
+  }
+
+  /// 2026-11-04 用户反馈视频没有保存到本地的入口。整段视频先下到本机（大视频要等一会儿，按钮转圈）。
+  private func saveVideo(toPhotos: Bool) async {
+    guard let sha = savable, !saving else { return }
+    saving = true
+    defer { saving = false }
+    #if targetEnvironment(macCatalyst)
+    if !toPhotos {
+      do {
+        // 和群文件、存储页文件同一条下载路径：校验哈希、同名自动编号、已保存过的直接复用。
+        let saved = try await MacDownloads.shared.file(sha: sha, name: "\(sha).mp4", session: session)
+        show("已保存到 \(saved.deletingLastPathComponent().path)")
+      } catch {
+        show("保存失败：\(error.localizedDescription)")
+      }
+      return
+    }
+    #endif
+    let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+    guard status == .authorized || status == .limited else {
+      show("没有相册权限：请在系统设置里允许 BetterChat 添加照片")
+      return
+    }
+    do {
+      // 缓存文件没有扩展名，相册认不出是视频：拷一份带 .mp4 的。
+      let file = try await session.media.file(for: sha, chatId: chatId)
+      let named = FileManager.default.temporaryDirectory.appendingPathComponent("qqbridge-\(sha).mp4")
+      if !FileManager.default.fileExists(atPath: named.path) { try FileManager.default.copyItem(at: file, to: named) }
+      try await PhotoSaver.add(named, video: true)
+      show("已保存到相册")
+    } catch {
+      show("保存失败：\(error.localizedDescription)")
+    }
+  }
+
+  private func show(_ text: String) {
+    withAnimation { toast = text }
+    Task {
+      try? await Task.sleep(for: .seconds(2))
+      withAnimation { if toast == text { toast = nil } }
+    }
   }
 
   private func close() { close(then: nil) }
@@ -201,6 +294,7 @@ struct MediaViewer: View {
       }
     }
     if let url = try? await session.media.streamURL(for: sha) {
+      savable = sha
       return url
     } else {
       videoMessage = "视频打不开"
