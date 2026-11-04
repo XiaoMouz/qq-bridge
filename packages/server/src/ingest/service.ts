@@ -540,6 +540,8 @@ export class IngestService {
     refId: number,
     blob: { sha256: string; size: number; mime?: string | null },
     extra: Partial<Pick<MediaInfo, 'thumbhash' | 'thumbSha256' | 'previewSha256' | 'width' | 'height' | 'playableSha256' | 'waveform'>> = {},
+    /** keepHistoryVersion：消息是导入的老历史（version 0）时只改内容不分配 chat_pts，批量补图时不让几十万条老消息涌进增量同步。 */
+    opts: { keepHistoryVersion?: boolean } = {},
   ): Promise<boolean> {
     const accountId = await this.accountOfRef(refId);
     let ready: Update | null = null;
@@ -562,7 +564,7 @@ export class IngestService {
         size: blob.size,
         ...(blob.mime ? { mime: blob.mime } : {}),
         ...extra,
-      });
+      }, opts);
       return true;
     });
     if (done && ready) this.writers.publishEphemeral(accountId, ready);
@@ -1208,7 +1210,12 @@ export async function resolveTipPeople(tx: Db | Tx, qqAccountId: number, groupId
   return out;
 }
 
-async function updateMessageMedia(w: WriteContext, ref: MediaRefTarget, patch: Partial<Omit<MediaInfo, 'ord'>>): Promise<void> {
+async function updateMessageMedia(
+  w: WriteContext,
+  ref: MediaRefTarget,
+  patch: Partial<Omit<MediaInfo, 'ord'>>,
+  opts: { keepHistoryVersion?: boolean } = {},
+): Promise<void> {
   if (ref.forward_bundle_id) {
     await updateForwardMedia(w, Number(ref.forward_bundle_id), ref.node_path?.[0] ?? 0, ref.ordinal, patch);
     return;
@@ -1217,12 +1224,16 @@ async function updateMessageMedia(w: WriteContext, ref: MediaRefTarget, patch: P
     if (ref.chat_event_id) await updateEventMedia(w, ref.chat_id, ref.chat_event_id, patch);
     return;
   }
-  const chatPts = await w.allocChatPts(ref.chat_id);
-  const current = await one<{ segments: Segment[] }>(
+  const current = await one<{ segments: Segment[]; version: number }>(
     w.tx,
-    sql`select segments from messages where chat_id = ${ref.chat_id} and seq = ${ref.message_seq} for update`,
+    sql`select segments, version from messages where chat_id = ${ref.chat_id} and seq = ${ref.message_seq} for update`,
   );
   const segments = updateMediaInfo(current.segments, ref.ordinal, patch);
+  if (opts.keepHistoryVersion && Number(current.version) === 0) {
+    await w.tx.execute(sql`update messages set segments = ${pgJson(segments)}::jsonb where chat_id = ${ref.chat_id} and seq = ${ref.message_seq}`);
+    return;
+  }
+  const chatPts = await w.allocChatPts(ref.chat_id);
   const message = toMessage(
     await one(
       w.tx,

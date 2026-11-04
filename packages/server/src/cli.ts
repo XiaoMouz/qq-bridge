@@ -186,8 +186,34 @@ async function main(argv: string[]): Promise<void> {
       console.log(JSON.stringify({ mode: apply ? 'apply' : 'dry-run', ...summary }));
       return;
     }
+    case 'import:backup-media-repair': {
+      // 补图：按 reader/media_names.py 生成的对照表，把备份里有、生产记为 expired 的媒体拷入并挂上（见 BackupApplier.repairMedia）。
+      const flag = (name: string) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
+      const [backup, keys, scan, state, map] = ['backup', 'keys', 'scan', 'state', 'map'].map(flag);
+      if (!backup || !keys || !scan || !state || !map) throw new Error('usage: pnpm cli import:backup-media-repair --backup <dir> --keys <file> --scan <scan.sqlite> --state <state.sqlite> --map <md5-map.jsonl> [--limit n]');
+      const config = loadConfig();
+      const db = createDb(config.DATABASE_URL);
+      const deps = createDeps(db, {
+        mediaRoot: config.MEDIA_ROOT,
+        mediaUrlSecret: config.MEDIA_URL_SECRET,
+        logLevel: config.LOG_LEVEL,
+        ...(config.MEDIA_COLD_ROOT ? { mediaColdRoot: config.MEDIA_COLD_ROOT } : {}),
+        ...(config.FFMPEG_PATH ? { ffmpegPath: config.FFMPEG_PATH } : {}),
+      });
+      const work = path.dirname(path.resolve(state));
+      const applier = new BackupApplier(db, deps.ingest, deps.media, deps.processor, importPython(), await prepareNative(work), deps.logger.child({ component: 'backup-repair' }));
+      let last = 0;
+      const summary = await applier.repairMedia({
+        backupPath: backup, keysPath: keys, scanPath: scan, statePath: state, stagingDir: path.join(work, 'staging'), mapPath: map,
+        ...(flag('limit') ? { limit: Number(flag('limit')) } : {}),
+        onProgress: (s, after) => { if (Date.now() - last < 30_000) return; last = Date.now(); console.error(JSON.stringify({ after, ...s })); },
+      });
+      await db.$client.end();
+      console.log(JSON.stringify({ mode: 'repair', ...summary }));
+      return;
+    }
     default:
-      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips|import:backup>');
+      throw new Error('usage: cli <migrate|create-owner|serve|media:reprocess|media:drop-playable-copies|media:apply-on-demand|media:tier|inbox:reprocess|messages:remap-gray-tips|import:backup|import:backup-media-repair>');
   }
 }
 

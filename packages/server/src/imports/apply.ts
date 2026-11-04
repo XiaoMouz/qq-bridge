@@ -194,6 +194,57 @@ export class BackupApplier {
     return Boolean(hit);
   }
 
+  /**
+   * 补图：生产里记为 expired、带 QQ 协议 md5 的媒体引用，按对照表（reader/media_names.py）从备份拷入并挂上。
+   * 2026-11-04 实测：合并转发节点的图在手机备份里按「文件名 = 协议 md5」存在原始群的资源表里，预检关联不上；
+   * 原图没存的用手机的预览大图。视频、语音、文件只认原件（不拿封面图冒充视频）。
+   * 老历史消息只改内容不抬版本号（mediaStored keepHistoryVersion），合并转发只改缓存。
+   */
+  async repairMedia(opts: Pick<ApplyOptions, 'backupPath' | 'keysPath' | 'scanPath' | 'statePath' | 'stagingDir' | 'onProgress'> & { mapPath: string; limit?: number }): Promise<Record<string, number>> {
+    const map = new Map<string, { sha256: string; size: number; mime: string | null; role: string }>();
+    for (const line of (await fs.readFile(opts.mapPath, 'utf8')).split('\n')) {
+      if (!line) continue;
+      const e = JSON.parse(line) as { md5: string; sha256: string; size: number; mime: string | null; role: string };
+      map.set(e.md5, e);
+    }
+    this.count('map_entries', map.size);
+    await fs.mkdir(opts.stagingDir, { recursive: true, mode: 0o700 });
+    this.reader = this.openReader();
+    const full = { ...opts, reportPath: '', qqAccountId: 0, dryRun: false } as ApplyOptions;
+    try {
+      await this.reader.request({ command: 'open', config: { backupPath: opts.backupPath, keysPath: opts.keysPath, scanPath: opts.scanPath, statePath: opts.statePath, tables: [] } });
+      let after = 0;
+      for (;;) {
+        const refs = await rows<{ id: number; kind: string; qq_md5: string }>(
+          this.db,
+          sql`select id, kind, qq_md5 from media_refs where fetch_state = 'expired' and qq_md5 is not null and id > ${after} order by id limit 2000`,
+        );
+        if (!refs.length) break;
+        for (const ref of refs) {
+          after = Number(ref.id);
+          const hit = map.get(ref.qq_md5.toLowerCase());
+          if (!hit) { this.count('no_match'); continue; }
+          const visual = ref.kind === 'image' || ref.kind === 'sticker';
+          const sameKind = (hit.mime ?? '').startsWith(ref.kind === 'audio' ? 'audio/' : ref.kind === 'video' ? 'video/' : ref.kind === 'file' ? '' : 'image/');
+          if ((!visual && hit.role !== 'original') || !sameKind) { this.count(`skip_${ref.kind}_${hit.role}`); continue; }
+          const blob = await this.ensureBlob(hit.sha256, ref.kind, full);
+          if (!blob) { this.count('extract_failed'); continue; }
+          const extra = Object.fromEntries(Object.entries({
+            thumbhash: blob.thumbhash, thumbSha256: blob.thumbSha256, previewSha256: blob.previewSha256, width: blob.width,
+            height: blob.height, playableSha256: blob.playableSha256, waveform: blob.waveform,
+          }).filter(([, v]) => v !== null && v !== undefined));
+          const done = await retrying(() => this.ingest.mediaStored(Number(ref.id), { sha256: blob.sha256, size: blob.size, mime: blob.mime }, extra, { keepHistoryVersion: true }));
+          this.count(done ? `repaired_${ref.kind}_${hit.role}` : 'already_stored');
+          if (opts.limit !== undefined && (this.summary.repaired_image_original ?? 0) + (this.summary.repaired_image_preview ?? 0) >= opts.limit) return this.summary;
+        }
+        opts.onProgress?.(this.summary, String(after));
+      }
+    } finally {
+      await this.reader.stop();
+    }
+    return this.summary;
+  }
+
   /** 会话在导入开始时的状态（第一次碰到时记进导入状态库，续跑时沿用，不受已导入的消息影响）。 */
   private async context(table: string, scene: Scene): Promise<ChatContext> {
     const key = `chat:${table}:${scene}`;
@@ -212,7 +263,8 @@ export class BackupApplier {
     const floor = chat
       ? await maybeOne<{ seq: number | null; time: number | null }>(
           this.db,
-          sql`select min(seq) as seq, extract(epoch from min(time))::bigint as time from messages where chat_id = ${chat.id}`,
+          // 负数替代 seq 不是 QQ 的 seq，不算「生产最早一条」。
+          sql`select min(seq) as seq, extract(epoch from min(time))::bigint as time from messages where chat_id = ${chat.id} and seq > 0`,
         )
       : null;
     // 会话行在、但一条消息都没有（资料同步等先建了会话行，2026-11-04 实测群 162930392）：按新会话处理，

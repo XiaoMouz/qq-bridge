@@ -249,3 +249,27 @@ it('好友的私聊表里混着临时会话消息：并进同一个好友会话�
   expect(await rows(db, sql`select top_seq, read_inbox_max_seq, unread_count, chat_pts > 0 as synced from chats where id = ${li!.id}`))
     .toEqual([{ top_seq: 2, read_inbox_max_seq: 2, unread_count: 0, synced: true }]);
 }, 120_000);
+
+it('补图：备份里按协议 md5 找到的内容挂到过期的媒体上，老历史不抬版本号', async () => {
+  const g = `msg_1_${GROUP}`;
+  const bytes = Buffer.from('89504e470d0a1a0a0000000d49484452000000020000000208060000', 'hex');
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const protocolMd5 = 'e'.repeat(32); // 手机重新压过：内容哈希和协议 md5 不同
+  const pic = text(g, 30, 9030, T0 - 700, 2001, '');
+  pic.nt.elements = [{ elementType: 2, elementId: '0', picElement: { fileName: 'b.png', fileSize: '999', md5HexStr: protocolMd5 } }];
+  pic.record.elements = [{ type: 2, kind: 'image' }];
+  await runImport({ [g]: [pic] });
+  const [before] = await message('group', GROUP, 30);
+  expect(before).toMatchObject({ version: 0 });
+  expect(before!.segments[0]).toMatchObject({ media: { state: 'expired' } });
+
+  const mapPath = path.join(work, 'md5-map.jsonl');
+  await fs.writeFile(mapPath, JSON.stringify({ md5: protocolMd5, sha256: sha, size: bytes.length, mime: 'image/png', role: 'preview' }) + '\n');
+  const applier = new BackupApplier(db, deps.ingest, deps.media, deps.processor, 'python3', '', pino({ level: 'silent' }), () => fakeReader({}, { [sha]: bytes }));
+  const summary = await applier.repairMedia({ backupPath: '', keysPath: '', scanPath: '', statePath: '', stagingDir: path.join(work, 'staging'), mapPath });
+  expect(summary.repaired_image_preview).toBe(1);
+  const [after] = await message('group', GROUP, 30);
+  expect(after).toMatchObject({ version: 0 });
+  expect(after!.segments[0]).toMatchObject({ media: { state: 'stored', sha256: sha } });
+  expect(await rows(db, sql`select fetch_state, sha256 from media_refs where message_seq = 30`)).toEqual([{ fetch_state: 'stored', sha256: sha }]);
+}, 120_000);
