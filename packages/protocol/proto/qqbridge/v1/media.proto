@@ -105,6 +105,7 @@ message MediaUsage {
   int64 chat_id = 1;
   Scene scene = 2;
   int64 peer_id = 3;
+  // 所在消息；合并转发里的（forward_bundle_id 非空）是外层那条合并转发消息。备份导入的替代 seq 是负数。
   int64 message_seq = 4;
   string forward_bundle_id = 5;
   repeated uint32 node_path = 6;
@@ -176,7 +177,8 @@ message StorageItem {
   string tier = 5;
   // 有几个会话引用了它（> 1 = 和别的会话共用）。
   uint32 ref_chats = 6;
-  // 第一次出现的会话和消息（群文件没有消息：seq = 0）。
+  // 出现的会话和消息（群文件没有消息：seq = 0）。合并转发里的给外层那条合并转发消息；
+  // 备份导入的替代 seq 是负数。有多处时优先直接出现在消息里的，其次合并转发，再次负 seq。
   int64 chat_id = 7;
   int64 seq = 8;
   int64 time = 9;

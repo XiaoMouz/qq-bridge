@@ -134,7 +134,7 @@ export class StorageBrowser {
     if (media.length > 0) {
       parts.push(sql`
         select distinct on (r.sha256) r.sha256, b.size, ${CATEGORY} as category, b.state, b.tier, b.ref_chats,
-               r.chat_id, r.message_seq as seq, r.time, b.mime, r.name,
+               r.chat_id, coalesce(r.message_seq, fb.message_seq) as seq, r.time, b.mime, r.name,
                coalesce(
                  (select t.sha256 from media_refs t where t.chat_id = r.chat_id and t.message_seq = r.message_seq
                    and t.ordinal = r.ordinal and t.role = 'qq_thumb' and t.sha256 is not null limit 1),
@@ -145,10 +145,15 @@ export class StorageBrowser {
           from media_refs r
           join blobs b on b.sha256 = r.sha256
           join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
+          -- 合并转发里的媒体没有自己的消息：出处是外层那条合并转发消息（forward_bundle_id 存的是 forward_bundles.id 的文本）。
+          left join forward_bundles fb on r.forward_bundle_id is not null and fb.id = r.forward_bundle_id::bigint
          where q.account_id = ${accountId} and r.sha256 is not null and ${CATEGORY} in ${inList(media)}
            ${chatId ? sql`and r.chat_id = ${chatId}` : sql``}
-         -- 每份内容取一条出处给客户端「在聊天中查看」：优先 QQ 的正 seq（备份导入的是负数、合并转发里的没有 seq，都跳不过去），再取最早的。
-         order by r.sha256, (coalesce(r.message_seq, 0) > 0) desc, r.time`);
+         -- 每份内容取一条出处给客户端「在聊天中查看」：直接出现在 QQ 消息里的优先，其次合并转发的外层消息，
+         -- 再次备份导入的替代 seq（负数），同一档里取最早的。
+         order by r.sha256,
+                  case when r.message_seq > 0 then 0 when fb.message_seq is not null then 1 when r.message_seq < 0 then 2 else 3 end,
+                  r.time`);
     }
     if (categories.includes('group_file')) {
       parts.push(sql`

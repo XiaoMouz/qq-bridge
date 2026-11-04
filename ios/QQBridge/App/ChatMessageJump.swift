@@ -62,7 +62,8 @@ final class ChatMessageJump {
   @discardableResult
   func jump(to seq: Int64, delay: Duration = .zero, using service: any ChatMessageJumpService,
             history: ChatHistoryPagination, onFound: @escaping @MainActor (Int64) -> Void) async -> Bool {
-    guard !Task.isCancelled, seq > 0 else { return false }
+    // 0 = 没有消息；负数是备份导入的替代 seq（排在会话所有 QQ 消息之前，往上翻得到），也能定位。
+    guard !Task.isCancelled, seq != 0 else { return false }
     cancel()
     let request = generation
     target = seq

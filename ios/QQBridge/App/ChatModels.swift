@@ -194,8 +194,8 @@ struct MediaTarget: Identifiable, Hashable {
   var forward: ForwardRef? = nil
   /// 不是从聊天里点开的（存储页）：查看器上给「在聊天中查看」，跳回这条消息看上下文。
   var showInChat = false
-  /// 能不能跳到所在消息：备份导入的是负 seq、合并转发里的没有 seq，跳转只认 QQ 的正 seq（ChatMessageJump）。
-  var canShowInChat: Bool { showInChat && chatId > 0 && seq > 0 }
+  /// 能不能跳到所在消息：seq 0 = 没有消息（群文件）；负数是备份导入的替代 seq，也能定位（ChatMessageJump）。
+  var canShowInChat: Bool { showInChat && chatId > 0 && seq != 0 }
   var id: String { media.sha256.isEmpty ? "\(chatId):\(seq):\(media.ord):\(media.thumbSha256)" : media.sha256 }
 }
 

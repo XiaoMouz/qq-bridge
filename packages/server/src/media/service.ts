@@ -399,8 +399,11 @@ export class MediaService {
   async listUsages(accountId: number, sha256: string, limit = 500): Promise<MediaUsage[]> {
     const list = await rows(
       this.db,
-      sql`select r.chat_id, c.scene, c.peer_id, r.message_seq, r.forward_bundle_id, r.node_path, r.sender_uin, r.time, r.role, r.kind
+      // 合并转发里的：message_seq 给外层那条合并转发消息（客户端「在聊天中查看」跳到它），forward_bundle_id 照旧标明在转发里。
+      sql`select r.chat_id, c.scene, c.peer_id, coalesce(r.message_seq, fb.message_seq) as message_seq, r.forward_bundle_id, r.node_path,
+                 r.sender_uin, r.time, r.role, r.kind
             from media_refs r join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
+            left join forward_bundles fb on r.forward_bundle_id is not null and fb.id = r.forward_bundle_id::bigint
            where r.sha256 = ${sha256} and q.account_id = ${accountId}
            order by r.time desc
            limit ${limit}`,

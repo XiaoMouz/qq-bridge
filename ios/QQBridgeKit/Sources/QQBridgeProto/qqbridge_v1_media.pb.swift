@@ -221,6 +221,7 @@ public nonisolated struct Qqbridge_V1_MediaUsage: Sendable {
 
   public var peerID: Int64 = 0
 
+  /// 所在消息；合并转发里的（forward_bundle_id 非空）是外层那条合并转发消息。备份导入的替代 seq 是负数。
   public var messageSeq: Int64 = 0
 
   public var forwardBundleID: String = String()
@@ -379,7 +380,8 @@ public nonisolated struct Qqbridge_V1_StorageItem: Sendable {
   /// 有几个会话引用了它（> 1 = 和别的会话共用）。
   public var refChats: UInt32 = 0
 
-  /// 第一次出现的会话和消息（群文件没有消息：seq = 0）。
+  /// 出现的会话和消息（群文件没有消息：seq = 0）。合并转发里的给外层那条合并转发消息；
+  /// 备份导入的替代 seq 是负数。有多处时优先直接出现在消息里的，其次合并转发，再次负 seq。
   public var chatID: Int64 = 0
 
   public var seq: Int64 = 0

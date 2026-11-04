@@ -401,8 +401,8 @@ struct StorageItemModel: Identifiable {
     cold = server.tier == "cold"
   }
 
-  /// 能跳到引用它的消息（正 seq 才能定位，见 MediaTarget.canShowInChat）。
-  var canShowInChat: Bool { chatId > 0 && seq > 0 }
+  /// 能跳到引用它的消息（合并转发里的是外层那条消息，备份导入的可能是负 seq；见 MediaTarget.canShowInChat）。
+  var canShowInChat: Bool { chatId > 0 && seq != 0 }
 
   /// 在查看器里打开：带上所在消息，查看器顶栏给「在聊天中查看」。
   func mediaTarget(_ kind: MediaTarget.Kind) -> MediaTarget {
@@ -524,8 +524,8 @@ struct SharedChatsSheet: View {
         let title = titles.title(c.chatId, scene: c.scene, peerId: c.peerId, session: session)
         Button {
           dismiss()
-          // 有出处的消息就跳到那条看上下文，没有（群文件、合并转发里的）只打开会话。
-          if c.seq > 0 { model.openMessage(chatId: c.chatId, seq: c.seq) } else { model.pendingChat = c.chatId }
+          // 有出处的消息就跳到那条看上下文（合并转发里的是外层那条），没有（群文件）只打开会话。
+          if c.seq != 0 { model.openMessage(chatId: c.chatId, seq: c.seq) } else { model.pendingChat = c.chatId }
         } label: {
           HStack(spacing: 12) {
             AvatarView(sha256: titles.avatar(c.chatId, session: session), title: title, seed: c.peerId, size: 34)

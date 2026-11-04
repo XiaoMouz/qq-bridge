@@ -196,6 +196,25 @@ struct ChatMessageJumpTests {
     #expect(found == [25] && history.limit == 135 && service.requests == 2)
   }
 
+  /// 备份导入的替代 seq 是负数、排在 QQ 消息之前（2026-11-04）：往上翻过 seq 1 之后照样能定位。
+  @Test func importedNegativeSeqLoadsOlderPastFirstMessage() async {
+    let service = JumpReplies(), model = ChatMessageJump(), history = ChatHistoryPagination()
+    service.floor = 1; service.existing = [-3]
+    var found: [Int64] = []
+    let task = Task { await model.jump(to: -3, using: service, history: history) { found.append($0) } }
+    await waitForJump { service.requests == 1 }
+    service.floor = -5; service.count = 66; service.countFromTarget = 64; service.finish(0, count: 6)
+    await waitForJump { history.limit >= 84 }
+    model.updateRendered([-3], limit: history.limit); #expect(await task.value)
+    #expect(found == [-3] && service.requests == 1 && model.failure == nil)
+  }
+
+  @Test func zeroSeqIsNotAJumpTarget() async {
+    let service = JumpReplies(), model = ChatMessageJump(), history = ChatHistoryPagination()
+    #expect(await model.jump(to: 0, using: service, history: history) { _ in Issue.record("seq 0 不是消息") } == false)
+    #expect(service.reads == 0 && service.requests == 0)
+  }
+
   @Test(arguments: [0, 60]) func remoteEndOrRepeatedPageStopsWithoutLoop(count: Int) async {
     let service = JumpReplies(), model = ChatMessageJump(), history = ChatHistoryPagination()
     let task = Task { await model.jump(to: 25, using: service, history: history) { _ in Issue.record("未找到不能滚动") } }
