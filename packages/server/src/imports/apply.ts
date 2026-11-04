@@ -121,6 +121,7 @@ export class BackupApplier {
   private report!: fs.FileHandle;
   private selfUin = 0;
   private qqAccountId = 0;
+  private dryRun = false;
 
   constructor(
     private readonly db: Db,
@@ -156,6 +157,7 @@ export class BackupApplier {
     if (!qq) throw new Error(`qq account ${opts.qqAccountId} not found`);
     this.selfUin = Number(qq.uin);
     this.qqAccountId = opts.qqAccountId;
+    this.dryRun = opts.dryRun;
     await fs.mkdir(opts.stagingDir, { recursive: true, mode: 0o700 });
     this.report = await fs.open(opts.reportPath, 'a');
     this.reader = this.openReader();
@@ -208,6 +210,8 @@ export class BackupApplier {
     };
     await this.reader.request({ command: 'meta_set', key, value: ctx });
     this.chats.set(key, ctx);
+    // 老会话：比生产最早一条还旧的都是导入的老历史，算已读（新会话由 importMessages 的 readThrough 处理）。
+    if (chat && ctx.existedAtStart && ctx.floorSeq !== null && !this.dryRun) await this.ingest.markHistoryRead(this.qqAccountId, chat.id, ctx.floorSeq - 1);
     return ctx;
   }
   /** 消息该不该进增量同步：新会话先全写 0（表读完再放最新一页进来），老会话里比生产最早一条还旧的写 0。 */
@@ -605,7 +609,16 @@ export class BackupApplier {
     if (opts.dryRun) return;
     for (const scene of ['group', 'friend', 'temp'] as Scene[]) {
       const ctx = this.chats.get(`chat:${table}:${scene}`) ?? (await this.reader.request({ command: 'meta_get', key: `chat:${table}:${scene}` })).value as ChatContext | null;
-      if (!ctx || ctx.existedAtStart) continue;
+      if (!ctx) continue;
+      if (ctx.existedAtStart) {
+        // 表读完再按定义重算一次未读：补洞的消息写入时没逐条加。
+        const existing = await maybeOne<{ id: number }>(
+          this.db,
+          sql`select id from chats where qq_account_id = ${opts.qqAccountId} and scene = ${scene} and peer_id = ${ctx.peerId}`,
+        );
+        if (existing && ctx.floorSeq !== null) await retrying(() => this.ingest.markHistoryRead(opts.qqAccountId, existing.id, ctx.floorSeq! - 1));
+        continue;
+      }
       const chat = await maybeOne<{ id: number }>(
         this.db,
         sql`select id from chats where qq_account_id = ${opts.qqAccountId} and scene = ${scene} and peer_id = ${ctx.peerId}`,

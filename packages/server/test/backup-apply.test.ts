@@ -178,6 +178,12 @@ it('只写生产没有的：老历史不进增量、补洞分配 chat_pts、同 
   const pokes = await rows<{ time: Date; version: number }>(db, sql`select time, version from chat_events where kind = 'poke' order by time`);
   expect(pokes).toHaveLength(2);
 
+  // 老会话的已读位置原来是 0（没点开过）：导入的老历史算已读，生产原有的未读不变。
+  const [groupChat] = await rows<{ read_inbox_max_seq: number; unread_count: number }>(
+    db, sql`select read_inbox_max_seq, unread_count from chats where scene = 'group' and peer_id = ${GROUP}`);
+  expect(groupChat!.read_inbox_max_seq).toBe(99);
+  expect(groupChat!.unread_count).toBe(6); // 生产原有 100–105 的 5 条 + 补洞的 103
+
   // 新会话：最新一页进增量同步，已读到最新，没有未读。
   const [chat] = await rows<{ chat_pts: number; read_inbox_max_seq: number; unread_count: number; top_seq: number }>(
     db, sql`select chat_pts, read_inbox_max_seq, unread_count, top_seq from chats where scene = 'friend' and peer_id = ${FRIEND}`);

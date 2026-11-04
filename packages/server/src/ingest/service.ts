@@ -231,6 +231,20 @@ export class IngestService {
   }
 
   /**
+   * 导入的老历史算已读：已读位置推到 throughSeq（取较大者），并按定义重算未读（导入写消息时不逐条加未读，
+   * 补洞的消息在已读位置之后的照常算未读）。
+   * 2026-11-04 实测：没点开过的大群已读位置是 0，导进来的几万条老历史 seq 都比它大，下一次重算未读会全算成未读。
+   */
+  async markHistoryRead(qqAccountId: number, chatId: number, throughSeq: number): Promise<void> {
+    const qq = await this.qqAccount(qqAccountId);
+    await this.writers.forAccount(qq.accountId).run(async (w) => {
+      await one(w.tx, sql`select id from chats where id = ${chatId} for update`);
+      await setReadMarker(w.tx, chatId, throughSeq, qq.uin);
+      w.touchDialog(chatId);
+    });
+  }
+
+  /**
    * 导入新建的会话：消息都按老历史写成 version 0，会话的 chat_pts 还是 0，客户端带游标 0 来拉时什么也拿不到。
    * 把最新的 limit 条换成正常分配的 chat_pts，首屏照常走增量同步，更早的仍由 GetHistory 翻页取。
    */
