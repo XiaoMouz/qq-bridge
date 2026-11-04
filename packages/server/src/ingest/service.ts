@@ -763,8 +763,11 @@ export class IngestService {
     messageSeq: number,
     path: string,
     incoming: ForwardNodeInput[] | null,
-    /** 备份导入：known 按节点下标给出已存进媒体库的内容（按 ord），其余媒体记为 expired（没有可用的下载定位）。 */
-    opts: { known?: readonly ReadonlyMap<number, ReusableBlob>[]; missing?: 'download' | 'expired' } = {},
+    /**
+     * 备份导入：known 按节点下标给出已存进媒体库的内容（按 ord），其余媒体记为 expired（没有可用的下载定位）。
+     * replace：换掉已就绪的一层（备份导入的内容，后来从 QQ 拉到了），先撤掉旧节点的媒体引用。
+     */
+    opts: { known?: readonly ReadonlyMap<number, ReusableBlob>[]; missing?: 'download' | 'expired'; replace?: boolean } = {},
   ): Promise<ForwardBundleRow> {
     const nodes = incoming === null ? null : stripNul(incoming);
     const qq = await this.qqAccount(qqAccountId);
@@ -773,7 +776,13 @@ export class IngestService {
         w.tx,
         sql`select id, state, nodes from forward_bundles where chat_id = ${chatId} and message_seq = ${messageSeq} and path = ${path}`,
       );
-      if (existing && existing.state === 'ready') return existing;
+      if (existing && existing.state === 'ready' && !opts.replace) return existing;
+      if (existing && opts.replace) {
+        for (const ref of await rows<{ sha256: string }>(w.tx, sql`select sha256 from media_refs where forward_bundle_id = ${String(existing.id)} and sha256 is not null`)) {
+          await removeUsage(w.tx, chatId, ref.sha256);
+        }
+        await w.tx.execute(sql`delete from media_refs where forward_bundle_id = ${String(existing.id)}`);
+      }
       const stored: StoredForwardNode[] = [];
       const reusedByNode: Map<number, ReusableBlob>[] = [];
       const expired = opts.missing === 'expired';
@@ -820,6 +829,11 @@ export class IngestService {
       }
       return bundle;
     });
+  }
+
+  /** 向 QQ 重拉一层合并转发没拉到：只更新尝试时间，内容不动。 */
+  async touchForward(bundleId: number): Promise<ForwardBundleRow> {
+    return one<ForwardBundleRow>(this.db, sql`update forward_bundles set fetched_at = now() where id = ${bundleId} returning id, state, nodes`);
   }
 
   /**

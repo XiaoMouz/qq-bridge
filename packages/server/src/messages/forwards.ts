@@ -4,7 +4,7 @@
 import type { Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { maybeOne, type Db } from '../db/client.ts';
-import type { ForwardBundleRow, ForwardNodeInput, IngestService } from '../ingest/service.ts';
+import type { ForwardBundleRow, ForwardNodeInput, IngestService, StoredForwardNode } from '../ingest/service.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
 import { mapRawMessage } from '../upstream/napcat/map.ts';
 import type { NtRawMessage } from '../upstream/napcat/types.ts';
@@ -12,11 +12,23 @@ import { InteractionError } from './interactions.ts';
 
 /** 拉不到的合并转发多久之后再试一次。 */
 const UNAVAILABLE_RETRY_MS = 24 * 3600_000;
+/** 从手机备份导入、节点图片拿不到的：多久向 QQ 再要一次（拉到了就换成 QQ 的，图片可以下载）。 */
+const BACKUP_RETRY_MS = 6 * 3600_000;
+
+/**
+ * 从手机备份导入的一层（imports/apply.ts）：节点没有 NT msgId；手机备份里大多没存节点图片，媒体是 expired。
+ * 2026-11-04 实测：QQ 按 resid 还能拉到约三个月内的合并转发（带下载链接），更早的拉不到（FetchForwardMsg 报 unexpected end of file）。
+ * 所以这种缓存不当成「已就绪」挡住向 QQ 拉取。
+ */
+function backupWithMissingMedia(nodes: StoredForwardNode[]): boolean {
+  return nodes.length > 0 && nodes.every((n) => !n.msgId)
+    && nodes.some((n) => n.segments.some((s) => 'media' in s && (s as { media?: { state?: string } }).media?.state === 'expired'));
+}
 
 export class ForwardService {
   constructor(
     private readonly db: Db,
-    private readonly ingest: Pick<IngestService, 'storeForward'>,
+    private readonly ingest: Pick<IngestService, 'storeForward' | 'touchForward'>,
     private readonly upstream: () => Pick<UpstreamHub, 'call' | 'isConnected'> | null,
   ) {}
 
@@ -51,7 +63,9 @@ export class ForwardService {
       this.db,
       sql`select id, state, nodes, fetched_at from forward_bundles where chat_id = ${chatId} and message_seq = ${seq} and path = ${key}`,
     );
-    const fresh = cached && (cached.state === 'ready' || Date.now() - new Date(cached.fetched_at).getTime() < UNAVAILABLE_RETRY_MS);
+    const age = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
+    const fromBackup = cached?.state === 'ready' && backupWithMissingMedia(cached.nodes);
+    const fresh = cached && (fromBackup ? age < BACKUP_RETRY_MS : cached.state === 'ready' || age < UNAVAILABLE_RETRY_MS);
     if (cached && fresh) return { id: cached.id, state: cached.state, nodes: cached.nodes };
 
     let parentMsgId = message.qq_msg_id;
@@ -105,6 +119,11 @@ export class ForwardService {
         segments: action.message.segments,
         media: action.message.media,
       });
+    }
+    if (fromBackup) {
+      // QQ 也拉不到：留着备份里的内容（文字都在），记下这次尝试的时间。
+      if (!nodes.length) return this.ingest.touchForward(cached!.id);
+      return this.ingest.storeForward(message.qq_account_id, chatId, seq, key, nodes, { replace: true });
     }
     return this.ingest.storeForward(message.qq_account_id, chatId, seq, key, nodes.length ? nodes : null);
   }

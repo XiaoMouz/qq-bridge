@@ -1,4 +1,5 @@
 // 表情回应、"正在输入"、共享媒体、合并转发展开。
+import type { IncomingMedia, Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { one, rows } from '../src/db/client.ts';
@@ -27,6 +28,7 @@ class FakeHub {
   async call<T>(_qq: number, action: string, params: any): Promise<T> {
     this.calls.push({ action, params });
     if (action === 'x.forward') return { result: 0, messages: this.forwards.get(params.parentMsgId) ?? [] } as T;
+    if (action === 'x.forward_by_resid') return { result: 0, messages: this.forwards.get(`resid:${params.resId}`) ?? [] } as T;
     return { ok: true } as T;
   }
 }
@@ -139,6 +141,36 @@ describe('ForwardService', () => {
     await ingest.mediaStored(ref.id, { sha256: 'b'.repeat(64), size: 10, mime: 'image/png' });
     const again = await forwards.get(acc.accountId, chat, 9, []);
     expect(again.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'stored', sha256: 'b'.repeat(64) } });
+  });
+
+  it('tries QQ for forwards imported from a phone backup whose pictures are missing', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const hub = new FakeHub();
+    const forwards = new ForwardService(t.db, ingest, () => hub);
+    // 导入的老消息没有 qq_msg_id；节点内容来自备份（msgId 为空），图片在备份里没有文件。
+    await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 940006, 3, 20002, { extra: [{ type: 'forward', forwardId: 'res-backup' }], source: 'backfill' }));
+    const chat = await chatIdOf(acc, 940006);
+    const backupNode = { senderId: 30050, senderName: '甲', time: 1, msgId: '',
+      segments: [{ type: 'image', media: { ord: 0, state: 'pending' } }] as Segment[],
+      media: [{ ord: 0, kind: 'image', role: 'attachment', qqMd5: 'c'.repeat(32) }] as IncomingMedia[] };
+    await ingest.storeForward(acc.qqAccountId, chat, 3, '', [backupNode], { missing: 'expired' });
+    await t.db.execute(sql`update forward_bundles set fetched_at = now() - interval '7 hours' where chat_id = ${chat}`);
+
+    // QQ 也拉不到：留着备份内容，记下尝试时间，6 小时内不再要。
+    const kept = await forwards.get(acc.accountId, chat, 3, []);
+    expect(kept.nodes[0]!.segments[0]).toMatchObject({ type: 'image', media: { state: 'expired' } });
+    await forwards.get(acc.accountId, chat, 3, []);
+    expect(hub.calls.filter((c) => c.action === 'x.forward_by_resid')).toHaveLength(1);
+
+    // 拉到了：换成 QQ 的节点，旧节点的媒体引用撤掉，新图片排下载。
+    await t.db.execute(sql`update forward_bundles set fetched_at = now() - interval '7 hours' where chat_id = ${chat}`);
+    hub.forwards.set('resid:res-backup', [raw({ chatType: 2, peer: '940006', seq: 1, sender: '30050', sendNickName: '甲', elements: [el.pic({ md5: 'c'.repeat(32), size: 10, w: 1, h: 1 })] })]);
+    const replaced = await forwards.get(acc.accountId, chat, 3, []);
+    expect(replaced.nodes[0]!.msgId).not.toBe('');
+    expect(replaced.nodes[0]!.segments[0]).toMatchObject({ type: 'image', media: { state: 'pending' } });
+    const refs = await rows<{ fetch_state: string }>(t.db, sql`select fetch_state from media_refs where chat_id = ${chat} and role <> 'qq_thumb'`);
+    expect(refs).toEqual([{ fetch_state: 'pending' }]);
   });
 
   it('remembers forwards QQ no longer has', async () => {
