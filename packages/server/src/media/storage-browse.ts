@@ -147,7 +147,8 @@ export class StorageBrowser {
           join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
          where q.account_id = ${accountId} and r.sha256 is not null and ${CATEGORY} in ${inList(media)}
            ${chatId ? sql`and r.chat_id = ${chatId}` : sql``}
-         order by r.sha256, r.time`);
+         -- 每份内容取一条出处给客户端「在聊天中查看」：优先 QQ 的正 seq（备份导入的是负数、合并转发里的没有 seq，都跳不过去），再取最早的。
+         order by r.sha256, (coalesce(r.message_seq, 0) > 0) desc, r.time`);
     }
     if (categories.includes('group_file')) {
       parts.push(sql`

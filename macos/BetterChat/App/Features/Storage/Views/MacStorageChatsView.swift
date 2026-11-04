@@ -27,7 +27,7 @@ struct MacStorageChatsView: View {
         Section {
           LabeledContent("合计", value: Bytes.text(total))
           if source == .server, group == .message {
-            Text("消息按每条在数据库里的大小算（文字、消息段和原始数据），数据量大时第一次统计要几秒。")
+            Text("消息是估算：条数 × 整张消息表（含索引）的平均每条大小，图片、卡片多的会话会略偏小。")
               .font(.caption).foregroundStyle(.secondary)
           }
         }

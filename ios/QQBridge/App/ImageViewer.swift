@@ -114,21 +114,28 @@ struct ImageViewer: View {
   }
 
   private func page(for t: MediaTarget, start: Bool = true) -> ImagePage {
-    let p = pageCache.pages[t.id] ?? ImagePage(target: t, session: session, chatId: chatId)
+    // 存储页「全部」里的图片来自不同会话：用图片自己的会话。
+    let p = pageCache.pages[t.id] ?? ImagePage(target: t, session: session, chatId: t.chatId > 0 ? t.chatId : chatId)
     pageCache.pages[t.id] = p
     return start ? p.start() : p
   }
 
-  private func close() {
+  private func close() { close(then: nil) }
+
+  /// 关掉查看器；then 在真正关掉之后再做（跳去聊天要等全屏的查看器退场，不然切标签页时它还盖着）。
+  private func close(then: (() -> Void)?) {
     #if targetEnvironment(macCatalyst)
-    if let mediaWindow { mediaWindow.close(); return }
+    if let mediaWindow { mediaWindow.close(); then?(); return }
     #endif
     withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
       var t = Transaction()
       t.disablesAnimations = true
       withTransaction(t) { dismiss() }
+      then?()
     }
   }
+
+  private var currentTarget: MediaTarget { items.indices.contains(index) ? items[index] : target }
 
   /// 顶部：页码 + 关闭；底部：原图拿不到的提示 + 工具栏。单击图片隐藏 / 显示。
   private var overlay: some View {
@@ -154,6 +161,10 @@ struct ImageViewer: View {
           #endif
         }
         Spacer()
+        if currentTarget.canShowInChat {
+          let t = currentTarget
+          ShowInChatButton { close { model.openMessage(chatId: t.chatId, seq: t.seq) } }
+        }
         if showsCloseButton { Button(action: close) {
           Image(systemName: "xmark")
             .font(.system(size: 16, weight: .bold))
@@ -371,6 +382,27 @@ enum ForwardPayload: Identifiable {
     case .sha(let s): s
     case .file(let u): u.path
     }
+  }
+}
+
+/// 查看器顶栏的「在聊天中查看」（存储页点开的图片、视频）：和关闭按钮同一种深色胶囊。
+struct ShowInChatButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Label("在聊天中查看", systemImage: "text.bubble")
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .background(Capsule().fill(.black.opacity(0.55)))
+        .shadow(color: .black.opacity(0.4), radius: 6)
+    }
+    .buttonStyle(.plain)
+    #if targetEnvironment(macCatalyst)
+    .help("回到这条消息所在的聊天")
+    #endif
   }
 }
 

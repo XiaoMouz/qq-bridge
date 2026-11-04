@@ -1,5 +1,6 @@
 // 存储页的细看：本机缓存 / 服务器存储都按类型（图片、表情、视频、文件、语音、消息、其他）分，
 // 点一类 → 各会话的占比；点一个会话 → 里面的具体内容（缩略图预览、点开查看），和别的会话共用的内容标出共用的会话数。
+// 每份内容都能「在聊天中查看」（查看器顶栏、长按菜单）：跳到引用它的那条消息看上下文。
 import QQBridgeKit
 import QQBridgeProto
 import QuickLook
@@ -154,7 +155,7 @@ struct StorageChatsView: View {
         Section {
           LabeledContent("合计", value: Bytes.text(total))
           if source == .server, group == .message {
-            Text("消息按每条在数据库里的大小算（文字、消息段和原始数据），数据量大时第一次统计要几秒。").font(.caption).foregroundStyle(.secondary)
+            Text("消息是估算：条数 × 整张消息表（含索引）的平均每条大小，图片、卡片多的会话会略偏小。").font(.caption).foregroundStyle(.secondary)
           }
         }
       }
@@ -250,6 +251,7 @@ struct StorageItemsView: View {
   @State private var fileURL: URL?
   @State private var sharing: StorageItemModel?
   @State private var error: String?
+  @Environment(AppModel.self) private var model
 
   private let columns = [GridItem(.adaptive(minimum: 104), spacing: 6)]
 
@@ -270,6 +272,14 @@ struct StorageItemsView: View {
         ForEach(items) { item in
           StorageItemCell(item: item, onShared: { sharing = item })
             .onTapGesture { Task { await open(item) } }
+            .contextMenu {
+              if item.canShowInChat {
+                Button("在聊天中查看", systemImage: "text.bubble") { model.openMessage(chatId: item.chatId, seq: item.seq) }
+              }
+              if item.refChats > 1 {
+                Button("被 \(item.refChats) 个会话引用", systemImage: "link") { sharing = item }
+              }
+            }
             .onAppear { if item.id == items.last?.id, more { Task { await loadMore() } } }
         }
       }
@@ -318,17 +328,15 @@ struct StorageItemsView: View {
     }
   }
 
-  /// 图片、表情、视频在查看器里打开；文件、语音下载后用 QuickLook 打开。
+  /// 图片、表情、视频在查看器里打开（图片能左右翻这一页已加载的图片）；文件、语音下载后用 QuickLook 打开。
   private func open(_ item: StorageItemModel) async {
-    var media = Qqbridge_V1_MediaInfo()
-    media.sha256 = item.sha256
-    media.thumbSha256 = item.thumbSha256 ?? ""
-    media.state = item.purged ? .purged : .stored
     switch item.group {
     case .image, .sticker:
-      preview = MediaTarget(kind: .image, media: media, chatId: item.chatId, seq: item.seq)
+      var target = item.mediaTarget(.image)
+      target.gallery = items.filter { $0.group == .image || $0.group == .sticker }.map { $0.mediaTarget(.image) }
+      preview = target
     case .video:
-      preview = MediaTarget(kind: .video, media: media, chatId: item.chatId, seq: item.seq)
+      preview = item.mediaTarget(.video)
     default:
       #if targetEnvironment(macCatalyst)
       if item.group == .file {
@@ -391,6 +399,20 @@ struct StorageItemModel: Identifiable {
     mime = server.mime.isEmpty ? nil : server.mime
     purged = server.state == "purged"
     cold = server.tier == "cold"
+  }
+
+  /// 能跳到引用它的消息（正 seq 才能定位，见 MediaTarget.canShowInChat）。
+  var canShowInChat: Bool { chatId > 0 && seq > 0 }
+
+  /// 在查看器里打开：带上所在消息，查看器顶栏给「在聊天中查看」。
+  func mediaTarget(_ kind: MediaTarget.Kind) -> MediaTarget {
+    var media = Qqbridge_V1_MediaInfo()
+    media.sha256 = sha256
+    media.thumbSha256 = thumbSha256 ?? ""
+    media.state = purged ? .purged : .stored
+    var t = MediaTarget(kind: kind, media: media, chatId: chatId, seq: seq)
+    t.showInChat = true
+    return t
   }
 
   /// 预览图：缩略图优先；图片、表情没有缩略图时用它自己。
@@ -502,7 +524,8 @@ struct SharedChatsSheet: View {
         let title = titles.title(c.chatId, scene: c.scene, peerId: c.peerId, session: session)
         Button {
           dismiss()
-          model.pendingChat = c.chatId
+          // 有出处的消息就跳到那条看上下文，没有（群文件、合并转发里的）只打开会话。
+          if c.seq > 0 { model.openMessage(chatId: c.chatId, seq: c.seq) } else { model.pendingChat = c.chatId }
         } label: {
           HStack(spacing: 12) {
             AvatarView(sha256: titles.avatar(c.chatId, session: session), title: title, seed: c.peerId, size: 34)

@@ -192,6 +192,10 @@ struct MediaTarget: Identifiable, Hashable {
   var gallery: [MediaTarget] = []
   /// 聊天记录里的媒体：在哪条消息的哪一层、第几个节点（下载中时按它去看下好了没有）。
   var forward: ForwardRef? = nil
+  /// 不是从聊天里点开的（存储页）：查看器上给「在聊天中查看」，跳回这条消息看上下文。
+  var showInChat = false
+  /// 能不能跳到所在消息：备份导入的是负 seq、合并转发里的没有 seq，跳转只认 QQ 的正 seq（ChatMessageJump）。
+  var canShowInChat: Bool { showInChat && chatId > 0 && seq > 0 }
   var id: String { media.sha256.isEmpty ? "\(chatId):\(seq):\(media.ord):\(media.thumbSha256)" : media.sha256 }
 }
 

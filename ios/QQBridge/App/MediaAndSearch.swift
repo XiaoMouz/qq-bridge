@@ -39,6 +39,7 @@ struct MediaViewer: View {
   let session: Session
   let chatId: Int64
   @Environment(\.dismiss) private var dismiss
+  @Environment(AppModel.self) private var model
   #if targetEnvironment(macCatalyst)
   @Environment(\.macMediaWindow) private var mediaWindow
   #endif
@@ -68,9 +69,12 @@ struct MediaViewer: View {
         .ignoresSafeArea()
       VStack(spacing: 8) {
         // 关闭按钮单独一行，不压在播放器自带的按钮（全屏、静音）上。
-        if showsCloseButton { HStack {
+        if showsCloseButton || target.canShowInChat { HStack {
           Spacer()
-          Button(action: close) {
+          if target.canShowInChat {
+            ShowInChatButton { close { model.openMessage(chatId: target.chatId, seq: target.seq) } }
+          }
+          if showsCloseButton { Button(action: close) {
             Image(systemName: "xmark")
               .font(.system(size: 16, weight: .bold))
               .foregroundStyle(.white)
@@ -82,6 +86,7 @@ struct MediaViewer: View {
           #if targetEnvironment(macCatalyst)
           .help("关闭（Esc）")
           #endif
+          }
         }
         .padding(.horizontal, 16)
         .opacity(dragProgress == 0 ? 1 : 0)
@@ -117,15 +122,19 @@ struct MediaViewer: View {
     #endif
   }
 
-  private func close() {
+  private func close() { close(then: nil) }
+
+  /// 关掉播放器；then 在真正关掉之后再做（跳去聊天要等全屏的查看器退场）。
+  private func close(then: (() -> Void)?) {
     playback.close()
     #if targetEnvironment(macCatalyst)
-    if let mediaWindow { mediaWindow.close(); return }
+    if let mediaWindow { mediaWindow.close(); then?(); return }
     #endif
     withAnimation(.easeIn(duration: 0.18)) { visible = false } completion: {
       var t = Transaction()
       t.disablesAnimations = true
       withTransaction(t) { dismiss() }
+      then?()
     }
   }
 
