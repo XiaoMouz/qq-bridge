@@ -15,6 +15,10 @@ final class MacChatHistoryViewModel {
   private(set) var isLoadingMore = false
   private(set) var moreError: String?
   private(set) var next: Qqbridge_V1_SearchCursor?
+  /// 筛选（发送者、时间、类型、排序），和 iOS 共用 MessageSearchFilter。
+  private(set) var filter = MessageSearchFilter()
+  /// 结果对应的筛选（翻页沿用它）。
+  @ObservationIgnored private var searchedFilter = MessageSearchFilter()
   @ObservationIgnored private let service: any MacChatHistoryService
   @ObservationIgnored private var task: Task<Void, Never>?
   @ObservationIgnored private var generation = UUID()
@@ -25,7 +29,16 @@ final class MacChatHistoryViewModel {
   }
   deinit { task?.cancel() }
 
-  var canSearch: Bool { chatID > 0 && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+  var canSearch: Bool {
+    chatID > 0 && (!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || filter.allowsEmptyQuery(chatId: chatID))
+  }
+
+  /// 改了筛选：搜过或者条件本身就能搜时立即重搜。
+  func updateFilter(_ filter: MessageSearchFilter) {
+    guard self.filter != filter else { return }
+    self.filter = filter
+    if canSearch { search() } else { cancel(); results = []; searched = nil; next = nil }
+  }
 
   func updateQuery(_ query: String) {
     guard self.query != query else { return }
@@ -46,16 +59,18 @@ final class MacChatHistoryViewModel {
     moreError = nil
     let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
     let id = generation
+    let used = filter
     isSearching = true
     error = nil
     task = Task { [weak self, service, chatID] in
       do {
-        let page = try await service.search(chatID: chatID, query: term, before: nil)
+        let page = try await service.search(chatID: chatID, query: term, filter: used, before: nil)
         guard let self, !Task.isCancelled, generation == id else { return }
         // 即使服务端异常返回其他会话，也不允许详情页展示或跳转到其他会话的结果。
         results = page.messages.filter { $0.chatID == chatID }
         next = page.hasNext ? page.next : nil
         searched = term
+        searchedFilter = used
         isSearching = false
         task = nil
       } catch {
@@ -71,11 +86,12 @@ final class MacChatHistoryViewModel {
   func loadMore() {
     guard !isSearching, !isLoadingMore, let before = next, let term = searched else { return }
     let id = generation
+    let used = searchedFilter
     isLoadingMore = true
     moreError = nil
     task = Task { [weak self, service, chatID] in
       do {
-        let page = try await service.search(chatID: chatID, query: term, before: before)
+        let page = try await service.search(chatID: chatID, query: term, filter: used, before: before)
         guard let self, !Task.isCancelled, generation == id else { return }
         var seen = Set(results.map(\.seq))
         results += page.messages.filter { $0.chatID == chatID && seen.insert($0.seq).inserted }

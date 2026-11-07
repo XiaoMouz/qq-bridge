@@ -65,6 +65,18 @@ final class AppModel {
   /// 跳到某个会话的某条消息（从查找聊天记录、共享媒体等子页面回到聊天看上下文）。
   var messageJump: MessageJump?
 
+  /// 每个会话里的「查找聊天记录」：关键词、筛选、结果和看到第几条。点结果跳回聊天后再回来还在原处（2026-11-08 用户要求）。
+  @ObservationIgnored private var chatSearches: [Int64: ChatSearchSession] = [:]
+
+  func chatSearch(_ chatId: Int64, session: Session) -> ChatSearchSession {
+    if let s = chatSearches[chatId] { return s }
+    let s = ChatSearchSession(pager: MessageSearchPager(session: session, chatId: chatId))
+    chatSearches[chatId] = s
+    return s
+  }
+
+  func existingChatSearch(_ chatId: Int64) -> ChatSearchSession? { chatSearches[chatId] }
+
   func openMessage(chatId: Int64, seq: Int64) {
     messageJump = MessageJump(chatId: chatId, seq: seq)
     if openChatId != chatId { pendingChat = chatId }

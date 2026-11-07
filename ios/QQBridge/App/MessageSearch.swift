@@ -15,9 +15,14 @@ final class MessageSearchPager {
   private(set) var next: Qqbridge_V1_SearchCursor?
   var hasMore: Bool { next != nil }
 
+  /// 筛选（发送者、会话、时间、类型、排序）；改了之后由界面重新 search。
+  var filter = MessageSearchFilter()
+  /// 上一次真正查的筛选（结果对应的那一份）。
+  private(set) var searchedFilter = MessageSearchFilter()
+
   @ObservationIgnored private let session: Session
   /// 0 = 全部会话。
-  @ObservationIgnored private let chatId: Int64
+  let chatId: Int64
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var seen = Set<String>()
 
@@ -26,21 +31,33 @@ final class MessageSearchPager {
     self.chatId = chatId
   }
 
+  /// 能不能搜：有关键词，或者在限定的会话里有筛选条件（服务端不带关键词时只在指定会话里查）。
+  func canSearch(_ query: String) -> Bool {
+    !query.trimmingCharacters(in: .whitespaces).isEmpty || filter.allowsEmptyQuery(chatId: chatId)
+  }
+
+  /// 结果是不是这次的关键词和筛选查出来的。
+  func isCurrent(_ query: String) -> Bool {
+    searched == query.trimmingCharacters(in: .whitespaces) && searchedFilter == filter
+  }
+
   func search(_ query: String) async {
     let q = query.trimmingCharacters(in: .whitespaces)
-    guard !q.isEmpty else { return reset() }
+    guard canSearch(q) else { return reset() }
+    let used = filter
     generation += 1
     let request = generation
     searching = true
     failed = nil
     defer { if request == generation { searching = false } }
     do {
-      let page = try await fetch(q, before: nil)
+      let page = try await fetch(q, filter: used, before: nil)
       guard request == generation else { return }
       results = page.messages
       seen = Set(page.messages.map(\.searchKey))
       next = page.hasNext ? page.next : nil
       searched = q
+      searchedFilter = used
     } catch {
       guard request == generation else { return }
       results = []
@@ -56,7 +73,7 @@ final class MessageSearchPager {
     loadingMore = true
     defer { if request == generation { loadingMore = false } }
     do {
-      let page = try await fetch(q, before: cursor)
+      let page = try await fetch(q, filter: searchedFilter, before: cursor)
       guard request == generation else { return }
       let fresh = page.messages.filter { seen.insert($0.searchKey).inserted }
       results += fresh
@@ -77,11 +94,13 @@ final class MessageSearchPager {
     failed = nil
     next = nil
     seen = []
+    searchedFilter = MessageSearchFilter()
   }
 
-  private func fetch(_ q: String, before: Qqbridge_V1_SearchCursor?) async throws -> Qqbridge_V1_SearchMessagesResponse {
+  private func fetch(_ q: String, filter: MessageSearchFilter, before: Qqbridge_V1_SearchCursor?) async throws -> Qqbridge_V1_SearchMessagesResponse {
     var req = Qqbridge_V1_SearchMessagesRequest()
     req.query = q
+    filter.apply(to: &req)
     req.chatID = chatId
     req.limit = 100
     if let before { req.before = before }
@@ -101,5 +120,39 @@ final class MessageSearchPager {
     if m.senderID == (try? session.store.selfUin(qqAccountId: d.qqAccountID)) { return "我" }
     if !m.senderName.isEmpty { return m.senderName }
     return (try? session.store.userName(qqAccountId: d.qqAccountID, userId: m.senderID)) ?? String(m.senderID)
+  }
+}
+
+/// 会话里的查找：搜索页和聊天页共用（结果列表、聊天页底部的上一条 / 下一条）。
+@MainActor @Observable
+final class ChatSearchSession {
+  let pager: MessageSearchPager
+  var query = ""
+  /// 正在聊天里看的那条结果（searchKey）；列表回来时滚到它。
+  var current: String?
+  /// 聊天页显示「上一条 / 下一条」。
+  var navigating = false
+
+  init(pager: MessageSearchPager) { self.pager = pager }
+
+  var currentIndex: Int? { current.flatMap { key in pager.results.firstIndex { $0.searchKey == key } } }
+
+  /// 往更早（older = true）或更新的一条；到了已加载结果的尽头先翻下一页。返回要跳的消息。
+  func step(older: Bool) async -> Qqbridge_V1_Message? {
+    guard let i = currentIndex else { return nil }
+    // 列表默认最新在前：更早 = 往后；选了最早在前则相反。
+    let forward = older != pager.searchedFilter.oldestFirst
+    let j = forward ? i + 1 : i - 1
+    if forward, j >= pager.results.count, pager.hasMore { await pager.loadMore() }
+    guard pager.results.indices.contains(j) else { return nil }
+    let m = pager.results[j]
+    current = m.searchKey
+    return m
+  }
+
+  func canStep(older: Bool) -> Bool {
+    guard let i = currentIndex else { return false }
+    let forward = older != pager.searchedFilter.oldestFirst
+    return forward ? (i + 1 < pager.results.count || pager.hasMore) : i > 0
   }
 }

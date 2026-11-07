@@ -35,6 +35,11 @@ struct SearchView: View {
       List {
         let matches = matchedDialogs
         let people = matchedContacts
+        if !query.isEmpty || !pager.filter.isEmpty {
+          SearchFilterBar(filter: Bindable(pager).filter, scope: .global, session: session)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
         if !matches.isEmpty {
           Section("会话") {
             ForEach(matches.prefix(20)) { item in
@@ -93,10 +98,10 @@ struct SearchView: View {
               SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
             }
           }
-        } else if !query.isEmpty, pager.searched != query.trimmingCharacters(in: .whitespaces) {
+        } else if pager.canSearch(query), !pager.isCurrent(query) {
           Section {
             Button { Task { await search() } } label: {
-              Label("在聊天记录里搜索「\(query)」", systemImage: "magnifyingglass")
+              Label(query.isEmpty ? "查找聊天记录" : "在聊天记录里搜索「\(query)」", systemImage: "magnifyingglass")
             }
           }
         }
@@ -113,9 +118,14 @@ struct SearchView: View {
       #endif
       .onSubmit(of: .search) { Task { await search() } }
       .onChange(of: query) { _, _ in pager.reset() }
+      .onChange(of: pager.filter) { _, _ in
+        // 已经搜过：改筛选立即重搜；还没按搜索就等按。
+        if pager.searched != nil, pager.canSearch(query) { Task { await search() } } else { pager.reset() }
+      }
       .overlay {
-        if pager.searching { ProgressView() } else if !query.isEmpty, pager.searched != nil, pager.results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty {
-          ContentUnavailableView.search(text: query)
+        if pager.searching { ProgressView() } else if pager.searched != nil, pager.results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty {
+          if query.isEmpty { ContentUnavailableView("没有符合筛选的消息", systemImage: "line.3.horizontal.decrease.circle") }
+          else { ContentUnavailableView.search(text: query) }
         }
       }
       .task {

@@ -33,68 +33,98 @@ struct MessageJumpHandler: ViewModifier {
 // MARK: - 查找聊天记录
 
 /// 在服务端的完整聊天记录里查找：按搜索键才查，点结果回到聊天里的那条消息；滚到底继续往更早翻。
+/// 关键词、筛选和结果存在 AppModel.chatSearch 里：跳回聊天再回来，列表停在刚才点的那条。
 struct ChatSearchView: View {
   let session: Session
   let chatId: Int64
   @Environment(AppModel.self) private var model
-  @State private var query = ""
-  @State private var searchPresented = false
-  @State private var pager: MessageSearchPager
-
-  init(session: Session, chatId: Int64) {
-    self.session = session
-    self.chatId = chatId
-    _pager = State(initialValue: MessageSearchPager(session: session, chatId: chatId))
-  }
 
   var body: some View {
     #if targetEnvironment(macCatalyst)
     MacChatHistoryView(session: session, chatId: chatId)
     #else
-    List {
-      ForEach(pager.results, id: \.searchKey) { m in
-        Button {
-          // Mac 返回聊天后不能让原搜索控制器继续占着导航栏和焦点（2026-10-14 多选取消时复现）。
-          searchPresented = false
-          model.openMessage(chatId: chatId, seq: m.seq)
-        } label: {
-          VStack(alignment: .leading, spacing: 4) {
-            HStack {
-              Text(pager.senderName(m)).font(.caption.bold())
-              Spacer()
-              Text(Format.chatTime(m.time)).font(.caption2).foregroundStyle(.secondary)
-            }
-            Text(highlighted(Format.preview(m))).font(.subheadline).lineLimit(4)
+    ChatSearchList(session: session, chatId: chatId, state: model.chatSearch(chatId, session: session))
+    #endif
+  }
+}
+
+#if !targetEnvironment(macCatalyst)
+private struct ChatSearchList: View {
+  let session: Session
+  let chatId: Int64
+  @Bindable var state: ChatSearchSession
+  @Environment(AppModel.self) private var model
+  @State private var searchPresented = false
+
+  private var pager: MessageSearchPager { state.pager }
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      List {
+        Section {
+          ForEach(pager.results, id: \.searchKey) { m in resultRow(m) }
+          if pager.hasMore || pager.loadingMore {
+            SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
           }
+        } header: {
+          SearchFilterBar(filter: Bindable(pager).filter, scope: .chat(chatId), session: session)
+            .padding(.horizontal, -16)
+            .textCase(nil)
         }
-        .tint(.primary)
-        .onAppear { if m.searchKey == pager.results.last?.searchKey { Task { await pager.loadMore() } } }
       }
-      if pager.hasMore || pager.loadingMore {
-        SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
+      .listStyle(.plain)
+      .onAppear {
+        if let key = state.current { proxy.scrollTo(key, anchor: .center) }
       }
     }
-    .listStyle(.plain)
-    .searchable(text: $query, isPresented: $searchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
+    .searchable(text: $state.query, isPresented: $searchPresented, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索这个会话的聊天记录")
     .onDisappear { searchPresented = false }
-    .onSubmit(of: .search) { Task { await pager.search(query) } }
-    .onChange(of: query) { _, q in
-      if q.trimmingCharacters(in: .whitespaces).isEmpty { pager.reset() }
+    .onSubmit(of: .search) { Task { await pager.search(state.query) } }
+    .onChange(of: state.query) { _, q in
+      if q.trimmingCharacters(in: .whitespaces).isEmpty, !pager.filter.allowsEmptyQuery(chatId: chatId) { pager.reset() }
+    }
+    .onChange(of: pager.filter) { _, _ in
+      // 改了筛选：有关键词或筛选本身就能搜时立即重搜。
+      if pager.canSearch(state.query) { Task { await pager.search(state.query) } } else { pager.reset() }
     }
     .navigationTitle("查找聊天记录")
     .navigationBarTitleDisplayMode(.inline)
-    .overlay {
-      if pager.searching {
-        ProgressView("正在服务器上查找…")
-      } else if let failed = pager.failed, pager.results.isEmpty {
-        ContentUnavailableView("查找失败", systemImage: "exclamationmark.triangle", description: Text(failed))
-      } else if let searched = pager.searched, pager.results.isEmpty {
-        ContentUnavailableView.search(text: searched)
-      } else if pager.searched == nil {
-        ContentUnavailableView("输入关键词后按搜索", systemImage: "magnifyingglass", description: Text("在服务器上保存的全部聊天记录里查找，点结果回到聊天里的那条消息"))
+    .overlay { status }
+  }
+
+  private func resultRow(_ m: Qqbridge_V1_Message) -> some View {
+    Button {
+      searchPresented = false
+      state.current = m.searchKey
+      state.navigating = true
+      model.openMessage(chatId: chatId, seq: m.seq)
+    } label: {
+      VStack(alignment: .leading, spacing: 4) {
+        HStack {
+          Text(pager.senderName(m)).font(.caption.bold())
+          Spacer()
+          Text(Format.chatTime(m.time)).font(.caption2).foregroundStyle(.secondary)
+        }
+        Text(highlighted(Format.preview(m))).font(.subheadline).lineLimit(4)
       }
     }
-    #endif
+    .tint(.primary)
+    .listRowBackground(state.current == m.searchKey ? Color.accentColor.opacity(0.12) : nil)
+    .id(m.searchKey)
+    .onAppear { if m.searchKey == pager.results.last?.searchKey { Task { await pager.loadMore() } } }
+  }
+
+  @ViewBuilder private var status: some View {
+    if pager.searching {
+      ProgressView()
+    } else if let failed = pager.failed, pager.results.isEmpty {
+      ContentUnavailableView("查找失败", systemImage: "exclamationmark.triangle", description: Text(failed))
+    } else if let searched = pager.searched, pager.results.isEmpty {
+      if searched.isEmpty { ContentUnavailableView("没有符合筛选的消息", systemImage: "line.3.horizontal.decrease.circle") }
+      else { ContentUnavailableView.search(text: searched) }
+    } else if pager.searched == nil {
+      ContentUnavailableView("查找聊天记录", systemImage: "magnifyingglass")
+    }
   }
 
   private func highlighted(_ text: String) -> AttributedString {
@@ -107,6 +137,43 @@ struct ChatSearchView: View {
       from = r.upperBound
     }
     return out
+  }
+}
+#endif
+
+/// 聊天页底部：从查找结果跳过来以后，逐条看上一条 / 下一条，点中间回到结果列表。
+struct ChatSearchNavigator: View {
+  let state: ChatSearchSession
+  let onJump: (Int64) -> Void
+  let onList: () -> Void
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Button("更早", systemImage: "chevron.up") { step(older: true) }
+        .disabled(!state.canStep(older: true))
+      Button(action: onList) {
+        Text(position).font(.subheadline.monospacedDigit().weight(.medium)).frame(minWidth: 64)
+      }
+      .accessibilityLabel("回到查找结果")
+      Button("更新", systemImage: "chevron.down") { step(older: false) }
+        .disabled(!state.canStep(older: false))
+      Button("关闭", systemImage: "xmark") { state.navigating = false }
+    }
+    .labelStyle(.iconOnly)
+    .buttonStyle(.borderless)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .glassEffect(.regular.interactive(), in: Capsule())
+  }
+
+  private var position: String {
+    let total = "\(state.pager.results.count)\(state.pager.hasMore ? "+" : "")"
+    guard let i = state.currentIndex else { return total }
+    return "\(i + 1) / \(total)"
+  }
+
+  private func step(older: Bool) {
+    Task { if let m = await state.step(older: older) { onJump(m.seq) } }
   }
 }
 

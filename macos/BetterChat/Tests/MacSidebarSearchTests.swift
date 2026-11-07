@@ -25,11 +25,13 @@ private final class SearchService: MacSearchService {
 
   func localContacts() -> [Qqbridge_V1_Peer] { contacts }
   func requestAvatar(for peer: Qqbridge_V1_Peer, in avatars: AvatarBook) {}
-  func searchMessages(_ term: String, limit: Int) async throws -> [Qqbridge_V1_Message] {
-    try await withCheckedThrowingContinuation {
+  func searchMessages(_ term: String, filter: MessageSearchFilter, before: Qqbridge_V1_SearchCursor?, limit: Int) async throws -> Qqbridge_V1_SearchMessagesResponse {
+    var response = Qqbridge_V1_SearchMessagesResponse()
+    response.messages = try await withCheckedThrowingContinuation {
       searches[term] = $0
       record(.search(term))
     }
+    return response
   }
   func openChat(with peer: Qqbridge_V1_Peer) async throws -> Int64 {
     try await withCheckedThrowingContinuation {

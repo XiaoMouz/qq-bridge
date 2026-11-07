@@ -5,7 +5,7 @@ import QQBridgeProto
 @MainActor
 protocol MacSearchService {
   func localContacts() -> [Qqbridge_V1_Peer]
-  func searchMessages(_ term: String, limit: Int) async throws -> [Qqbridge_V1_Message]
+  func searchMessages(_ term: String, filter: MessageSearchFilter, before: Qqbridge_V1_SearchCursor?, limit: Int) async throws -> Qqbridge_V1_SearchMessagesResponse
   func openChat(with peer: Qqbridge_V1_Peer) async throws -> Int64
   /// 头像按需批量获取（AvatarBook 负责攒批与去重）。
   func requestAvatar(for peer: Qqbridge_V1_Peer, in avatars: AvatarBook)
@@ -20,11 +20,13 @@ struct MacSessionSearchService: MacSearchService {
   func localContacts() -> [Qqbridge_V1_Peer] {
     ((try? session.store.peers(kind: .user, friendsOnly: true)) ?? []) + ((try? session.store.peers(kind: .group)) ?? [])
   }
-  func searchMessages(_ term: String, limit: Int) async throws -> [Qqbridge_V1_Message] {
+  func searchMessages(_ term: String, filter: MessageSearchFilter, before: Qqbridge_V1_SearchCursor?, limit: Int) async throws -> Qqbridge_V1_SearchMessagesResponse {
     var request = Qqbridge_V1_SearchMessagesRequest()
+    filter.apply(to: &request)
     request.query = term
     request.limit = UInt32(limit)
-    return try await session.api.messages.searchMessages(request: request, headers: session.api.headers).get().messages
+    if let before { request.before = before }
+    return try await session.api.messages.searchMessages(request: request, headers: session.api.headers).get()
   }
   func openChat(with peer: Qqbridge_V1_Peer) async throws -> Int64 {
     try await DialogActions.openChat(session, scene: peer.kind == .group ? .group : .friend, peerId: peer.peerID)

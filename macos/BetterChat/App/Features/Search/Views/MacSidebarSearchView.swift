@@ -11,10 +11,12 @@ struct MacSidebarSearchView: View {
   var body: some View {
     let groups = viewModel.groups
     VStack(spacing: 0) {
+      SearchFilterBar(filter: Binding(get: { viewModel.filter }, set: { viewModel.update(filter: $0) }), scope: .global, session: session)
+        .padding(.horizontal, MacMetrics.sidebarInset - 16)
       ResultList(session: session, groups: groups, selected: viewModel.selected, focusRequest: focusRequest,
                  select: { viewModel.select($0) }, returnToSearch: returnToSearch,
-                 rowAppeared: { viewModel.wantAvatar(for: $0) })
-      if viewModel.isLoading {
+                 rowAppeared: { viewModel.rowAppeared($0) })
+      if viewModel.isLoading || viewModel.isLoadingMore {
         HStack(spacing: 8) {
           ProgressView().controlSize(.small)
           Text("搜索聊天记录…").foregroundStyle(.secondary)

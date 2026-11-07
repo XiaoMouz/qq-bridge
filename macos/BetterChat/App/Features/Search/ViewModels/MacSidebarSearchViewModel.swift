@@ -37,6 +37,11 @@ final class MacSidebarSearchViewModel {
   private(set) var term = ""
   private(set) var messages: [Qqbridge_V1_Message] = []
   private(set) var isLoading = false
+  /// 聊天记录的筛选（发送者、会话、时间、类型、排序），和 iOS 共用。
+  private(set) var filter = MessageSearchFilter()
+  /// 更早的结果（滚到底继续翻）。
+  private(set) var next: Qqbridge_V1_SearchCursor?
+  private(set) var isLoadingMore = false
   private var searchError: String?
   private var contactError: String?
   private var failedContact: Qqbridge_V1_Peer?
@@ -70,6 +75,31 @@ final class MacSidebarSearchViewModel {
     run(next)
   }
 
+  func update(filter: MessageSearchFilter) {
+    guard filter != self.filter else { return }
+    self.filter = filter
+    run(term, force: true)
+  }
+
+  /// 搜索栏是不是在用（有关键词或筛选）：侧栏据此显示搜索结果而不是会话列表。
+  var isActive: Bool { !term.isEmpty || !filter.isEmpty }
+
+  /// 最后一条聊天记录出现时翻下一页。
+  func loadMore() {
+    guard let before = next, !isLoading, !isLoadingMore else { return }
+    let id = generation, term = term, filter = filter
+    isLoadingMore = true
+    Task { [weak self, service] in
+      let page = try? await service.searchMessages(term, filter: filter, before: before, limit: 50)
+      guard let self, self.generation == id else { return }
+      self.isLoadingMore = false
+      guard let page else { return }
+      var seen = Set(self.messages.map(\.searchKey))
+      self.messages += page.messages.filter { seen.insert($0.searchKey).inserted }
+      self.next = page.hasNext && !page.messages.isEmpty ? page.next : nil
+    }
+  }
+
   func retry() {
     guard openingKey == nil else { return }
     if let failedContact { open(failedContact) }
@@ -101,6 +131,11 @@ final class MacSidebarSearchViewModel {
     }
   }
 
+  func rowAppeared(_ id: ResultID) {
+    if case .message(let key) = id, key == messages.last.map(MacMessagePresentation.key) { loadMore() }
+    wantAvatar(for: id)
+  }
+
   func wantAvatar(for id: ResultID) {
     guard case .contact(let key) = id, let peer = contacts.first(where: { MacPeerPresentation.key($0) == key }),
           peer.avatarSha256.isEmpty else { return }
@@ -114,10 +149,10 @@ final class MacSidebarSearchViewModel {
   var error: String? { contactError ?? searchError }
   var retryTitle: String { failedContact == nil ? "重试搜索" : "重新打开会话" }
   var canRetry: Bool { error != nil && openingKey == nil }
-  var showsEmptyState: Bool { !term.isEmpty && !isLoading && error == nil && groups.isEmpty }
+  var showsEmptyState: Bool { isActive && !isLoading && error == nil && groups.isEmpty && (!term.isEmpty || filter.allowsEmptyQuery(chatId: 0)) }
 
   var groups: [Group] {
-    guard !term.isEmpty else { return [] }
+    guard isActive else { return [] }
     var groups: [Group] = []
     let dialogs = matchedDialogs.prefix(20).map { item in
       Result(id: .dialog(item.id), title: item.title,
@@ -144,7 +179,7 @@ final class MacSidebarSearchViewModel {
                     subtitle: "\(service.senderName(message))：\(Format.preview(message))",
                     trailing: Format.listTime(message.time),
                     avatar: MacAvatar(sha256: chat?.peer?.avatarSha256, title: title, seed: chat?.dialog.peerID ?? message.chatID),
-                    subtitleLines: 3, highlight: term)
+                    subtitleLines: 3, highlight: term.isEmpty ? nil : term)
     }
     if !found.isEmpty { groups.append(Group(title: "聊天记录", results: found)) }
     return groups
@@ -167,7 +202,7 @@ final class MacSidebarSearchViewModel {
     return contacts.filter { !shown.contains(MacPeerPresentation.key($0)) && MacPeerPresentation.matches($0, term) }
   }
 
-  private func run(_ next: String) {
+  private func run(_ next: String, force: Bool = false) {
     task?.cancel()
     task = nil
     cancelOpening()
@@ -176,16 +211,21 @@ final class MacSidebarSearchViewModel {
     term = next
     selected = nil
     messages = []
+    self.next = nil
+    isLoadingMore = false
     searchError = nil
-    guard !next.isEmpty else { isLoading = false; contacts = []; return }
-    contacts = service.localContacts()
+    let canSearchMessages = !next.isEmpty || filter.allowsEmptyQuery(chatId: 0)
+    contacts = next.isEmpty ? [] : service.localContacts()
+    guard canSearchMessages else { isLoading = false; return }
     isLoading = true
+    let filter = filter
     task = Task { [weak self, service] in
       do {
-        try await Task.sleep(for: .milliseconds(300))
-        let found = try await service.searchMessages(next, limit: 50)
+        if !force { try await Task.sleep(for: .milliseconds(300)) }
+        let page = try await service.searchMessages(next, filter: filter, before: nil, limit: 50)
         guard let self, self.generation == id, !Task.isCancelled else { return }
-        self.messages = found
+        self.messages = page.messages
+        self.next = page.hasNext ? page.next : nil
         self.isLoading = false
         self.task = nil
       } catch {

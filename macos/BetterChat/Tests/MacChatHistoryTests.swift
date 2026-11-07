@@ -9,7 +9,7 @@ private final class HistoryService: MacChatHistoryService {
   struct Failure: LocalizedError { var errorDescription: String? { "测试网络错误" } }
   var requests: [Request] = []
   var pending: [Int: CheckedContinuation<Qqbridge_V1_SearchMessagesResponse, any Error>] = [:]
-  func search(chatID: Int64, query: String, before: Qqbridge_V1_SearchCursor?) async throws -> Qqbridge_V1_SearchMessagesResponse {
+  func search(chatID: Int64, query: String, filter: MessageSearchFilter, before: Qqbridge_V1_SearchCursor?) async throws -> Qqbridge_V1_SearchMessagesResponse {
     let index = requests.count
     return try await withCheckedThrowingContinuation { continuation in
       pending[index] = continuation

@@ -25,6 +25,10 @@ struct MacChatHistoryView: View {
           .disabled(!viewModel.canSearch || viewModel.isSearching)
       }
       .padding(12)
+      SearchFilterBar(filter: Binding(get: { viewModel.filter }, set: { viewModel.updateFilter($0) }),
+                      scope: .chat(viewModel.chatID), session: session)
+        .padding(.horizontal, -4)
+        .padding(.bottom, 6)
       Divider()
       List {
         ForEach(viewModel.results, id: \.searchKey) { message in
@@ -75,10 +79,10 @@ struct MacChatHistoryView: View {
         Button("重试") { viewModel.search() }
       }
     } else if let term = viewModel.searched, viewModel.results.isEmpty {
-      ContentUnavailableView.search(text: term)
+      if term.isEmpty { ContentUnavailableView("没有符合筛选的消息", systemImage: "line.3.horizontal.decrease.circle") }
+      else { ContentUnavailableView.search(text: term) }
     } else if viewModel.searched == nil {
-      ContentUnavailableView("查找这个会话的消息", systemImage: "magnifyingglass",
-                             description: Text("输入关键词后按回车，点击结果可回到对应消息。"))
+      ContentUnavailableView("查找这个会话的消息", systemImage: "magnifyingglass")
     }
   }
 
