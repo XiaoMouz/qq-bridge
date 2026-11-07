@@ -51,7 +51,7 @@ struct MacSessionStorageFileService: MacStorageFileService {
 
 @MainActor
 protocol MacStorageItemsService {
-  func page(offset: UInt32) async throws -> MacStorageItemsPage
+  func page(offset: UInt32, query: StorageItemsQuery) async throws -> MacStorageItemsPage
 }
 
 struct MacSessionStorageItemsService: MacStorageItemsService {
@@ -60,7 +60,7 @@ struct MacSessionStorageItemsService: MacStorageItemsService {
   let group: StorageGroup
   let chatID: Int64?
 
-  func page(offset: UInt32) async throws -> MacStorageItemsPage {
+  func page(offset: UInt32, query: StorageItemsQuery) async throws -> MacStorageItemsPage {
     switch source {
     case .local:
       let store = session.store, chatID = chatID, kinds = group.localKinds
@@ -74,6 +74,7 @@ struct MacSessionStorageItemsService: MacStorageItemsService {
       request.categories = group.serverCategories
       request.offset = offset
       request.limit = 60
+      query.apply(to: &request)
       let response = try await session.api.media.listStorageItems(request: request, headers: session.api.headers).get()
       return MacStorageItemsPage(items: response.items.map(StorageItemModel.init(server:)), more: response.more)
     }

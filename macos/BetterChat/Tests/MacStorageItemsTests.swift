@@ -6,7 +6,7 @@ import Testing
 @MainActor private final class StoragePages: MacStorageItemsService {
   var offsets: [UInt32] = []
   var replies: [Int: CheckedContinuation<MacStorageItemsPage, any Error>] = [:]
-  func page(offset: UInt32) async throws -> MacStorageItemsPage {
+  func page(offset: UInt32, query: StorageItemsQuery) async throws -> MacStorageItemsPage {
     let index = offsets.count
     return try await withCheckedThrowingContinuation {
       replies[index] = $0; offsets.append(offset)

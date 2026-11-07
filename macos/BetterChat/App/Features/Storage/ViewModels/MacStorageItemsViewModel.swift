@@ -9,6 +9,8 @@ final class MacStorageItemsViewModel {
   private(set) var hasLoaded = false
   private(set) var isLoading = false
   private(set) var error: String?
+  /// 排序与发送者筛选；改了从头加载。
+  private(set) var query = StorageItemsQuery()
   @ObservationIgnored private let service: any MacStorageItemsService
   @ObservationIgnored private var offset: UInt32 = 0
   @ObservationIgnored private var generation = UUID()
@@ -18,6 +20,14 @@ final class MacStorageItemsViewModel {
   deinit { task?.cancel() }
 
   func start() { if !hasLoaded, error == nil { loadMore() } }
+
+  func update(query: StorageItemsQuery) {
+    guard query != self.query else { return }
+    cancel()
+    self.query = query
+    items = []; offset = 0; hasMore = true; hasLoaded = false; error = nil
+    if query.sort != .sender { loadMore() }
+  }
   func reached(_ id: String) {
     guard error == nil, id == items.last?.id else { return }
     loadMore()
@@ -27,10 +37,10 @@ final class MacStorageItemsViewModel {
   func loadMore() -> Task<Void, Never>? {
     guard !isLoading, hasMore else { return nil }
     isLoading = true; error = nil
-    let request = generation, offset = offset
+    let request = generation, offset = offset, query = query
     let work = Task { [weak self, service] in
       do {
-        let page = try await service.page(offset: offset)
+        let page = try await service.page(offset: offset, query: query)
         guard let self, generation == request, !Task.isCancelled else { return }
         // 该接口只有 offset，没有独立游标；空页声称 more 无法安全继续，保留原 offset 重试。
         guard !page.more || !page.items.isEmpty else {

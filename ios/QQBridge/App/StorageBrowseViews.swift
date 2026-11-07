@@ -251,6 +251,7 @@ struct StorageItemsView: View {
   @State private var fileURL: URL?
   @State private var sharing: StorageItemModel?
   @State private var error: String?
+  @State private var query = StorageItemsQuery()
   @Environment(AppModel.self) private var model
 
   private let columns = [GridItem(.adaptive(minimum: 104), spacing: 6)]
@@ -260,36 +261,40 @@ struct StorageItemsView: View {
     MacStorageItemsView(session: session, source: source, group: group, chatID: chatId, title: title)
     #else
     ScrollView {
-      if !items.isEmpty {
-        let purged = items.filter(\.purged).count
-        let stored = items.reduce(Int64(0)) { $0 + ($1.purged ? 0 : $1.size) }
-        Text("\(items.count)\(more ? "+" : "") 份 · \(Bytes.text(stored))\(purged > 0 ? " · \(purged) 份原件已清理" : "")")
-          .font(.footnote).foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal)
-      }
-      LazyVGrid(columns: columns, spacing: 6) {
-        ForEach(items) { item in
-          StorageItemCell(item: item, onShared: { sharing = item })
-            .onTapGesture { Task { await open(item) } }
-            .contextMenu {
-              if item.canShowInChat {
-                Button("在聊天中查看", systemImage: "text.bubble") { model.openMessage(chatId: item.chatId, seq: item.seq) }
-              }
-              if item.refChats > 1 {
-                Button("被 \(item.refChats) 个会话引用", systemImage: "link") { sharing = item }
-              }
-            }
-            .onAppear { if item.id == items.last?.id, more { Task { await loadMore() } } }
+      if source == .server { StorageQueryBar(query: $query, session: session, chatId: chatId, showsSenders: showsSenders) }
+      if query.sort == .sender, let chatId {
+        StorageSendersList(session: session, chatId: chatId, group: group) { person in
+          query.senderMode = .only
+          query.senders = [person]
+          query.sort = .size
         }
+      } else {
+        if !items.isEmpty {
+          let purged = items.filter(\.purged).count
+          let stored = items.reduce(Int64(0)) { $0 + ($1.purged ? 0 : $1.size) }
+          Text("\(items.count)\(more ? "+" : "") 份 · \(Bytes.text(stored))\(purged > 0 ? " · \(purged) 份原件已清理" : "")")
+            .font(.footnote).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+        }
+        LazyVGrid(columns: columns, spacing: 6, pinnedViews: .sectionHeaders) {
+          ForEach(StorageSections.make(items, sort: query.sort)) { section in
+            Section {
+              ForEach(section.items) { item in itemCell(item) }
+            } header: {
+              StorageSectionHeader(section: section).background(.background)
+            }
+          }
+        }
+        .padding(.horizontal, 6)
+        if more { ProgressView().padding() }
       }
-      .padding(.horizontal, 6)
-      if more { ProgressView().padding() }
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
     .overlay {
-      if loading && items.isEmpty { ProgressView() }
+      if query.sort == .sender {}
+      else if loading && items.isEmpty { ProgressView() }
       else if let error { ContentUnavailableView("加载失败", systemImage: "exclamationmark.triangle", description: Text(error)) }
       else if items.isEmpty { ContentUnavailableView("没有\(group.name)", systemImage: group.icon) }
     }
@@ -300,7 +305,33 @@ struct StorageItemsView: View {
         .presentationDetents([.medium, .large])
     }
     .task { await loadMore() }
+    .onChange(of: query) { _, _ in
+      items = []
+      more = false
+      loading = true
+      Task { await loadMore() }
+    }
     #endif
+  }
+
+  /// 群聊（服务端的）才能按发送者筛选、分组。
+  private var showsSenders: Bool {
+    guard source == .server, let chatId, let d = try? session.store.dialog(chatId: chatId) else { return false }
+    return d.scene == .group
+  }
+
+  private func itemCell(_ item: StorageItemModel) -> some View {
+    StorageItemCell(item: item, onShared: { sharing = item })
+      .onTapGesture { Task { await open(item) } }
+      .contextMenu {
+        if item.canShowInChat {
+          Button("在聊天中查看", systemImage: "text.bubble") { model.openMessage(chatId: item.chatId, seq: item.seq) }
+        }
+        if item.refChats > 1 {
+          Button("被 \(item.refChats) 个会话引用", systemImage: "link") { sharing = item }
+        }
+      }
+      .onAppear { if item.id == items.last?.id, more { Task { await loadMore() } } }
   }
 
   private func loadMore() async {
@@ -316,8 +347,11 @@ struct StorageItemsView: View {
       req.categories = group.serverCategories
       req.offset = UInt32(items.count)
       req.limit = 60
+      query.apply(to: &req)
+      let asked = query
       do {
         let res = try await session.api.media.listStorageItems(request: req, headers: session.api.headers).get()
+        guard asked == query else { return }
         items += res.items.map(StorageItemModel.init(server:))
         more = res.more
         error = nil
@@ -371,6 +405,10 @@ struct StorageItemModel: Identifiable {
   let mime: String?
   let purged: Bool
   let cold: Bool
+  /// 出处消息的时间（unix 秒；本机缓存没有，为 0）。
+  let time: Int64
+  /// 发送者（群文件、本机缓存为 0）。
+  let senderId: Int64
   var id: String { sha256 }
 
   init(local: LocalStorageItem) {
@@ -385,6 +423,8 @@ struct StorageItemModel: Identifiable {
     mime = nil
     purged = false
     cold = false
+    time = 0
+    senderId = 0
   }
 
   init(server: Qqbridge_V1_StorageItem) {
@@ -399,6 +439,8 @@ struct StorageItemModel: Identifiable {
     mime = server.mime.isEmpty ? nil : server.mime
     purged = server.state == "purged"
     cold = server.tier == "cold"
+    time = server.time
+    senderId = server.senderID
   }
 
   /// 能跳到引用它的消息（合并转发里的是外层那条消息，备份导入的可能是负 seq；见 MediaTarget.canShowInChat）。
