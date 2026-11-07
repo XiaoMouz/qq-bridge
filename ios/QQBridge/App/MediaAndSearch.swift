@@ -48,6 +48,8 @@ struct MediaViewer: View {
   /// 放不了时的说明（过期、下载失败）。
   @State private var videoMessage: String?
   @State private var fetching = false
+  /// 原件被清理后重新取回时的 sha256（进度按它对上）。
+  @State private var restoringSha: String?
   @State private var visible = false
   @State private var dragProgress: CGFloat = 0
   /// 能保存的视频文件（能播放了才有）；保存中不重复点。
@@ -105,12 +107,7 @@ struct MediaViewer: View {
           } else if let videoMessage {
             Text(videoMessage).foregroundStyle(.white).multilineTextAlignment(.center).padding()
           } else {
-            VStack(spacing: 10) {
-              ProgressView().tint(.white)
-              if fetching {
-                Text(target.forward != nil ? "视频正在下载，下好后自动播放…" : "正在从 QQ 下载…").font(.footnote).foregroundStyle(.white.opacity(0.8))
-              }
-            }
+            VideoFetchProgress(fetching: fetching, value: serverProgress)
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -239,6 +236,13 @@ struct MediaViewer: View {
     #endif
   }
 
+  /// 服务端从 QQ 下载这个视频的进度（Subscribe 推来的；没在下载时为 nil）。
+  private var serverProgress: MediaProgress.Value? {
+    let forward = target.forward.map { (path: $0.path.map(String.init).joined(separator: "."), node: Int32($0.node)) }
+    return MediaProgress.shared.value(chatId: target.chatId, seq: target.forward?.seq ?? target.seq, ord: target.media.ord,
+                                      forward: forward, sha256: restoringSha ?? "")
+  }
+
   /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
   private func videoURL() async -> URL? {
     var media = target.media
@@ -286,9 +290,13 @@ struct MediaViewer: View {
       media = got
     }
     let sha = media.playableSha256.isEmpty ? media.sha256 : media.playableSha256
-    if media.state == .purged {
-      // 原件已清理：先让服务端从 QQ 取回（取回前播放器拿不到内容），拿不到就提示。
-      guard (try? await session.media.file(for: sha, chatId: chatId)) != nil else {
+    if media.state == .purged, (try? await session.media.cachedFile(sha)) == nil {
+      // 原件已清理：先让服务端从 QQ 取回再边下边播。原来这里把整个视频下到本机才开始放，大视频要等很久
+      // （2026-11-08 用户反馈）。现在只发一个 1 字节的 Range 请求：服务端取回期间推进度，取回后播放器直接流式播放。
+      fetching = true
+      restoringSha = sha
+      defer { fetching = false; restoringSha = nil }
+      guard let url = try? await session.media.streamURL(for: sha), await Self.warm(url) else {
         videoMessage = "视频已过期，QQ 上也拿不到了"
         return nil
       }
@@ -300,6 +308,14 @@ struct MediaViewer: View {
       videoMessage = "视频打不开"
       return nil
     }
+  }
+
+  /// 让服务端准备好（被清理的原件当场从 QQ 取回）：只要第 1 个字节，取回要多久就等多久。
+  nonisolated private static func warm(_ url: URL) async -> Bool {
+    var request = URLRequest(url: url, timeoutInterval: 600)
+    request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+    guard let (_, response) = try? await URLSession.shared.data(for: request), let http = response as? HTTPURLResponse else { return false }
+    return http.statusCode == 206 || http.statusCode == 200
   }
 
   /// 聊天记录里某个节点的媒体下好了没有：下好了返回它，失败或等太久返回 nil。
@@ -330,6 +346,31 @@ struct MediaViewer: View {
   private var videoAspect: CGSize? {
     let m = target.media
     return m.width > 0 && m.height > 0 ? CGSize(width: Int(m.width), height: Int(m.height)) : CGSize(width: 16, height: 9)
+  }
+}
+
+/// 视频还没能播放时：服务端在从 QQ 下载就显示进度环和已下大小，否则只转圈。
+private struct VideoFetchProgress: View {
+  let fetching: Bool
+  let value: MediaProgress.Value?
+
+  var body: some View {
+    VStack(spacing: 10) {
+      if fetching, let value, let fraction = value.fraction {
+        ZStack {
+          Circle().stroke(.white.opacity(0.25), lineWidth: 4)
+          Circle().trim(from: 0, to: fraction).stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))
+          Text("\(Int(fraction * 100))%").font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.white)
+        }
+        .frame(width: 56, height: 56)
+        .animation(.linear(duration: 0.3), value: fraction)
+        Text("\(Bytes.text(value.received)) / \(Bytes.text(value.total))")
+          .font(.footnote.monospacedDigit()).foregroundStyle(.white.opacity(0.8))
+      } else {
+        ProgressView().tint(.white)
+        if fetching, let value { Text(Bytes.text(value.received)).font(.footnote.monospacedDigit()).foregroundStyle(.white.opacity(0.8)) }
+      }
+    }
   }
 }
 

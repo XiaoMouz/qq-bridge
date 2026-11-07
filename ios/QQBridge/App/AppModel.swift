@@ -247,6 +247,9 @@ final class AppModel {
           self.calls.update(call)
         case .mediaReady(let m):
           MediaReady.shared.publish(m)
+          MediaProgress.shared.finished(m)
+        case .mediaProgress(let m):
+          MediaProgress.shared.update(m)
         }
       }
     }

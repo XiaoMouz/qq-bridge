@@ -2,6 +2,7 @@
 // （看大图、视频、聊天记录里的媒体、群精华、打开文件）。不用轮询。
 // 用法：先 watch 登记要等什么，再发请求，最后 next 等事件（先登记再请求，事件来得比 await 早也不会漏）。
 import Foundation
+import Observation
 import QQBridgeProto
 
 @MainActor
@@ -96,5 +97,46 @@ final class MediaReady {
       }
       if w.match(e) { w.deliver(e) }
     }
+  }
+}
+
+/// 服务端从 QQ 下载视频、文件的进度（Subscribe 的 mediaProgress，临时事件）。查看器、气泡按位置或 sha256 读。
+/// 下好了 / 拿不到了（mediaReady）就清掉；30 秒没有新进度也当作没在下（服务端重启、断线）。
+@MainActor @Observable
+final class MediaProgress {
+  static let shared = MediaProgress()
+
+  struct Value: Equatable {
+    let received: Int64
+    let total: Int64
+    let at: Date
+    /// 0…1；总大小不知道时为 nil。
+    var fraction: Double? { total > 0 ? min(1, Double(received) / Double(total)) : nil }
+  }
+
+  private var byPlace: [String: Value] = [:]
+  private var bySha: [String: Value] = [:]
+
+  private static func place(_ chatId: Int64, _ seq: Int64, _ ord: UInt32, _ path: String, _ node: Int32) -> String {
+    "\(chatId):\(seq):\(ord):\(path):\(node)"
+  }
+
+  func update(_ e: Qqbridge_V1_MediaProgressUpdate) {
+    let v = Value(received: Int64(e.received), total: Int64(e.total), at: Date())
+    byPlace[Self.place(e.chatID, e.seq, e.ord, e.forwardPath, e.node)] = v
+    if !e.sha256.isEmpty { bySha[e.sha256] = v }
+  }
+
+  func finished(_ e: Qqbridge_V1_MediaReadyUpdate) {
+    guard !e.thumb else { return }
+    byPlace[Self.place(e.chatID, e.seq, e.ord, e.forwardPath, e.node)] = nil
+    if !e.sha256.isEmpty { bySha[e.sha256] = nil }
+  }
+
+  /// 不在聊天记录里的媒体：node = -1、path 为空。
+  func value(chatId: Int64, seq: Int64, ord: UInt32, forward: (path: String, node: Int32)? = nil, sha256: String = "") -> Value? {
+    let v = byPlace[Self.place(chatId, seq, ord, forward?.path ?? "", forward?.node ?? -1)] ?? (sha256.isEmpty ? nil : bySha[sha256])
+    guard let v, Date().timeIntervalSince(v.at) < 30 else { return nil }
+    return v
   }
 }

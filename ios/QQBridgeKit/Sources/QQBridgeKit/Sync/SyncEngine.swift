@@ -24,6 +24,8 @@ public enum SyncEvent: Sendable {
   case call(Qqbridge_V1_Call)
   /// 某个媒体下好了 / 拿不到了。
   case mediaReady(Qqbridge_V1_MediaReadyUpdate)
+  /// 服务端正在从 QQ 下载视频、文件的进度。
+  case mediaProgress(Qqbridge_V1_MediaProgressUpdate)
 }
 
 public actor SyncEngine {
@@ -188,6 +190,8 @@ public actor SyncEngine {
         emit(.call(c.call))
       case .mediaReady(let m):
         emit(.mediaReady(m))
+      case .mediaProgress(let m):
+        emit(.mediaProgress(m))
       }
     }
   }
