@@ -81,6 +81,15 @@ struct ChatScreen: View {
   @State private var bubbleFrames = BubbleFrames()
   /// 往上翻时顶部显示的日期（停下一会儿后消失）。
   @State private var scrollDay: String?
+  /// 屏幕中间那条消息（追平时会话被重置后按它恢复位置）；普通引用，滚动时不触发重绘。
+  @State private var visibleAnchor = VisibleAnchor()
+  /// 恢复位置要滚到的消息：滚过去但不闪高亮。
+  @State private var quietTarget: Int64?
+  /// 从查找结果跳来后，点底部的位置回到结果列表。
+  @State private var showSearchList = false
+  @State private var showCalendar = false
+  /// 日期徽章上那天（日历打开时停在这个月）。
+  @State private var scrollDayTime: Int64?
   @State private var scrollDayHide: Task<Void, Never>?
   /// items 每变一次加一（列表只在它变了时才重新提交）。
   @State private var itemsVersion = 0
@@ -181,6 +190,15 @@ struct ChatScreen: View {
       if messageObservation.error != nil { messageObservation.restart() }
     }
     .task(id: latestRequest) { await refreshLatestMessages() }
+    // 不在最底下时，正在看的这段告诉同步引擎：追平时服务端说变化太多，也不清掉它（SyncEngine.pin）。
+    .onChange(of: PinKey(version: itemsVersion, atBottom: atBottom, window: historyWindow.range), initial: true) { _, key in
+      let range: SeqRange?
+      if let window = key.window { range = window }
+      else if !key.atBottom, let lo = items.firstMessageSeq, let hi = items.lastMessageSeq { range = SeqRange(lo, hi) }
+      else { range = nil }
+      let sync = session.sync, chatId = chatId
+      Task { await sync.pin(chatId, range: range) }
+    }
     .onChange(of: model.connection == .online) { _, online in
       // 重连完成后补当前聊天；它可能不在启动时预取的最近 30 个会话中。
       if online {
@@ -230,7 +248,11 @@ struct ChatScreen: View {
       },
       onReachBottom: reachBottomAction,
       keepsPositionAtBottom: historyWindow.isActive,
-      onVisibleSeqs: { visible in mentionsSeen(visible) },
+      onVisibleSeqs: { visible in
+        mentionsSeen(visible)
+        let sorted = visible.sorted()
+        if !sorted.isEmpty { visibleAnchor.seq = sorted[sorted.count / 2] }
+      },
       onScrollDate: { time in showScrollDay(time) },
       scrollRequest: scrollRequest,
       onFileDrop: { providers in
@@ -263,14 +285,17 @@ struct ChatScreen: View {
         .transition(.opacity)
         .allowsHitTesting(false)
       } else if let scrollDay, notice == nil, history.error == nil, messageJump.failure == nil {
-        Text(scrollDay)
-          .font(.footnote.weight(.medium))
-          .padding(.horizontal, 12)
-          .padding(.vertical, 5)
-          .glassEffect(.clear, in: Capsule())
-          .padding(.top, 6)
-          .transition(.opacity)
-          .allowsHitTesting(false)
+        // 点日期徽章：弹出日历，跳到某天、某个小时（和 Telegram 一样）。
+        Button { showCalendar = true } label: {
+          Text(scrollDay)
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .glassEffect(.clear.interactive(), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .transition(.opacity)
       }
     }
     // 失败提示浮在消息上方，不把整个聊天列表推下去。
@@ -288,6 +313,11 @@ struct ChatScreen: View {
       }
     }
     .animation(.snappy, value: notice)
+    .sheet(isPresented: $showCalendar) { calendarSheet }
+    #if !targetEnvironment(macCatalyst)
+    .overlay(alignment: .bottom) { searchNavigator }
+    .navigationDestination(isPresented: $showSearchList) { ChatSearchView(session: session, chatId: chatId) }
+    #endif
     .modifier(GroupVoiceBar(calls: model.calls, groupId: isGroup ? (dialog?.peerID ?? 0) : 0))
     // 快速回复浮层盖住了 App 底部的提示：在浮层里自己显示一份。
     .overlay(alignment: .bottom) {
@@ -494,8 +524,10 @@ struct ChatScreen: View {
     #if DEBUG
     // 调试：启动参数 -debugJump <chatId>:<seq>，打开这个会话后跳到那条消息。
     .task {
-      guard let spec = UserDefaults.standard.string(forKey: "debugJump"), case let parts = spec.split(separator: ":"), parts.count == 2,
+      // 只跳一次：聊天页每次重新出现 .task 都会再跑（从详情页回来时会覆盖掉别的跳转）。
+      guard !DebugJumpOnce.done, let spec = UserDefaults.standard.string(forKey: "debugJump"), case let parts = spec.split(separator: ":"), parts.count == 2,
         Int64(parts[0]) == chatId, let seq = Int64(parts[1]) else { return }
+      DebugJumpOnce.done = true
       try? await Task.sleep(for: .seconds(2))
       _ = await jump(to: seq)
     }
@@ -562,7 +594,8 @@ struct ChatScreen: View {
     .onDisappear {
       messageObservation.cancel()
       messageJump.cancel()
-      historyWindow.close()
+      // 不关历史窗口：iPhone 上看大图是全屏覆盖，聊天页也会收到 onDisappear；关了的话看完图回来就被拉回最新
+      // （2026-11-08 用户反馈）。窗口跟着页面状态一起释放，观察任务回来时按原锚点重新开始。
       history.cancel()
       retirePasteHint()
       model.chatDisappeared(visibleToken)
@@ -586,6 +619,7 @@ struct ChatScreen: View {
       // 从详情页的查找、共享媒体跳回来：先收起详情页，再定位。
       // Mac 的资料在检查器里，聊天一直可见：不收起，方便接着看下一条结果。
       if !usesInspector { showInfo = false }
+      showSearchList = false
       profileUser = nil
       Task {
         _ = await jump(to: seq, delay: .milliseconds(items.isEmpty ? 1200 : 500))
@@ -866,12 +900,51 @@ struct ChatScreen: View {
     do {
       try await session.sync.openChat(chatId)
       guard !Task.isCancelled else { return }
+      await restoreAfterReset()
       markReadIfNeeded()
     } catch {
       // 离开页面或重连触发的新任务会取消旧任务，旧错误不能覆盖当前请求。
       guard !Task.isCancelled else { return }
       latestError = LoadState.describe(error)
     }
+  }
+
+  private var calendarSheet: some View {
+    let initial = Date(timeIntervalSince1970: TimeInterval(scrollDayTime ?? Int64(Date().timeIntervalSince1970)))
+    return ChatCalendarSheet(session: session, chatId: chatId, initial: initial) { unix in
+      Task { await jump(toTime: unix) }
+    }
+  }
+
+  /// 跳到某个时刻起的第一条消息（日历）。
+  private func jump(toTime unix: Int64) async {
+    var req = Qqbridge_V1_FindMessageByTimeRequest()
+    req.chatID = chatId
+    req.time = unix
+    do {
+      let res = try await session.api.messages.findMessageByTime(request: req, headers: session.api.headers).get()
+      guard res.seq != 0 else { show("这段时间没有消息"); return }
+      _ = await jump(to: res.seq, delay: .milliseconds(300))
+    } catch {
+      show(LoadState.describe(error))
+    }
+  }
+
+  /// 查找结果的上一条 / 下一条（iPhone；Mac 的结果列表一直在检查器里）。
+  @ViewBuilder private var searchNavigator: some View {
+    if let state = model.existingChatSearch(chatId), state.navigating, !selection.active {
+      ChatSearchNavigator(state: state, onJump: { seq in Task { _ = await jump(to: seq) } }, onList: { showSearchList = true })
+        .padding(.bottom, 12)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+  }
+
+  /// 追平时会话被重置（服务端说变化太多）：正在看的那段留在本机但不再和最新相连，改成历史窗口显示它，滚回原来那条。
+  private func restoreAfterReset() async {
+    guard !atBottom, !historyWindow.isActive, let seq = visibleAnchor.seq,
+      let local = try? session.store.loadedRange(chatId: chatId, containing: seq), !local.isNewest else { return }
+    quietTarget = seq
+    if await historyWindow.open(at: seq, using: windowService) != .opened { quietTarget = nil }
   }
 
   // MARK: 有人@我、回到底部
@@ -1000,9 +1073,11 @@ struct ChatScreen: View {
     if let time {
       let day = Format.dayBadge(time)
       if day != scrollDay { scrollDay = day }
+      scrollDayTime = time
     } else {
+      // 停下后多留一会儿，方便点它打开日历。
       scrollDayHide = Task {
-        try? await Task.sleep(for: .seconds(1.2))
+        try? await Task.sleep(for: .seconds(2.5))
         if !Task.isCancelled { scrollDay = nil }
       }
     }
@@ -1174,7 +1249,12 @@ struct ChatScreen: View {
         historyWindow.update(range: snapshot.range)
         if let target = historyWindow.pendingTarget, items.contains(where: { if case .message(let m) = $0 { m.seq == target } else { false } }) {
           historyWindow.pendingTarget = nil
-          scrollToMessage(target)
+          if quietTarget == target {
+            quietTarget = nil
+            scrollRequest = ChatScrollRequest(target: .item("m\(target)"))
+          } else {
+            scrollToMessage(target)
+          }
         }
         if snapshot.joinsNewest, historyWindow.pendingTarget == nil { leaveWindowKeepingPosition() }
       }
@@ -1740,3 +1820,20 @@ extension EnvironmentValues {
   @Entry var macToggleChatInfo: (() -> Void)? = nil
 }
 
+
+/// 告诉同步引擎「正在看哪段」的触发条件。
+private struct PinKey: Equatable {
+  let version: Int
+  let atBottom: Bool
+  let window: SeqRange?
+}
+
+/// 屏幕中间那条消息的 seq（滚动时频繁更新，不放进 SwiftUI 状态）。
+@MainActor
+final class VisibleAnchor {
+  var seq: Int64?
+}
+
+#if DEBUG
+@MainActor enum DebugJumpOnce { static var done = false }
+#endif
