@@ -247,6 +247,16 @@ public actor SyncEngine {
   // MARK: 会话
 
   /// 打开会话：没加载过就拉首屏，加载过就把离线期间的变化补上。
+  /// 聊天页正在看的一段历史（不在最底下时）：追平时服务端说变化太多（too_long）也不清掉它，见 LocalStore.applyChat。
+  private var pinned: [Int64: SeqRange] = [:]
+
+  public func pin(_ chatId: Int64, range: SeqRange?) {
+    if let range { pinned[chatId] = range } else { pinned[chatId] = nil }
+  }
+
+  /// 进后台裁剪本地消息时留下这些（LocalStore.trimMessages 的 keep）。
+  public func pinnedRanges() -> [Int64: SeqRange] { pinned }
+
   public func openChat(_ chatId: Int64) async throws {
     try store.markOpened(chatId: chatId)
     try await catchUpChat(chatId)
@@ -271,6 +281,7 @@ public actor SyncEngine {
         events: res.events,
         newChatPts: res.chatPts,
         reset: res.tooLong,
+        keep: res.tooLong ? pinned[chatId] : nil,
         contiguous: firstScreen ? Self.span(res.messages) : nil
       )
       if res.isFinal, res.chatPts >= (observedChatPts[chatId] ?? 0) { return }

@@ -185,7 +185,7 @@ final class AppModel {
         await self.refreshQqStatus()
       } else {
         await session.sync.stop()
-        _ = try? session.store.trimMessages()
+        _ = try? session.store.trimMessages(keep: await session.sync.pinnedRanges())
       }
     }
   }

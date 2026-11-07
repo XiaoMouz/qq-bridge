@@ -386,6 +386,8 @@ extension LocalStore {
 
   /// 应用一个会话的变化：消息与服务事件按版本号覆盖，chat_pts 前进到 newChatPts。
   /// - reset：服务端说变化太多（too_long），丢掉本地窗口，以这一页为准重新开始。
+  /// - keep：重置时留下的一段（聊天页正在看的历史）：这段消息和它的区间不删，成为一段独立的历史。
+  ///   2026-11-08 用户反馈：在很热闹的群里看着某段历史切到别的 App，回来追平时 too_long 把整个会话清空，位置被拉回最新。
   /// - contiguous：这一页是从某个 seq 往前连续的一段（首屏、翻页），可以并入已加载区间。
   public func applyChat(
     chatId: Int64,
@@ -393,14 +395,33 @@ extension LocalStore {
     events: [Qqbridge_V1_ChatEvent],
     newChatPts: Int64?,
     reset: Bool = false,
+    keep: SeqRange? = nil,
     contiguous: SeqRange? = nil
   ) throws {
     try db.write { db in
       var state = try Self.chatState(chatId, db)
       if reset {
-        try db.execute(sql: "delete from message where chatId = ?", arguments: [chatId])
-        try db.execute(sql: "delete from chatEvent where chatId = ?", arguments: [chatId])
-        state.loadedRanges = []
+        if let keep {
+          let kept = state.loadedRanges.compactMap { r -> SeqRange? in
+            let lo = max(r.lo, keep.lo), hi = min(r.hi, keep.hi)
+            return lo <= hi ? SeqRange(lo, hi) : nil
+          }
+          let keptSeqs = kept.map { (lo: $0.lo, hi: $0.hi) }
+          let condition = keptSeqs.isEmpty ? "1" : keptSeqs.map { _ in "not (seq between ? and ?)" }.joined(separator: " and ")
+          let args: [Int64] = keptSeqs.flatMap { [$0.lo, $0.hi] }
+          try db.execute(sql: "delete from message where chatId = ? and \(condition)", arguments: StatementArguments([chatId] + args))
+          let times = try Row.fetchOne(db, sql: "select min(time) as lo, max(time) as hi from message where chatId = ?", arguments: [chatId])
+          if let lo: Int64 = times?["lo"], let hi: Int64 = times?["hi"] {
+            try db.execute(sql: "delete from chatEvent where chatId = ? and not (time between ? and ?)", arguments: [chatId, lo, hi])
+          } else {
+            try db.execute(sql: "delete from chatEvent where chatId = ?", arguments: [chatId])
+          }
+          state.loadedRanges = kept
+        } else {
+          try db.execute(sql: "delete from message where chatId = ?", arguments: [chatId])
+          try db.execute(sql: "delete from chatEvent where chatId = ?", arguments: [chatId])
+          state.loadedRanges = []
+        }
       }
       for m in messages {
         try db.execute(
@@ -470,7 +491,9 @@ extension LocalStore {
   /// 本地消息裁剪（docs/design.md 6.3）：每个会话只留最近 keepPerChat 条，并且不早于 keepDays 天；
   /// 被裁掉的部分从已加载区间里去掉，翻页时再向服务端要。返回删除的消息数。
   @discardableResult
-  public func trimMessages(keepPerChat: Int = 2000, keepDays: Int = 30, now: Date = Date()) throws -> Int {
+  /// keep：聊天页正在看的一段（SyncEngine.pinnedRanges）不裁：2026-11-08 用户反馈看着很早的历史切到别的 App，
+  /// 进后台时这里把那段删了，回来被拉回最新。
+  public func trimMessages(keepPerChat: Int = 2000, keepDays: Int = 30, now: Date = Date(), keep: [Int64: SeqRange] = [:]) throws -> Int {
     let cutoff = Int64(now.timeIntervalSince1970) - Int64(keepDays) * 86400
     return try db.write { db in
       var deleted = 0
@@ -486,16 +509,33 @@ extension LocalStore {
           arguments: [chatId, keepPerChat, cutoff, chatId]
         )
         guard let floor else { continue }
-        try db.execute(sql: "delete from message where chatId = ? and seq < ?", arguments: [chatId, floor])
+        let pinned = keep[chatId]
+        if let pinned {
+          try db.execute(sql: "delete from message where chatId = ? and seq < ? and not (seq between ? and ?)",
+                         arguments: [chatId, floor, pinned.lo, pinned.hi])
+        } else {
+          try db.execute(sql: "delete from message where chatId = ? and seq < ?", arguments: [chatId, floor])
+        }
         deleted += db.changesCount
         var state = try Self.chatState(chatId, db)
-        state.loadedRanges = state.loadedRanges.compactMap { r in
-          r.hi < floor ? nil : SeqRange(max(r.lo, floor), r.hi)
+        var ranges: [SeqRange] = []
+        for r in state.loadedRanges {
+          if r.hi >= floor { ranges.append(SeqRange(max(r.lo, floor), r.hi)) }
+          if let pinned, r.lo < floor {
+            let lo = max(r.lo, pinned.lo), hi = min(r.hi, floor - 1, pinned.hi)
+            if lo <= hi { ranges.append(SeqRange(lo, hi)) }
+          }
         }
+        state.loadedRanges = ranges.sorted { $0.lo < $1.lo }.reduce(into: []) { Self.mergeInto(&$0, $1) }
         try Self.save(chatId, state, db)
       }
       return deleted
     }
+  }
+
+  /// 按 lo 升序逐段并入（相邻、重叠的合成一段）。
+  private static func mergeInto(_ out: inout [SeqRange], _ r: SeqRange) {
+    if let last = out.last, r.lo <= last.hi + 1 { out[out.count - 1] = SeqRange(last.lo, max(last.hi, r.hi)) } else { out.append(r) }
   }
 
   static func chatState(_ chatId: Int64, _ db: Database) throws -> ChatState {

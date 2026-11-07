@@ -242,6 +242,39 @@ func eventually(_ condition: () throws -> Bool) async throws {
     #expect(server.callLog.contains("history:5:47"))
   }
 
+  /// 追平时 too_long：聊天页正在看的那段历史留下（2026-11-08 切到别的 App 再回来位置被拉回最新），其余照旧清掉。
+  @Test func tooLongResetKeepsPinnedRange() async throws {
+    let store = try LocalStore.inMemory()
+    let server = FakeServer()
+    server.chatPages["5:0"] = chatPage(chatPts: 9, [message(5, 1000), message(5, 1001)])
+    let engine = SyncEngine(api: server, store: store, options: options)
+    try await engine.openChat(5)
+    var around = Qqbridge_V1_GetHistoryResponse()
+    around.messages = [message(5, 10), message(5, 11), message(5, 12)]
+    server.historyPages["5:around:11"] = around
+    _ = try await engine.loadAround(5, seq: 11, limit: 3)
+
+    await engine.pin(5, range: SeqRange(11, 12))
+    server.chatPages["5:9"] = chatPage(chatPts: 50, [message(5, 2000)], tooLong: true)
+    try await engine.catchUpChat(5)
+    #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(11, 12), SeqRange(2000, 2000)])
+    #expect(try store.message(chatId: 5, seq: 11) != nil && store.message(chatId: 5, seq: 10) == nil)
+    #expect(try store.message(chatId: 5, seq: 1000) == nil)
+  }
+
+  /// 进后台裁剪时，正在看的那段历史留下。
+  @Test func trimKeepsPinnedRange() async throws {
+    let store = try LocalStore.inMemory()
+    let old = Int64(Date().timeIntervalSince1970) - 90 * 86400
+    var list = (1...10).map { seq -> Qqbridge_V1_Message in var m = message(5, Int64(seq)); m.time = old; return m }
+    list += (100...160).map { seq -> Qqbridge_V1_Message in var m = message(5, Int64(seq)); m.time = Int64(Date().timeIntervalSince1970); return m }
+    try store.applyChat(chatId: 5, messages: Array(list.prefix(10)), events: [], newChatPts: 1, contiguous: SeqRange(1, 10))
+    try store.applyChat(chatId: 5, messages: Array(list.dropFirst(10)), events: [], newChatPts: 2, contiguous: SeqRange(100, 160))
+    _ = try store.trimMessages(keep: [5: SeqRange(3, 6)])
+    #expect(try store.chatState(chatId: 5).loadedRanges == [SeqRange(3, 6), SeqRange(100, 160)])
+    #expect(try store.message(chatId: 5, seq: 4) != nil && store.message(chatId: 5, seq: 2) == nil)
+  }
+
   /// 跳到很早的消息（2026-11-04，备份导入的老消息离最新几十万条）：目标前后一页记成独立区间，上下各自往外接，
   /// 往下接到服务端没有更多时并进最新那段。
   @Test func historyWindowLoadsAroundTargetAndJoinsNewest() async throws {
