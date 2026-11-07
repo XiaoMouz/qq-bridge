@@ -19,7 +19,6 @@ private final class AdaptiveSplitFixture {
     controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 640)
     host.view.addSubview(controller.view)
     controller.didMove(toParent: host)
-    controller.hasDetail = { true }
     controller.view.layoutIfNeeded()
   }
 
@@ -60,40 +59,43 @@ private final class AdaptiveSplitFixture {
   }
 }
 
+// 2026-10-17（81e2017）起窄窗口不再切单栏导航，只收起侧栏、隐藏检查器；测试按现在的行为改写（2026-11-08）。
 @Suite(.serialized)
 @MainActor
 struct MacAdaptiveSplitTests {
-  @Test func transparentCoverDefersCompactLayoutUntilDismissed() async throws {
+  @Test func narrowWindowCollapsesAndWideWindowRestores() async throws {
+    let fixture = try AdaptiveSplitFixture(width: 1024)
+    defer { fixture.dispose() }
+    #expect(!fixture.controller.isNarrow)
+    fixture.resize(440)
+    #expect(fixture.controller.isNarrow)
+    fixture.resize(1024)
+    #expect(!fixture.controller.isNarrow)
+  }
+
+  @Test func inspectorWaitsWhileNarrowAndReturnsWhenWide() async throws {
+    let fixture = try AdaptiveSplitFixture(width: 440)
+    defer { fixture.dispose() }
+    let content = UIViewController()
+    fixture.controller.showInspector(content)
+    #expect(fixture.controller.isInspectorShown && fixture.controller.inspectorContent === content)
+    fixture.resize(1024)
+    #expect(fixture.controller.isInspectorShown)
+    fixture.controller.showInspector(nil)
+    #expect(!fixture.controller.isInspectorShown && fixture.controller.inspectorContent == nil)
+  }
+
+  @Test func coversDoNotBreakAdaptation() async throws {
     let fixture = try AdaptiveSplitFixture(width: 1024)
     defer { fixture.dispose() }
     let cover = await fixture.present(.overFullScreen)
     #expect(cover.view.window === fixture.controller.view.window)
     fixture.resize(440)
-    #expect(!fixture.controller.isCompact)
     await fixture.dismiss()
-    #expect(fixture.controller.isCompact)
-    #expect(fixture.controller.isShowingCompactDetail)
-  }
-
-  @Test func transparentCoverDefersWideLayoutUntilDismissed() async throws {
-    let fixture = try AdaptiveSplitFixture(width: 440)
-    defer { fixture.dispose() }
-    #expect(fixture.controller.isCompact)
-    _ = await fixture.present(.overFullScreen)
-    fixture.resize(1024)
-    #expect(fixture.controller.isCompact)
-    await fixture.dismiss()
-    #expect(!fixture.controller.isCompact)
-  }
-
-  @Test func formSheetDoesNotSuspendWindowAdaptation() async throws {
-    let fixture = try AdaptiveSplitFixture(width: 1024)
-    defer { fixture.dispose() }
+    #expect(fixture.controller.isNarrow)
     _ = await fixture.present(.formSheet)
-    fixture.resize(440)
-    #expect(fixture.controller.isCompact)
     fixture.resize(1024)
-    #expect(!fixture.controller.isCompact)
+    #expect(!fixture.controller.isNarrow)
     await fixture.dismiss()
   }
 }

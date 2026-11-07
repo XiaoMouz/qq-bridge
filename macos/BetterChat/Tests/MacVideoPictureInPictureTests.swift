@@ -48,10 +48,12 @@ struct MacVideoPictureInPictureTests {
     let player = AVPlayer()
     let inline = playback.controller(for: player)
     playback.playerViewControllerWillStartPictureInPicture(inline)
-    let presented = playback.fullScreenController(for: player)
+    // 全屏改由系统控件负责（不再另建全屏控制器）；换成另一个视频后，旧控制器的回调不能留住新的。
+    let next = AVPlayer()
+    let replacement = playback.controller(for: next)
     playback.playerViewControllerWillStartPictureInPicture(inline)
-    playback.previewClosed(player)
-    #expect(playback.controller(for: player) !== presented)
-    playback.previewClosed(player)
+    playback.previewClosed(next)
+    #expect(playback.controller(for: next) !== replacement)
+    playback.previewClosed(next)
   }
 }

@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 private final class HistoryService: MacChatHistoryService {
-  struct Request: Equatable { let chatID: Int64; let query: String; var before: Qqbridge_V1_SearchCursor? = nil }
+  struct Request: Equatable { let chatID: Int64; let query: String; var before: Qqbridge_V1_SearchCursor? = nil; var filter = MessageSearchFilter() }
   struct Failure: LocalizedError { var errorDescription: String? { "测试网络错误" } }
   var requests: [Request] = []
   var pending: [Int: CheckedContinuation<Qqbridge_V1_SearchMessagesResponse, any Error>] = [:]
@@ -13,7 +13,7 @@ private final class HistoryService: MacChatHistoryService {
     let index = requests.count
     return try await withCheckedThrowingContinuation { continuation in
       pending[index] = continuation
-      requests.append(Request(chatID: chatID, query: query, before: before))
+      requests.append(Request(chatID: chatID, query: query, before: before, filter: filter))
     }
   }
   func finish(_ index: Int, messages: [Qqbridge_V1_Message] = [], fails: Bool = false, next: Qqbridge_V1_SearchCursor? = nil) {
@@ -154,5 +154,25 @@ struct MacChatHistoryTests {
     #expect(model.error == nil && !model.isSearching)
     #expect(service.requests.count == 1)
     #expect(!invalid.canSearch)
+  }
+
+  /// 2026-11-08：不带关键词时，有筛选也能查（服务端只在指定会话里查）；改了筛选立即重查，翻页沿用查的那份筛选。
+  @Test func filterAloneSearchesAndPagingKeepsTheFilter() async {
+    let service = HistoryService()
+    let model = MacChatHistoryViewModel(chatID: 7, service: service)
+    #expect(!model.canSearch)
+    var files = MessageSearchFilter(); files.kinds = [.file]
+    model.updateFilter(files)
+    await settle { service.requests.count == 1 }
+    #expect(service.requests[0].query.isEmpty && service.requests[0].filter.kinds == [.file])
+    var cursor = Qqbridge_V1_SearchCursor(); cursor.seq = 5
+    service.finish(0, messages: [message(7, 9)], next: cursor)
+    await settle { !model.isSearching }
+    model.loadMore()
+    await settle { service.requests.count == 2 }
+    #expect(service.requests[1].filter.kinds == [.file] && service.requests[1].before == cursor)
+    service.finish(1, messages: [message(7, 4)])
+    await settle { !model.isLoadingMore }
+    #expect(model.results.map(\.seq) == [9, 4])
   }
 }

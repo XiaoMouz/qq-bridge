@@ -5,11 +5,12 @@ import Testing
 
 @MainActor private final class StoragePages: MacStorageItemsService {
   var offsets: [UInt32] = []
+  var queries: [StorageItemsQuery] = []
   var replies: [Int: CheckedContinuation<MacStorageItemsPage, any Error>] = [:]
   func page(offset: UInt32, query: StorageItemsQuery) async throws -> MacStorageItemsPage {
     let index = offsets.count
     return try await withCheckedThrowingContinuation {
-      replies[index] = $0; offsets.append(offset)
+      replies[index] = $0; offsets.append(offset); queries.append(query)
     }
   }
   func finish(_ index: Int, items: [StorageItemModel] = [], more: Bool = false) {
@@ -168,5 +169,31 @@ struct MacStorageFileTests {
     #expect(model.url == url)
     model.cancel()
     #expect(!FileManager.default.fileExists(atPath: url.path))
+  }
+
+  /// 2026-11-08：换排序或发送者从头加载，旧请求晚到不混进来；「按发送者」只列人，不取内容。
+  @Test func changingQueryReloadsFromStartAndSenderModeLoadsNothing() async {
+    func named(_ sha: String) -> StorageItemModel {
+      var raw = Qqbridge_V1_StorageItem(); raw.sha256 = sha; raw.size = 10; raw.category = "image"
+      return StorageItemModel(server: raw)
+    }
+    func wait(_ condition: () -> Bool) async {
+      let end = ContinuousClock.now + .seconds(3)
+      while !condition(), ContinuousClock.now < end { await Task.yield() }
+      #expect(condition())
+    }
+    let service = StoragePages(); let model = MacStorageItemsViewModel(service: service)
+    let first = model.loadMore()
+    await wait { service.offsets.count == 1 }
+    var byDate = StorageItemsQuery(); byDate.sort = .newest
+    model.update(query: byDate)
+    await wait { service.offsets.count == 2 }
+    service.finish(0, items: [named("stale")]); await first?.value
+    #expect(model.items.isEmpty && service.queries[1].sort == .newest && service.offsets[1] == 0)
+    service.finish(1, items: [named("b")])
+    await wait { model.items.map(\.id) == ["b"] }
+    var bySender = byDate; bySender.sort = .sender
+    model.update(query: bySender)
+    #expect(model.items.isEmpty && !model.isLoading && service.offsets.count == 2)
   }
 }
