@@ -12,7 +12,7 @@ import { QQ_THUMB_ROLE, type IngestService } from '../ingest/service.ts';
 import type { MediaService } from './service.ts';
 import { qqThumbUrl, SourceUnavailableError, type FetchTarget, type MediaSource, type PendingRef } from './source.ts';
 import { TooLargeError } from './store.ts';
-import type { LiveDownloads } from './live.ts';
+import { moovAfterMdat, type LiveDownloads } from './live.ts';
 import type { MediaProcessor } from './processing.ts';
 
 export interface FetcherOptions {
@@ -369,6 +369,26 @@ export class MediaFetcher {
           : null;
       const web = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>);
       let received = 0;
+      // 边下边播：开头几个盒子到了就看 moov 在不在 mdat 后面，在后面就另开一个 Range 请求先把末尾取回来。
+      let head: Buffer | null = live ? Buffer.alloc(0) : null;
+      const fetchTail = (from: number) => {
+        if (!live) return;
+        live.startTail(from);
+        const logger = this.opts.logger;
+        void (async () => {
+          const res = await fetch(url, { headers: { ...(headers ?? {}), range: `bytes=${from}-` }, signal: controller.signal });
+          logger?.info({ refId: ref.id, from, total, status: res.status }, 'live video: fetching moov at the end first');
+          if (res.status !== 206 || !res.body) {
+            await res.body?.cancel();
+            return;
+          }
+          for await (const chunk of Readable.fromWeb(res.body as import('node:stream/web').ReadableStream<Uint8Array>)) {
+            await live.writeTail(chunk as Uint8Array);
+            // 主下载已经追到末尾那段了：不用再取。
+            if (received >= from) break;
+          }
+        })().catch(() => undefined);
+      };
       const counted = Readable.from(
         (async function* () {
           for await (const chunk of web) {
@@ -376,6 +396,16 @@ export class MediaFetcher {
             stall.refresh();
             // 边下边播的那份写不进去（磁盘满等）不影响正式下载。
             if (live) await live.write(chunk as Uint8Array).catch(() => undefined);
+            if (head) {
+              head = Buffer.concat([head, chunk as Uint8Array]);
+              const moov = moovAfterMdat(head, total);
+              if (moov !== undefined || head.length > 65_536) {
+                // 播放器按 512 KiB 对齐来读（2026-11-08 实测 moov 在 34124814，它要 bytes=34078720-）：
+                // 从 moov 前面再留 1 MiB、按 1 MiB 对齐的位置开始取。
+                if (typeof moov === 'number') fetchTail(Math.max(0, Math.floor(moov / 1_048_576) * 1_048_576 - 1_048_576));
+                head = null;
+              }
+            }
             report?.(received);
             yield chunk;
           }

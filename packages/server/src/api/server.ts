@@ -92,7 +92,10 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
     const end = range ? range.end : info.total - 1;
     if (range) reply.code(206).header('content-range', `bytes ${start}-${end}/${info.total}`);
     reply.header('content-length', end - start + 1);
-    return reply.send(deps.live.read(id, start, end));
+    deps.logger.debug({ id, range: request.headers.range ?? null, total: info.total }, 'live video read');
+    const stream = deps.live.read(id, start, end);
+    stream.on('error', (error) => deps.logger.info({ id, start, end, err: error.message }, 'live video read ended'));
+    return reply.send(stream);
   });
   app.get('/media/:sha256', serveMedia);
   app.get('/media/:sha256/:name', serveMedia);
