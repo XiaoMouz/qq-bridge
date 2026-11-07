@@ -20,7 +20,7 @@ import {
 } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import type { CallRecord } from '../calls/service.ts';
-import { maybeOne, one, rows, type Db, type Tx } from '../db/client.ts';
+import { maybeOne, one, rows, type Db, type Queryable, type Tx } from '../db/client.ts';
 import { pgJson, stripNul } from '../db/nul.ts';
 import { addUsage, findReusableBlob, removeUsage, reusedMediaPatch, type ReusableBlob } from '../media/accounting.ts';
 import { NotFoundError } from '../sync/difference.ts';
@@ -1029,6 +1029,34 @@ export class IngestService {
     return refs.length;
   }
 
+  /**
+   * 下载进度（临时事件）：给下载任务一个按已收字节数推送的函数，同一引用最多约每 700 毫秒推一次。
+   * 不在消息里的（会话事件、群文件）返回 null。2026-11-08 用户反馈大视频要等服务端下完，看不到下到哪了。
+   */
+  async progressReporter(refId: number, total: number, sha256 = ''): Promise<((received: number) => void) | null> {
+    const accountId = await this.accountOfRef(refId).catch(() => null);
+    if (accountId === null) return null;
+    const at = await mediaReadyOf(this.db, refId, false, 'fetching', sha256);
+    if (!at || at.type !== 'mediaReady') return null;
+    let last = 0;
+    return (received) => {
+      const now = Date.now();
+      if (now - last < 700 && (total === 0 || received < total)) return;
+      last = now;
+      this.writers.publishEphemeral(accountId, {
+        type: 'mediaProgress',
+        chatId: at.chatId,
+        seq: at.seq,
+        ord: at.ord,
+        forwardPath: at.forwardPath,
+        node: at.node,
+        received,
+        total,
+        sha256,
+      });
+    };
+  }
+
   private async accountOfRef(refId: number): Promise<number> {
     const ref = await maybeOne<{ account_id: number }>(
       this.db,
@@ -1326,7 +1354,7 @@ function muteChange(event: IncomingChatEvent, selfUin: number): Pick<PeerProfile
 }
 
 /** 媒体下好了 / 拿不到了的临时事件（在写入的事务里读位置，提交后推给在线的客户端）。不在消息里的返回 null。 */
-async function mediaReadyOf(tx: Tx, refId: number, thumb: boolean, state: string, sha256: string): Promise<Update | null> {
+async function mediaReadyOf(tx: Queryable, refId: number, thumb: boolean, state: string, sha256: string): Promise<Update | null> {
   const r = await maybeOne<{ chat_id: number; message_seq: number | null; ordinal: number; node_path: number[] | null; b_seq: number | null; b_path: string | null }>(
     tx,
     sql`select r.chat_id, r.message_seq, r.ordinal, r.node_path, b.message_seq as b_seq, b.path as b_path

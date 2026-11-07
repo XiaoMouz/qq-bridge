@@ -43,6 +43,34 @@ describe('storage browser message usage', () => {
 
 });
 
+describe('storage items sort and senders', () => {
+  it('sorts by size or time and filters / groups by sender', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const { chatId } = await ingest.ingestMessage(acc.qqAccountId, textMessage('group', 930001, 1, 20002));
+    const add = async (n: number, size: number, sender: number, time: string) => {
+      const sha = n.toString(16).padStart(64, 'a');
+      await t.db.execute(sql`insert into blobs (sha256, md5, md5_head, size, storage_key, kind) values (${sha}, ${sha.slice(0, 32)}, ${sha.slice(0, 32)}, ${size}, ${sha}, 'image')`);
+      await t.db.execute(sql`insert into media_refs (chat_id, message_seq, role, kind, sha256, sender_uin, time, fetch_state)
+                             values (${chatId}, ${n}, 'attachment', 'image', ${sha}, ${sender}, ${time}::timestamptz, 'stored')`);
+      return sha;
+    };
+    const a = await add(1, 300, 20002, '2026-01-01T00:00:00Z');
+    const b = await add(2, 100, 30003, '2026-03-01T00:00:00Z');
+    const c = await add(3, 200, 20002, '2026-02-01T00:00:00Z');
+    const browser = new StorageBrowser(t.db);
+    const shas = async (q: Parameters<StorageBrowser['items']>[5]) => (await browser.items(acc.accountId, chatId, ['image'], 0, 10, q)).map((i) => i.sha256);
+    expect(await shas({})).toEqual([a, c, b]);
+    expect(await shas({ sort: 'time_desc' })).toEqual([b, c, a]);
+    expect(await shas({ sort: 'time_asc' })).toEqual([a, c, b]);
+    expect(await shas({ senderIds: [20002] })).toEqual([a, c]);
+    expect(await shas({ excludeSenderIds: [20002] })).toEqual([b]);
+    expect((await browser.items(acc.accountId, chatId, ['image'], 0, 10))[0]!.senderId).toBe(20002);
+    const senders = await browser.senders(acc.accountId, chatId, ['image']);
+    expect(senders.map((s) => [s.senderId, s.count, s.bytes])).toEqual([[20002, 2, 500], [30003, 1, 100]]);
+  });
+});
+
 describe('shared stats queries', () => {
   it('runs one query for concurrent identical requests', async () => {
     const shared = new SharedResults();

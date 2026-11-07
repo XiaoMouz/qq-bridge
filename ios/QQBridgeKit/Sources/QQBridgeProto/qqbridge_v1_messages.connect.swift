@@ -29,6 +29,14 @@ public protocol Qqbridge_V1_MessageServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `searchMessages`(request: Qqbridge_V1_SearchMessagesRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SearchMessagesResponse>
 
+    /// 聊天日历：每天、每小时有多少条消息，以及每天的一张图片（日期选择器的背景）。服务端缓存 10 分钟。
+    @available(iOS 13, *)
+    func `getChatCalendar`(request: Qqbridge_V1_GetChatCalendarRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_GetChatCalendarResponse>
+
+    /// 某个时刻起的第一条消息（跳到某天、某个小时）；之后没有消息时给这之前的最后一条。
+    @available(iOS 13, *)
+    func `findMessageByTime`(request: Qqbridge_V1_FindMessageByTimeRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_FindMessageByTimeResponse>
+
     /// 表情回应（只有群聊支持）：加或取消自己的回应。结果直接写进消息的 reactions 并经 chat_pts 同步，
     /// 之后 QQ 的回应通知会用准确的总数覆盖。
     @available(iOS 13, *)
@@ -102,6 +110,16 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
     }
 
     @available(iOS 13, *)
+    public func `getChatCalendar`(request: Qqbridge_V1_GetChatCalendarRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_GetChatCalendarResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/GetChatCalendar", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
+    public func `findMessageByTime`(request: Qqbridge_V1_FindMessageByTimeRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_FindMessageByTimeResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MessageService/FindMessageByTime", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `react`(request: Qqbridge_V1_ReactRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ReactResponse> {
         return await self.client.unary(path: "/qqbridge.v1.MessageService/React", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -157,6 +175,8 @@ public final class Qqbridge_V1_MessageServiceClient: Qqbridge_V1_MessageServiceC
             public static let sendMessage = Connect.MethodSpec(name: "SendMessage", service: "qqbridge.v1.MessageService", type: .unary)
             public static let recallMessage = Connect.MethodSpec(name: "RecallMessage", service: "qqbridge.v1.MessageService", type: .unary)
             public static let searchMessages = Connect.MethodSpec(name: "SearchMessages", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let getChatCalendar = Connect.MethodSpec(name: "GetChatCalendar", service: "qqbridge.v1.MessageService", type: .unary)
+            public static let findMessageByTime = Connect.MethodSpec(name: "FindMessageByTime", service: "qqbridge.v1.MessageService", type: .unary)
             public static let react = Connect.MethodSpec(name: "React", service: "qqbridge.v1.MessageService", type: .unary)
             public static let getForward = Connect.MethodSpec(name: "GetForward", service: "qqbridge.v1.MessageService", type: .unary)
             public static let listSharedMedia = Connect.MethodSpec(name: "ListSharedMedia", service: "qqbridge.v1.MessageService", type: .unary)

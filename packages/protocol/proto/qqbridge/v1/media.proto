@@ -29,6 +29,8 @@ service MediaService {
   rpc ListStorageChats(ListStorageChatsRequest) returns (ListStorageChatsResponse);
   // 存储页：某个会话（chat_id = 0 表示全部）里某几类的具体内容，从大到小，带被几个会话引用。
   rpc ListStorageItems(ListStorageItemsRequest) returns (ListStorageItemsResponse);
+  // 某个会话里这几类内容按发送者统计（存储页按发送者分组、筛选）。
+  rpc ListStorageSenders(ListStorageSendersRequest) returns (ListStorageSendersResponse);
   // 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
   rpc RunTiering(RunTieringRequest) returns (RunTieringResponse);
   // 我在 QQ 里收藏的表情（顺序与 QQ 一致，最新收藏的在前）。服务端缓存 10 分钟，refresh = true 时重新向 QQ 拉。
@@ -165,6 +167,30 @@ message ListStorageItemsRequest {
   repeated string categories = 2;
   uint32 offset = 3;
   uint32 limit = 4;
+  // size（默认，最大的在前）/ time_desc（最新的在前）/ time_asc。
+  string sort = 5;
+  // 只看这些人发的（群文件没有发送者，设了就不含群文件）；空 = 不限。
+  repeated int64 sender_ids = 6;
+  // 不看这些人发的。
+  repeated int64 exclude_sender_ids = 7;
+}
+
+message ListStorageSendersRequest {
+  int64 chat_id = 1;
+  repeated string categories = 2;
+}
+
+message StorageSender {
+  int64 sender_id = 1;
+  // 消息里带的发送者名字（群名片 / 昵称，最近一条的）。
+  string name = 2;
+  uint32 count = 3;
+  uint64 bytes = 4;
+}
+
+message ListStorageSendersResponse {
+  // 占用从大到小。
+  repeated StorageSender senders = 1;
 }
 
 message StorageItem {
@@ -186,6 +212,8 @@ message StorageItem {
   string name = 11;
   // 预览用的缩略图（没有时为空）。
   string thumb_sha256 = 12;
+  // 发送者（群文件为 0）。
+  int64 sender_id = 13;
 }
 
 message ListStorageItemsResponse {

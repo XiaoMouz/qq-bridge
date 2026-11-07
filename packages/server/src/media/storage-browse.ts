@@ -40,6 +40,22 @@ export interface StorageItemRow {
   mime: string | null;
   name: string | null;
   thumbSha256: string | null;
+  senderId: number;
+}
+
+export type StorageSort = 'size' | 'time_desc' | 'time_asc';
+
+export interface StorageItemQuery {
+  sort?: StorageSort;
+  senderIds?: number[];
+  excludeSenderIds?: number[];
+}
+
+export interface StorageSenderRow {
+  senderId: number;
+  name: string;
+  count: number;
+  bytes: number;
 }
 
 const MESSAGE_TTL_MS = 60 * 60_000;
@@ -121,20 +137,67 @@ export class StorageBrowser {
     return [...merged.values()].sort((a, b) => b.bytes - a.bytes).slice(0, limit);
   }
 
-  items(accountId: number, chatId: number | null, categories: string[], offset: number, limit: number): Promise<StorageItemRow[]> {
+  items(
+    accountId: number,
+    chatId: number | null,
+    categories: string[],
+    offset: number,
+    limit: number,
+    query: StorageItemQuery = {},
+  ): Promise<StorageItemRow[]> {
     const cats = [...new Set(categories.filter(Boolean))].sort();
-    return this.shared.run(`items:${accountId}:${chatId ?? 0}:${cats.join(',')}:${offset}:${limit}`, () =>
-      this.loadItems(accountId, chatId, cats, offset, limit),
-    );
+    const q: Required<StorageItemQuery> = {
+      sort: query.sort ?? 'size',
+      senderIds: [...new Set(query.senderIds ?? [])].sort((a, b) => a - b).slice(0, 200),
+      excludeSenderIds: [...new Set(query.excludeSenderIds ?? [])].sort((a, b) => a - b).slice(0, 200),
+    };
+    const key = `items:${accountId}:${chatId ?? 0}:${cats.join(',')}:${offset}:${limit}:${q.sort}:${q.senderIds.join(',')}:${q.excludeSenderIds.join(',')}`;
+    return this.shared.run(key, () => this.loadItems(accountId, chatId, cats, offset, limit, q));
   }
 
-  private async loadItems(accountId: number, chatId: number | null, categories: string[], offset: number, limit: number): Promise<StorageItemRow[]> {
+  /** 某个会话里这几类内容按发送者统计（同一份内容同一人发多次只算一次）。 */
+  senders(accountId: number, chatId: number, categories: string[]): Promise<StorageSenderRow[]> {
+    const media = [...new Set(categories.filter((c) => (MEDIA_CATEGORIES as readonly string[]).includes(c)))].sort();
+    if (media.length === 0) return Promise.resolve([]);
+    return this.shared.run(`senders:${accountId}:${chatId}:${media.join(',')}`, async () => {
+      const list = await this.query((tx) =>
+        rows<{ sender_uin: number; name: string | null; count: number; bytes: number }>(
+          tx,
+          sql`with x as (
+                select distinct on (r.sender_uin, r.sha256) r.sender_uin, r.sha256, b.size,
+                       (select m.sender_name from messages m where m.chat_id = r.chat_id and m.seq = r.message_seq) as name
+                  from media_refs r join blobs b on b.sha256 = r.sha256
+                  join chats c on c.id = r.chat_id join qq_accounts q on q.id = c.qq_account_id
+                 where q.account_id = ${accountId} and r.chat_id = ${chatId} and r.sha256 is not null
+                   and r.sender_uin is not null and ${CATEGORY} in ${inList(media)}
+                 order by r.sender_uin, r.sha256, r.time desc
+              )
+              select sender_uin, (array_agg(name order by name is null) filter (where name <> ''))[1] as name,
+                     count(*)::int as count, sum(size)::bigint as bytes
+                from x group by sender_uin order by bytes desc limit 500`,
+        ),
+      );
+      return list.map((r) => ({ senderId: Number(r.sender_uin), name: r.name ?? '', count: r.count, bytes: Number(r.bytes) }));
+    }, { ttlMs: 60_000, stale: true });
+  }
+
+  private async loadItems(
+    accountId: number,
+    chatId: number | null,
+    categories: string[],
+    offset: number,
+    limit: number,
+    query: Required<StorageItemQuery>,
+  ): Promise<StorageItemRow[]> {
     const media = categories.filter((c) => (MEDIA_CATEGORIES as readonly string[]).includes(c));
+    const bigints = (list: number[]) => sql`array[${sql.join(list.map((v) => sql`${v}`), sql`, `)}]::bigint[]`;
+    const senderFilter = sql`${query.senderIds.length ? sql`and r.sender_uin = any(${bigints(query.senderIds)})` : sql``}
+           ${query.excludeSenderIds.length ? sql`and (r.sender_uin is null or r.sender_uin <> all(${bigints(query.excludeSenderIds)}))` : sql``}`;
     const parts: SQL[] = [];
     if (media.length > 0) {
       parts.push(sql`
         select distinct on (r.sha256) r.sha256, b.size, ${CATEGORY} as category, b.state, b.tier, b.ref_chats,
-               r.chat_id, coalesce(r.message_seq, fb.message_seq) as seq, r.time, b.mime, r.name,
+               r.chat_id, coalesce(r.message_seq, fb.message_seq) as seq, r.time, b.mime, r.name, coalesce(r.sender_uin, 0) as sender_id,
                coalesce(
                  (select t.sha256 from media_refs t where t.chat_id = r.chat_id and t.message_seq = r.message_seq
                    and t.ordinal = r.ordinal and t.role = 'qq_thumb' and t.sha256 is not null limit 1),
@@ -149,16 +212,18 @@ export class StorageBrowser {
           left join forward_bundles fb on r.forward_bundle_id is not null and fb.id = r.forward_bundle_id::bigint
          where q.account_id = ${accountId} and r.sha256 is not null and ${CATEGORY} in ${inList(media)}
            ${chatId ? sql`and r.chat_id = ${chatId}` : sql``}
+           ${senderFilter}
          -- 每份内容取一条出处给客户端「在聊天中查看」：直接出现在 QQ 消息里的优先，其次合并转发的外层消息，
          -- 再次备份导入的替代 seq（负数），同一档里取最早的。
          order by r.sha256,
                   case when r.message_seq > 0 then 0 when fb.message_seq is not null then 1 when r.message_seq < 0 then 2 else 3 end,
                   r.time`);
     }
-    if (categories.includes('group_file')) {
+    // 群文件没有发送者：按发送者筛选时不列。
+    if (categories.includes('group_file') && query.senderIds.length === 0) {
       parts.push(sql`
         select g.sha256, b.size, 'group_file' as category, b.state, b.tier, b.ref_chats,
-               c.id as chat_id, 0::bigint as seq, g.created_at as time, b.mime, g.name, null::text as thumb_sha256
+               c.id as chat_id, 0::bigint as seq, g.created_at as time, b.mime, g.name, 0::bigint as sender_id, null::text as thumb_sha256
           from group_file_blobs g join blobs b on b.sha256 = g.sha256
           join qq_accounts q on q.id = g.qq_account_id
           join chats c on c.qq_account_id = g.qq_account_id and c.scene = 'group' and c.peer_id = g.group_id
@@ -169,7 +234,7 @@ export class StorageBrowser {
     const list = await this.query((tx) =>
       rows<Record<string, unknown>>(
         tx,
-        sql`select * from (${union}) x order by (state = 'present') desc, size desc, sha256 limit ${limit} offset ${offset}`,
+        sql`select * from (${union}) x order by ${ORDER[query.sort]} limit ${limit} offset ${offset}`,
       ),
     );
     return list.map((r) => ({
@@ -185,6 +250,7 @@ export class StorageBrowser {
       mime: (r.mime as string | null) ?? null,
       name: (r.name as string | null) ?? null,
       thumbSha256: (r.thumb_sha256 as string | null) || null,
+      senderId: Number(r.sender_id ?? 0),
     }));
   }
 
@@ -221,6 +287,12 @@ export class StorageBrowser {
     return list.map((r) => ({ chatId: r.chat_id, scene: r.scene, peerId: r.peer_id, bytes: Number(r.bytes), count: r.count }));
   }
 }
+
+const ORDER: Record<StorageSort, SQL> = {
+  size: sql.raw(`(state = 'present') desc, size desc, sha256`),
+  time_desc: sql.raw(`time desc nulls last, sha256`),
+  time_asc: sql.raw(`time asc nulls last, sha256`),
+};
 
 function inList(values: readonly string[]): SQL {
   return sql`(${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;

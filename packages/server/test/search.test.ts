@@ -61,6 +61,32 @@ describe('searchMessages', () => {
     ).toEqual([2]);
   });
 
+  it('includes and excludes several senders and chats', async () => {
+    expect(seqs(await searchMessages(t.db, acc.accountId, '爬山', { senderIds: [20002, acc.uin] }))).toEqual([5, 1]);
+    expect(seqs(await searchMessages(t.db, acc.accountId, '爬山', { excludeSenderIds: [20002] }))).toEqual([5, 2]);
+    expect(seqs(await searchMessages(t.db, acc.accountId, '爬山', { chatIds: [friendChat] }))).toEqual([5]);
+    expect(seqs(await searchMessages(t.db, acc.accountId, '爬山', { excludeChatIds: [friendChat] }))).toEqual([2, 1]);
+    expect(seqs(await searchMessages(t.db, acc.accountId, '爬山', { oldestFirst: true }))).toEqual([1, 2, 5]);
+  });
+
+  it('filters without a keyword only inside chosen chats', async () => {
+    expect(seqs(await searchMessages(t.db, acc.accountId, '', { chatId: groupChat, flagsAny: MessageFlag.photo }))).toEqual([6]);
+    expect(seqs(await searchMessages(t.db, acc.accountId, '', { chatIds: [friendChat], senderIds: [30003] }))).toEqual([4]);
+    await expect(searchMessages(t.db, acc.accountId, '', { senderIds: [30003] })).rejects.toBeInstanceOf(SearchQueryError);
+  });
+
+  it('pages oldest first', async () => {
+    const all: number[] = [];
+    let before;
+    for (let page = 0; page < 10; page++) {
+      const r = await searchMessages(t.db, acc.accountId, '签到', { oldestFirst: true }, { limit: 10, ...(before ? { before } : {}) });
+      all.push(...seqs(r));
+      if (!r.next) break;
+      before = r.next;
+    }
+    expect(all).toEqual(Array.from({ length: 25 }, (_, i) => 7 + i));
+  });
+
   it('pages with a cursor without gaps or duplicates', async () => {
     const all: number[] = [];
     let before;

@@ -1,3 +1,4 @@
+import { ChatCalendar } from './sync/calendar.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pino from 'pino';
@@ -90,6 +91,7 @@ export function createDeps(
     pokeMediaFetcher: () => undefined,
     fetchMediaNow: null,
     storageBrowser: new StorageBrowser(db),
+    calendar: new ChatCalendar(db),
     stickers: new StickerService(db, media, processor, () => deps.upstream, logger.child({ component: 'stickers' })),
     defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
     admin: new AdminService(db, {

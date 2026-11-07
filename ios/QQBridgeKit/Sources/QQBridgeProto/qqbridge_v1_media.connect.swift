@@ -59,6 +59,10 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `listStorageItems`(request: Qqbridge_V1_ListStorageItemsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListStorageItemsResponse>
 
+    /// 某个会话里这几类内容按发送者统计（存储页按发送者分组、筛选）。
+    @available(iOS 13, *)
+    func `listStorageSenders`(request: Qqbridge_V1_ListStorageSendersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListStorageSendersResponse>
+
     /// 冷热分层：dry_run = true 只预估这一轮会下沉多少（不移动），否则立即执行一轮（平时每天自动跑一次）。
     @available(iOS 13, *)
     func `runTiering`(request: Qqbridge_V1_RunTieringRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RunTieringResponse>
@@ -152,6 +156,11 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
     }
 
     @available(iOS 13, *)
+    public func `listStorageSenders`(request: Qqbridge_V1_ListStorageSendersRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ListStorageSendersResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.MediaService/ListStorageSenders", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `runTiering`(request: Qqbridge_V1_RunTieringRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RunTieringResponse> {
         return await self.client.unary(path: "/qqbridge.v1.MediaService/RunTiering", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -190,6 +199,7 @@ public final class Qqbridge_V1_MediaServiceClient: Qqbridge_V1_MediaServiceClien
             public static let getChatStorage = Connect.MethodSpec(name: "GetChatStorage", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStorageChats = Connect.MethodSpec(name: "ListStorageChats", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStorageItems = Connect.MethodSpec(name: "ListStorageItems", service: "qqbridge.v1.MediaService", type: .unary)
+            public static let listStorageSenders = Connect.MethodSpec(name: "ListStorageSenders", service: "qqbridge.v1.MediaService", type: .unary)
             public static let runTiering = Connect.MethodSpec(name: "RunTiering", service: "qqbridge.v1.MediaService", type: .unary)
             public static let listStickers = Connect.MethodSpec(name: "ListStickers", service: "qqbridge.v1.MediaService", type: .unary)
             public static let prepareStickers = Connect.MethodSpec(name: "PrepareStickers", service: "qqbridge.v1.MediaService", type: .unary)

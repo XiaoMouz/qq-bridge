@@ -125,7 +125,23 @@ message SubscribeResponse {
     CallUpdate call = 11;
     // 某个媒体下好了 / 拿不到了（临时事件）：等着看大图、视频、聊天记录里媒体的界面据此刷新，不用轮询。
     MediaReadyUpdate media_ready = 12;
+    // 服务端正在从 QQ 下载视频、文件的进度（临时事件，同一个媒体最多约每 0.7 秒一次）。
+    MediaProgressUpdate media_progress = 13;
   }
+}
+
+message MediaProgressUpdate {
+  // 位置和 MediaReadyUpdate 一样。
+  int64 chat_id = 1;
+  int64 seq = 2;
+  uint32 ord = 3;
+  string forward_path = 4;
+  int32 node = 5;
+  // 已下载 / 总字节（总数不知道时为 0）。
+  uint64 received = 6;
+  uint64 total = 7;
+  // 内容已知时（原件被清理后重新取回）给 sha256，其余为空。
+  string sha256 = 8;
 }
 
 message MediaReadyUpdate {

@@ -297,7 +297,7 @@ export class MediaFetcher {
         // 入库时的链接多半早过期了：直接向上游换新链接。
         const target = await this.target(ref, true);
         if (!target) continue;
-        const result = await this.download(target.url, target.headers, ref, blob.size + 1);
+        const result = await this.download(target.url, target.headers, ref, blob.size + 1, sha256);
         if (result.kind === 'stored' && result.sha256 === sha256) {
           this.opts.logger?.info({ sha256 }, 'restored from QQ while cold storage is offline');
           return 'restored';
@@ -325,37 +325,64 @@ export class MediaFetcher {
     headers: Record<string, string> | undefined,
     ref: PendingRef,
     maxBytes: number,
+    knownSha256 = '',
   ): Promise<DownloadResult> {
-    let response: Response;
+    // 超时按「多久没收到数据」算，不按整个下载：原来 AbortSignal.timeout 连响应体一起算，
+    // 慢速下几百 MB 的视频超过 2 分钟就被掐断，客户端一直等不到（2026-11-08）。
+    const controller = new AbortController();
+    const stall = setTimeout(() => controller.abort(new Error('download stalled')), this.opts.httpTimeoutMs);
     try {
-      response = await fetch(url, { headers: headers ?? {}, signal: AbortSignal.timeout(this.opts.httpTimeoutMs) });
-    } catch (error) {
-      return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
-    }
-    if (GONE_STATUSES.has(response.status)) {
-      await response.body?.cancel();
-      return { kind: 'gone', status: response.status };
-    }
-    if (!response.ok || !response.body) {
-      await response.body?.cancel();
-      return { kind: 'error', error: `HTTP ${response.status}` };
-    }
-    const declared = Number(response.headers.get('content-length') ?? NaN);
-    if (Number.isFinite(declared) && declared > maxBytes) {
-      await response.body.cancel();
-      return { kind: 'too_large' };
-    }
-    const mime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() || ref.mime || null;
-    try {
-      const blob = await this.media.storeBlob(Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>), {
-        kind: ref.kind,
-        ...(mime ? { mime } : {}),
-        maxBytes,
-      });
-      return { kind: 'stored', sha256: blob.sha256, size: blob.size, mime: blob.mime };
-    } catch (error) {
-      if (error instanceof TooLargeError) return { kind: 'too_large' };
-      return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+      let response: Response;
+      try {
+        response = await fetch(url, { headers: headers ?? {}, signal: controller.signal });
+      } catch (error) {
+        return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+      }
+      if (GONE_STATUSES.has(response.status)) {
+        await response.body?.cancel();
+        return { kind: 'gone', status: response.status };
+      }
+      if (!response.ok || !response.body) {
+        await response.body?.cancel();
+        return { kind: 'error', error: `HTTP ${response.status}` };
+      }
+      const declared = Number(response.headers.get('content-length') ?? NaN);
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        await response.body.cancel();
+        return { kind: 'too_large' };
+      }
+      const mime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() || ref.mime || null;
+      const total = Number.isFinite(declared) ? declared : (ref.size ?? 0);
+      // 视频、文件推进度给等着的客户端（图片小，不推）。
+      const report =
+        ref.role !== QQ_THUMB_ROLE && (ref.kind === 'video' || ref.kind === 'file')
+          ? await this.ingest.progressReporter(ref.id, total, knownSha256).catch(() => null)
+          : null;
+      const web = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>);
+      let received = 0;
+      const counted = Readable.from(
+        (async function* () {
+          for await (const chunk of web) {
+            received += (chunk as Uint8Array).length;
+            stall.refresh();
+            report?.(received);
+            yield chunk;
+          }
+        })(),
+      );
+      try {
+        const blob = await this.media.storeBlob(counted, {
+          kind: ref.kind,
+          ...(mime ? { mime } : {}),
+          maxBytes,
+        });
+        return { kind: 'stored', sha256: blob.sha256, size: blob.size, mime: blob.mime };
+      } catch (error) {
+        if (error instanceof TooLargeError) return { kind: 'too_large' };
+        return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
+      }
+    } finally {
+      clearTimeout(stall);
     }
   }
 

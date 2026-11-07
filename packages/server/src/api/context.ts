@@ -1,3 +1,4 @@
+import type { ChatCalendar } from '../sync/calendar.ts';
 import { Code, ConnectError, createContextKey, type HandlerContext, type Interceptor } from '@connectrpc/connect';
 import type { BackupImportService } from '../imports/service.ts';
 import type { Logger } from 'pino';
@@ -59,6 +60,7 @@ export interface ApiDeps {
   tiering: TierManager;
   stickers: StickerService;
   storageBrowser: StorageBrowser;
+  calendar: ChatCalendar;
   /** 冷存储的盘不在时从 QQ 取回内容（媒体下载任务提供；没有上游时为 null）。 */
   rehydrate: ((sha256: string) => Promise<RehydrateResult>) | null;
   /** 有媒体新排进下载队列（例如客户端要按需媒体）：叫醒下载器。 */

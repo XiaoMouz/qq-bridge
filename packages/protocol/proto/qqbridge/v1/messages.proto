@@ -15,6 +15,10 @@ service MessageService {
   // 全文搜索（PGroonga，中文按 N-gram 切分），按时间倒序分页。
   // 查询语法：空格分隔的词需同时出现；A OR B 任一出现；-词 排除。语法写错时按普通文本搜索。
   rpc SearchMessages(SearchMessagesRequest) returns (SearchMessagesResponse);
+  // 聊天日历：每天、每小时有多少条消息，以及每天的一张图片（日期选择器的背景）。服务端缓存 10 分钟。
+  rpc GetChatCalendar(GetChatCalendarRequest) returns (GetChatCalendarResponse);
+  // 某个时刻起的第一条消息（跳到某天、某个小时）；之后没有消息时给这之前的最后一条。
+  rpc FindMessageByTime(FindMessageByTimeRequest) returns (FindMessageByTimeResponse);
   // 表情回应（只有群聊支持）：加或取消自己的回应。结果直接写进消息的 reactions 并经 chat_pts 同步，
   // 之后 QQ 的回应通知会用准确的总数覆盖。
   rpc React(ReactRequest) returns (ReactResponse);
@@ -172,6 +176,7 @@ message SearchCursor {
 }
 
 message SearchMessagesRequest {
+  // 关键词；限定了会话（chat_id / chat_ids，最多 20 个）时可以留空，只按其他条件筛（例如某人在群里发的全部图片）。
   string query = 1;
   // 只搜某个会话；0 = 全部会话。
   int64 chat_id = 2;
@@ -185,6 +190,49 @@ message SearchMessagesRequest {
   // 上一页的 next；第一页留空。
   SearchCursor before = 7;
   uint32 limit = 8;
+  // 只看这些人发的（和 sender_id 合起来算）；空 = 不限。
+  repeated int64 sender_ids = 9;
+  // 不看这些人发的。
+  repeated int64 exclude_sender_ids = 10;
+  // 只搜这些会话（和 chat_id 合起来算）；空 = 全部会话。
+  repeated int64 chat_ids = 11;
+  // 不搜这些会话。
+  repeated int64 exclude_chat_ids = 12;
+  // 最早的在前（游标 before 此时表示「这之后」）。
+  bool oldest_first = 13;
+}
+
+message GetChatCalendarRequest {
+  int64 chat_id = 1;
+  // 客户端所在时区相对 UTC 的分钟数（北京时间 480），按当地日期分天。
+  int32 utc_offset_minutes = 2;
+}
+
+message CalendarDay {
+  // 当地这一天 0 点（unix 秒）。
+  int64 day = 1;
+  uint32 count = 2;
+  // 0–23 点每小时的条数（24 个）。
+  repeated uint32 hours = 3;
+  // 这天的一张图片（没有图片为空）：有缩略图给缩略图。
+  string preview_sha256 = 4;
+}
+
+message GetChatCalendarResponse {
+  // 只有有消息的日子，从早到晚。
+  repeated CalendarDay days = 1;
+}
+
+message FindMessageByTimeRequest {
+  int64 chat_id = 1;
+  // unix 秒。
+  int64 time = 2;
+}
+
+message FindMessageByTimeResponse {
+  // 0 = 会话里没有消息。
+  int64 seq = 1;
+  int64 time = 2;
 }
 
 message SearchMessagesResponse {

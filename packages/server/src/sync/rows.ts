@@ -266,6 +266,18 @@ export type Update =
       thumb: boolean;
       state: string;
       sha256: string;
+    }
+  /** 临时事件：服务端从 QQ 下载视频、文件的进度。 */
+  | {
+      type: 'mediaProgress';
+      chatId: number;
+      seq: number;
+      ord: number;
+      forwardPath: string;
+      node: number;
+      received: number;
+      total: number;
+      sha256: string;
     };
 
 /** 生成 (a, b, c) 形式的列表；调用方需保证非空。 */

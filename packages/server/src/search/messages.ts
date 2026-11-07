@@ -8,6 +8,13 @@ import { messageColumns, toMessage, type MessageRow } from '../sync/rows.ts';
 export interface SearchFilters {
   chatId?: number;
   senderId?: number;
+  /** 只看这些人（和 senderId 合并）。 */
+  senderIds?: number[];
+  excludeSenderIds?: number[];
+  /** 只搜这些会话（和 chatId 合并）。 */
+  chatIds?: number[];
+  excludeChatIds?: number[];
+  oldestFirst?: boolean;
   /** MessageFlag 位的"或"。 */
   flagsAny?: number;
   since?: Date;
@@ -33,6 +40,14 @@ export class SearchTimeoutError extends Error {}
 // 2026-11-04 实测：消息表 1100 万行，PGroonga 先在整张表里取命中再按会话过滤，单字「的」全表命中 150 万行，
 // 只搜一个会话冷缓存也要 6 秒；没有上限时客户端放弃了查询还在跑，和存储页的全表统计叠在一起把数据库拖垮。
 const SEARCH_TIMEOUT_MS = 15_000;
+const MAX_KEYWORDLESS_CHATS = 20;
+const MAX_LIST = 200;
+
+const ids = (list: number[] | undefined) => [...new Set((list ?? []).filter((v) => Number.isSafeInteger(v) && v !== 0))].slice(0, MAX_LIST);
+
+function chatList(f: SearchFilters): number[] {
+  return ids([...(f.chatId ? [f.chatId] : []), ...(f.chatIds ?? [])]);
+}
 
 export async function searchMessages(
   db: Db,
@@ -42,9 +57,19 @@ export async function searchMessages(
   page: { before?: SearchCursor; limit?: number } = {},
 ): Promise<SearchResult> {
   const q = query.trim();
-  if (!q) throw new SearchQueryError('query is empty');
+  // 没有关键词时只能在指定的几个会话里按其他条件筛：走 (chat_id, time) 索引，不扫全表。
+  const chats = chatList(filters);
+  if (!q && (chats.length === 0 || chats.length > MAX_KEYWORDLESS_CHATS)) throw new SearchQueryError('query is empty');
   if (q.length > 200) throw new SearchQueryError('query is too long');
   const limit = Math.max(1, Math.min(page.limit ?? 30, 100));
+  if (!q) {
+    try {
+      return await run(db, accountId, null, filters, page.before, limit);
+    } catch (error) {
+      if ((error as { cause?: { code?: string } })?.cause?.code === '57014') throw new SearchTimeoutError('search timed out');
+      throw error;
+    }
+  }
   try {
     return await run(db, accountId, q, filters, page.before, limit);
   } catch (error) {
@@ -64,34 +89,49 @@ export async function searchMessages(
   }
 }
 
-async function run(db: Db, accountId: number, q: string, f: SearchFilters, before: SearchCursor | undefined, limit: number) {
+async function run(db: Db, accountId: number, q: string | null, f: SearchFilters, before: SearchCursor | undefined, limit: number) {
+  const chats = chatList(f);
+  const senders = ids([...(f.senderId ? [f.senderId] : []), ...(f.senderIds ?? [])]);
+  const excludeSenders = ids(f.excludeSenderIds);
+  const excludeChats = ids(f.excludeChatIds);
+  const bigints = (list: number[]) => sql`array[${sql.join(list.map((v) => sql`${v}`), sql`, `)}]::bigint[]`;
+  const asc = f.oldestFirst === true;
   const conditions = [
     sql`q.account_id = ${accountId}`,
-    sql`m.text &@~ ${q}`,
-    ...(f.chatId ? [sql`m.chat_id = ${f.chatId}`] : []),
-    ...(f.senderId ? [sql`m.sender_uin = ${f.senderId}`] : []),
+    ...(q !== null ? [sql`m.text &@~ ${q}`] : []),
+    ...(chats.length ? [sql`m.chat_id = any(${bigints(chats)})`] : []),
+    ...(excludeChats.length ? [sql`m.chat_id <> all(${bigints(excludeChats)})`] : []),
+    ...(senders.length ? [sql`m.sender_uin = any(${bigints(senders)})`] : []),
+    ...(excludeSenders.length ? [sql`m.sender_uin <> all(${bigints(excludeSenders)})`] : []),
     ...(f.flagsAny ? [sql`(m.flags & ${f.flagsAny}) <> 0`] : []),
     ...(f.since ? [sql`m.time >= ${f.since.toISOString()}::timestamptz`] : []),
     ...(f.until ? [sql`m.time < ${f.until.toISOString()}::timestamptz`] : []),
-    ...(before ? [sql`(m.time, m.chat_id, m.seq) < (${before.time.toISOString()}::timestamptz, ${before.chatId}, ${before.seq})`] : []),
+    ...(before
+      ? [
+          asc
+            ? sql`(m.time, m.chat_id, m.seq) > (${before.time.toISOString()}::timestamptz, ${before.chatId}, ${before.seq})`
+            : sql`(m.time, m.chat_id, m.seq) < (${before.time.toISOString()}::timestamptz, ${before.chatId}, ${before.seq})`,
+        ]
+      : []),
   ];
+  const order = asc ? sql`m.time asc, m.chat_id asc, m.seq asc` : sql`m.time desc, m.chat_id desc, m.seq desc`;
   const found = await withStatementTimeout(db, SEARCH_TIMEOUT_MS, (tx) =>
     rows(
       tx,
       sql`select ${messageColumns('m')}
             from messages m join chats c on c.id = m.chat_id join qq_accounts q on q.id = c.qq_account_id
            where ${sql.join(conditions, sql` and `)}
-           order by m.time desc, m.chat_id desc, m.seq desc
+           order by ${order}
            limit ${limit + 1}`,
     ),
   );
   const more = found.length > limit;
   const messages = found.slice(0, limit).map(toMessage);
   const last = messages[messages.length - 1];
-  const keywords = await rows<{ k: string[] | null }>(db, sql`select pgroonga_query_extract_keywords(${q}) as k`);
+  const keywords = q === null ? [] : ((await rows<{ k: string[] | null }>(db, sql`select pgroonga_query_extract_keywords(${q}) as k`))[0]?.k ?? []);
   return {
     messages,
-    keywords: keywords[0]?.k ?? [],
+    keywords,
     next: more && last ? { time: toDate(last.time)!, chatId: last.chatId, seq: last.seq } : null,
   };
 }

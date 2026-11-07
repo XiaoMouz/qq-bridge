@@ -424,6 +424,7 @@ public nonisolated struct Qqbridge_V1_SearchMessagesRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// 关键词；限定了会话（chat_id / chat_ids，最多 20 个）时可以留空，只按其他条件筛（例如某人在群里发的全部图片）。
   public var query: String = String()
 
   /// 只搜某个会话；0 = 全部会话。
@@ -452,11 +453,105 @@ public nonisolated struct Qqbridge_V1_SearchMessagesRequest: Sendable {
 
   public var limit: UInt32 = 0
 
+  /// 只看这些人发的（和 sender_id 合起来算）；空 = 不限。
+  public var senderIds: [Int64] = []
+
+  /// 不看这些人发的。
+  public var excludeSenderIds: [Int64] = []
+
+  /// 只搜这些会话（和 chat_id 合起来算）；空 = 全部会话。
+  public var chatIds: [Int64] = []
+
+  /// 不搜这些会话。
+  public var excludeChatIds: [Int64] = []
+
+  /// 最早的在前（游标 before 此时表示「这之后」）。
+  public var oldestFirst: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _before: Qqbridge_V1_SearchCursor? = nil
+}
+
+public nonisolated struct Qqbridge_V1_GetChatCalendarRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chatID: Int64 = 0
+
+  /// 客户端所在时区相对 UTC 的分钟数（北京时间 480），按当地日期分天。
+  public var utcOffsetMinutes: Int32 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_CalendarDay: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 当地这一天 0 点（unix 秒）。
+  public var day: Int64 = 0
+
+  public var count: UInt32 = 0
+
+  /// 0–23 点每小时的条数（24 个）。
+  public var hours: [UInt32] = []
+
+  /// 这天的一张图片（没有图片为空）：有缩略图给缩略图。
+  public var previewSha256: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_GetChatCalendarResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 只有有消息的日子，从早到晚。
+  public var days: [Qqbridge_V1_CalendarDay] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_FindMessageByTimeRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var chatID: Int64 = 0
+
+  /// unix 秒。
+  public var time: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_FindMessageByTimeResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 0 = 会话里没有消息。
+  public var seq: Int64 = 0
+
+  public var time: Int64 = 0
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public nonisolated struct Qqbridge_V1_SearchMessagesResponse: Sendable {
@@ -1512,7 +1607,7 @@ nonisolated extension Qqbridge_V1_SearchCursor: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension Qqbridge_V1_SearchMessagesRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SearchMessagesRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}query\0\u{3}chat_id\0\u{3}sender_id\0\u{3}flags_any\0\u{1}since\0\u{1}until\0\u{1}before\0\u{1}limit\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}query\0\u{3}chat_id\0\u{3}sender_id\0\u{3}flags_any\0\u{1}since\0\u{1}until\0\u{1}before\0\u{1}limit\0\u{3}sender_ids\0\u{3}exclude_sender_ids\0\u{3}chat_ids\0\u{3}exclude_chat_ids\0\u{3}oldest_first\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1528,6 +1623,11 @@ nonisolated extension Qqbridge_V1_SearchMessagesRequest: SwiftProtobuf.Message, 
       case 6: try { try decoder.decodeSingularInt64Field(value: &self.until) }()
       case 7: try { try decoder.decodeSingularMessageField(value: &self._before) }()
       case 8: try { try decoder.decodeSingularUInt32Field(value: &self.limit) }()
+      case 9: try { try decoder.decodeRepeatedInt64Field(value: &self.senderIds) }()
+      case 10: try { try decoder.decodeRepeatedInt64Field(value: &self.excludeSenderIds) }()
+      case 11: try { try decoder.decodeRepeatedInt64Field(value: &self.chatIds) }()
+      case 12: try { try decoder.decodeRepeatedInt64Field(value: &self.excludeChatIds) }()
+      case 13: try { try decoder.decodeSingularBoolField(value: &self.oldestFirst) }()
       default: break
       }
     }
@@ -1562,6 +1662,21 @@ nonisolated extension Qqbridge_V1_SearchMessagesRequest: SwiftProtobuf.Message, 
     if self.limit != 0 {
       try visitor.visitSingularUInt32Field(value: self.limit, fieldNumber: 8)
     }
+    if !self.senderIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.senderIds, fieldNumber: 9)
+    }
+    if !self.excludeSenderIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.excludeSenderIds, fieldNumber: 10)
+    }
+    if !self.chatIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.chatIds, fieldNumber: 11)
+    }
+    if !self.excludeChatIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.excludeChatIds, fieldNumber: 12)
+    }
+    if self.oldestFirst != false {
+      try visitor.visitSingularBoolField(value: self.oldestFirst, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1574,6 +1689,191 @@ nonisolated extension Qqbridge_V1_SearchMessagesRequest: SwiftProtobuf.Message, 
     if lhs.until != rhs.until {return false}
     if lhs._before != rhs._before {return false}
     if lhs.limit != rhs.limit {return false}
+    if lhs.senderIds != rhs.senderIds {return false}
+    if lhs.excludeSenderIds != rhs.excludeSenderIds {return false}
+    if lhs.chatIds != rhs.chatIds {return false}
+    if lhs.excludeChatIds != rhs.excludeChatIds {return false}
+    if lhs.oldestFirst != rhs.oldestFirst {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_GetChatCalendarRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetChatCalendarRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{3}utc_offset_minutes\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.utcOffsetMinutes) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    }
+    if self.utcOffsetMinutes != 0 {
+      try visitor.visitSingularInt32Field(value: self.utcOffsetMinutes, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_GetChatCalendarRequest, rhs: Qqbridge_V1_GetChatCalendarRequest) -> Bool {
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.utcOffsetMinutes != rhs.utcOffsetMinutes {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_CalendarDay: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CalendarDay"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}day\0\u{1}count\0\u{1}hours\0\u{3}preview_sha256\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.day) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.count) }()
+      case 3: try { try decoder.decodeRepeatedUInt32Field(value: &self.hours) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.previewSha256) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.day != 0 {
+      try visitor.visitSingularInt64Field(value: self.day, fieldNumber: 1)
+    }
+    if self.count != 0 {
+      try visitor.visitSingularUInt32Field(value: self.count, fieldNumber: 2)
+    }
+    if !self.hours.isEmpty {
+      try visitor.visitPackedUInt32Field(value: self.hours, fieldNumber: 3)
+    }
+    if !self.previewSha256.isEmpty {
+      try visitor.visitSingularStringField(value: self.previewSha256, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_CalendarDay, rhs: Qqbridge_V1_CalendarDay) -> Bool {
+    if lhs.day != rhs.day {return false}
+    if lhs.count != rhs.count {return false}
+    if lhs.hours != rhs.hours {return false}
+    if lhs.previewSha256 != rhs.previewSha256 {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_GetChatCalendarResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".GetChatCalendarResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}days\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.days) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.days.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.days, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_GetChatCalendarResponse, rhs: Qqbridge_V1_GetChatCalendarResponse) -> Bool {
+    if lhs.days != rhs.days {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_FindMessageByTimeRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FindMessageByTimeRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}time\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.time) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.chatID != 0 {
+      try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
+    }
+    if self.time != 0 {
+      try visitor.visitSingularInt64Field(value: self.time, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_FindMessageByTimeRequest, rhs: Qqbridge_V1_FindMessageByTimeRequest) -> Bool {
+    if lhs.chatID != rhs.chatID {return false}
+    if lhs.time != rhs.time {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_FindMessageByTimeResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".FindMessageByTimeResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seq\0\u{1}time\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.time) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.seq != 0 {
+      try visitor.visitSingularInt64Field(value: self.seq, fieldNumber: 1)
+    }
+    if self.time != 0 {
+      try visitor.visitSingularInt64Field(value: self.time, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_FindMessageByTimeResponse, rhs: Qqbridge_V1_FindMessageByTimeResponse) -> Bool {
+    if lhs.seq != rhs.seq {return false}
+    if lhs.time != rhs.time {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -227,6 +227,22 @@ function streamEventToProto(event: StreamEvent): MessageInitShape<typeof Subscri
               },
             },
           };
+        case 'mediaProgress':
+          return {
+            event: {
+              case: 'mediaProgress',
+              value: {
+                chatId: BigInt(u.chatId),
+                seq: BigInt(u.seq),
+                ord: u.ord,
+                forwardPath: u.forwardPath,
+                node: u.node,
+                received: BigInt(u.received),
+                total: BigInt(u.total),
+                sha256: u.sha256,
+              },
+            },
+          };
       }
     }
   }
@@ -432,6 +448,30 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
         throw error;
       }
     },
+    async getChatCalendar(req, ctx) {
+      try {
+        const days = await deps.calendar.days(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), req.utcOffsetMinutes);
+        return {
+          days: days.map((d) => ({ day: BigInt(d.day), count: d.count, hours: d.hours, previewSha256: d.preview ?? '' })),
+        };
+      } catch (error) {
+        if (error instanceof NotFoundError) throw new ConnectError(error.message, Code.NotFound);
+        throw error;
+      }
+    },
+    async findMessageByTime(req, ctx) {
+      try {
+        const found = await deps.calendar.messageAt(
+          requireAuth(ctx).accountId,
+          toSafeNumber(req.chatId, 'chat_id'),
+          new Date(toSafeNumber(req.time, 'time') * 1000),
+        );
+        return found ? { seq: BigInt(found.seq), time: BigInt(Math.floor(found.time.getTime() / 1000)) } : {};
+      } catch (error) {
+        if (error instanceof NotFoundError) throw new ConnectError(error.message, Code.NotFound);
+        throw error;
+      }
+    },
     async searchMessages(req, ctx) {
       const auth = requireAuth(ctx);
       const opt = (v: bigint, field: string) => (v ? toSafeNumber(v, field) : undefined);
@@ -448,6 +488,11 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
             ...(chatId ? { chatId } : {}),
             ...(senderId ? { senderId } : {}),
             ...(req.flagsAny ? { flagsAny: req.flagsAny } : {}),
+            ...(req.senderIds.length ? { senderIds: req.senderIds.map((v) => toSafeNumber(v, 'sender_ids')) } : {}),
+            ...(req.excludeSenderIds.length ? { excludeSenderIds: req.excludeSenderIds.map((v) => toSafeNumber(v, 'exclude_sender_ids')) } : {}),
+            ...(req.chatIds.length ? { chatIds: req.chatIds.map((v) => toSafeNumber(v, 'chat_ids')) } : {}),
+            ...(req.excludeChatIds.length ? { excludeChatIds: req.excludeChatIds.map((v) => toSafeNumber(v, 'exclude_chat_ids')) } : {}),
+            ...(req.oldestFirst ? { oldestFirst: true } : {}),
             ...(since ? { since: new Date(since * 1000) } : {}),
             ...(until ? { until: new Date(until * 1000) } : {}),
           },
@@ -721,7 +766,12 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
     async listStorageItems(req, ctx) {
       const limit = clampLimit(req.limit, 60, 200);
       const chatId = req.chatId ? toSafeNumber(req.chatId, 'chat_id') : null;
-      const list = await deps.storageBrowser.items(requireAuth(ctx).accountId, chatId, req.categories, req.offset, limit + 1);
+      const sort = req.sort === 'time_desc' || req.sort === 'time_asc' ? req.sort : 'size';
+      const list = await deps.storageBrowser.items(requireAuth(ctx).accountId, chatId, req.categories, req.offset, limit + 1, {
+        sort,
+        senderIds: req.senderIds.map((v) => toSafeNumber(v, 'sender_ids')),
+        excludeSenderIds: req.excludeSenderIds.map((v) => toSafeNumber(v, 'exclude_sender_ids')),
+      });
       return {
         more: list.length > limit,
         items: list.slice(0, limit).map((i) => ({
@@ -737,8 +787,14 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
           mime: i.mime ?? '',
           name: i.name ?? '',
           thumbSha256: i.thumbSha256 ?? '',
+          senderId: BigInt(i.senderId),
         })),
       };
+    },
+    async listStorageSenders(req, ctx) {
+      if (!req.chatId) throw new ConnectError('chat_id is required', Code.InvalidArgument);
+      const list = await deps.storageBrowser.senders(requireAuth(ctx).accountId, toSafeNumber(req.chatId, 'chat_id'), req.categories);
+      return { senders: list.map((s) => ({ senderId: BigInt(s.senderId), name: s.name, count: s.count, bytes: BigInt(s.bytes) })) };
     },
     async addSticker(req, ctx) {
       if (!/^[0-9a-f]{64}$/.test(req.sha256)) throw new ConnectError('sha256 is required', Code.InvalidArgument);
