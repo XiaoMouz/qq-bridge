@@ -411,6 +411,9 @@ public nonisolated struct Qqbridge_V1_MediaProgressUpdate: Sendable {
   /// 内容已知时（原件被清理后重新取回）给 sha256，其余为空。
   public var sha256: String = String()
 
+  /// 视频：边下边播的签名链接（相对服务端地址，支持 Range，没下到的部分会等）；不能边下边播时为空。
+  public var liveURL: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1419,7 +1422,7 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
 
 nonisolated extension Qqbridge_V1_MediaProgressUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MediaProgressUpdate"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{1}ord\0\u{3}forward_path\0\u{1}node\0\u{1}received\0\u{1}total\0\u{1}sha256\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{1}ord\0\u{3}forward_path\0\u{1}node\0\u{1}received\0\u{1}total\0\u{1}sha256\0\u{3}live_url\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1435,6 +1438,7 @@ nonisolated extension Qqbridge_V1_MediaProgressUpdate: SwiftProtobuf.Message, Sw
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self.received) }()
       case 7: try { try decoder.decodeSingularUInt64Field(value: &self.total) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.sha256) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.liveURL) }()
       default: break
       }
     }
@@ -1465,6 +1469,9 @@ nonisolated extension Qqbridge_V1_MediaProgressUpdate: SwiftProtobuf.Message, Sw
     if !self.sha256.isEmpty {
       try visitor.visitSingularStringField(value: self.sha256, fieldNumber: 8)
     }
+    if !self.liveURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.liveURL, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1477,6 +1484,7 @@ nonisolated extension Qqbridge_V1_MediaProgressUpdate: SwiftProtobuf.Message, Sw
     if lhs.received != rhs.received {return false}
     if lhs.total != rhs.total {return false}
     if lhs.sha256 != rhs.sha256 {return false}
+    if lhs.liveURL != rhs.liveURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

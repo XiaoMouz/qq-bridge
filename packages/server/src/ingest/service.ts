@@ -1033,7 +1033,7 @@ export class IngestService {
    * 下载进度（临时事件）：给下载任务一个按已收字节数推送的函数，同一引用最多约每 700 毫秒推一次。
    * 不在消息里的（会话事件、群文件）返回 null。2026-11-08 用户反馈大视频要等服务端下完，看不到下到哪了。
    */
-  async progressReporter(refId: number, total: number, sha256 = ''): Promise<((received: number) => void) | null> {
+  async progressReporter(refId: number, total: number, sha256 = '', liveUrl = ''): Promise<((received: number) => void) | null> {
     const accountId = await this.accountOfRef(refId).catch(() => null);
     if (accountId === null) return null;
     const at = await mediaReadyOf(this.db, refId, false, 'fetching', sha256);
@@ -1053,6 +1053,7 @@ export class IngestService {
         received,
         total,
         sha256,
+        liveUrl,
       });
     };
   }

@@ -142,6 +142,8 @@ message MediaProgressUpdate {
   uint64 total = 7;
   // 内容已知时（原件被清理后重新取回）给 sha256，其余为空。
   string sha256 = 8;
+  // 视频：边下边播的签名链接（相对服务端地址，支持 Range，没下到的部分会等）；不能边下边播时为空。
+  string live_url = 9;
 }
 
 message MediaReadyUpdate {

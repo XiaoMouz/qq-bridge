@@ -1,3 +1,4 @@
+import { LiveDownloads } from './media/live.ts';
 import { ChatCalendar } from './sync/calendar.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -92,6 +93,7 @@ export function createDeps(
     fetchMediaNow: null,
     storageBrowser: new StorageBrowser(db),
     calendar: new ChatCalendar(db),
+    live: new LiveDownloads(path.join(root, 'tmp', 'live')),
     stickers: new StickerService(db, media, processor, () => deps.upstream, logger.child({ component: 'stickers' })),
     defaultAutoFetchMaxBytes: 200 * 1024 * 1024,
     admin: new AdminService(db, {
@@ -208,6 +210,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
           concurrency: config.MEDIA_FETCH_CONCURRENCY,
           defaultMaxBytes: config.MEDIA_AUTO_FETCH_MAX_BYTES,
           priorityChatIds: () => deps.activeChats.chatIds(),
+          live: { downloads: deps.live, sign: (id) => deps.signer.signLive(id) },
           logger: deps.logger.child({ component: 'media-fetcher' }),
         }, deps.processor)
       : null;

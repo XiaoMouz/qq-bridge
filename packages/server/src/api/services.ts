@@ -240,6 +240,7 @@ function streamEventToProto(event: StreamEvent): MessageInitShape<typeof Subscri
                 received: BigInt(u.received),
                 total: BigInt(u.total),
                 sha256: u.sha256,
+                liveUrl: u.liveUrl,
               },
             },
           };

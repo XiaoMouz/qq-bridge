@@ -278,6 +278,7 @@ export type Update =
       received: number;
       total: number;
       sha256: string;
+      liveUrl: string;
     };
 
 /** 生成 (a, b, c) 形式的列表；调用方需保证非空。 */

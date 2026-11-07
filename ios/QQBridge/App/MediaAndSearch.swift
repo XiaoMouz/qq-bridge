@@ -243,8 +243,34 @@ struct MediaViewer: View {
                                       forward: forward, sha256: restoringSha ?? "")
   }
 
-  /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
+  /// 能放的地址：服务端下完给正式链接；服务端还在从 QQ 下载时，进度推送里一出现边下边播的链接就先用它
+  /// （2026-11-08 用户反馈大视频要等服务端整个下完才开始播放）。正式那条照样跑完，「保存」等它下完。
   private func videoURL() async -> URL? {
+    final class Box { var done = false }
+    let box = Box()
+    let resolving = Task { () -> URL? in
+      let url = await resolvedVideoURL()
+      box.done = true
+      return url
+    }
+    return await withTaskCancellationHandler {
+      // 只看本地收到的推送（不问服务端），每 0.2 秒看一眼。
+      while !Task.isCancelled {
+        if box.done { return await resolving.value }
+        if let live = serverProgress?.liveURL, !live.isEmpty,
+           let url = URL(string: live, relativeTo: session.api.config.baseURL)?.absoluteURL {
+          return url
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+      }
+      return nil
+    } onCancel: {
+      resolving.cancel()
+    }
+  }
+
+  /// 已经在服务端的直接放；按需的、以前失败或过期的先让服务端当场从 QQ 下载（大视频要等一会儿）。
+  private func resolvedVideoURL() async -> URL? {
     var media = target.media
     if media.state != .stored && media.state != .purged, let f = target.forward {
       // 聊天记录里的视频：等待服务端的 mediaReady 推送，再取最新状态。
@@ -356,7 +382,7 @@ private struct VideoFetchProgress: View {
 
   var body: some View {
     VStack(spacing: 10) {
-      if fetching, let value, let fraction = value.fraction {
+      if fetching, let value, let fraction = value.fraction, fraction < 0.999 {
         ZStack {
           Circle().stroke(.white.opacity(0.25), lineWidth: 4)
           Circle().trim(from: 0, to: fraction).stroke(.white, style: StrokeStyle(lineWidth: 4, lineCap: .round)).rotationEffect(.degrees(-90))

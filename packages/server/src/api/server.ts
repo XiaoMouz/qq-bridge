@@ -76,6 +76,24 @@ export async function buildServer(deps: ApiDeps): Promise<FastifyInstance> {
     reply.header('content-length', blob.size);
     return reply.send(await deps.media.openBlob(blob));
   };
+  // 正在从 QQ 下载的视频：边下边播（见 media/live.ts）。必须带 Range 之外也能整段读，没下到的部分会等。
+  type LiveRequest = FastifyRequest<{ Params: { id: string }; Querystring: { exp?: string; sig?: string } }>;
+  app.get('/media/live/:id/video.mp4', async (request: LiveRequest, reply: FastifyReply) => {
+    const { id } = request.params;
+    if (!/^[0-9a-f-]{36}$/.test(id) || !deps.signer.verify(`live:${id}`, request.query.exp, request.query.sig)) {
+      return reply.code(403).send({ error: 'forbidden' });
+    }
+    const info = deps.live.info(id);
+    if (!info || info.failed) return reply.code(404).send({ error: 'not found' });
+    reply.header('accept-ranges', 'bytes').header('content-type', info.mime).header('cache-control', 'no-store');
+    const range = parseRange(request.headers.range, info.total);
+    if (range === 'invalid') return reply.code(416).header('content-range', `bytes */${info.total}`).send();
+    const start = range ? range.start : 0;
+    const end = range ? range.end : info.total - 1;
+    if (range) reply.code(206).header('content-range', `bytes ${start}-${end}/${info.total}`);
+    reply.header('content-length', end - start + 1);
+    return reply.send(deps.live.read(id, start, end));
+  });
   app.get('/media/:sha256', serveMedia);
   app.get('/media/:sha256/:name', serveMedia);
 

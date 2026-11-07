@@ -12,6 +12,7 @@ import { QQ_THUMB_ROLE, type IngestService } from '../ingest/service.ts';
 import type { MediaService } from './service.ts';
 import { qqThumbUrl, SourceUnavailableError, type FetchTarget, type MediaSource, type PendingRef } from './source.ts';
 import { TooLargeError } from './store.ts';
+import type { LiveDownloads } from './live.ts';
 import type { MediaProcessor } from './processing.ts';
 
 export interface FetcherOptions {
@@ -29,6 +30,8 @@ export interface FetcherOptions {
   offlineRetryMs?: number;
   /** 正在被查看的会话：它们的媒体优先下载（DialogService.SetActiveChat）。 */
   priorityChatIds?: () => readonly number[];
+  /** 视频边下边播：下载时另写一份给 /media/live 读（见 live.ts），sign 给出签名链接。 */
+  live?: { downloads: LiveDownloads; sign: (id: string) => string };
   logger?: Logger;
 }
 
@@ -53,8 +56,8 @@ export class MediaFetcher {
   private readonly rehydrating = new Map<string, Promise<RehydrateResult>>();
   private loop: Promise<void> | null = null;
   private wake: (() => void) | null = null;
-  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds'>> &
-    Pick<FetcherOptions, 'logger' | 'priorityChatIds'>;
+  private readonly opts: Required<Omit<FetcherOptions, 'logger' | 'priorityChatIds' | 'live'>> &
+    Pick<FetcherOptions, 'logger' | 'priorityChatIds' | 'live'>;
 
   constructor(
     private readonly db: Db,
@@ -76,6 +79,7 @@ export class MediaFetcher {
       offlineRetryMs: opts.offlineRetryMs ?? 60_000,
       ...(opts.priorityChatIds ? { priorityChatIds: opts.priorityChatIds } : {}),
       ...(opts.logger ? { logger: opts.logger } : {}),
+      ...(opts.live ? { live: opts.live } : {}),
     };
   }
 
@@ -353,10 +357,15 @@ export class MediaFetcher {
       }
       const mime = (response.headers.get('content-type') ?? '').split(';')[0]?.trim() || ref.mime || null;
       const total = Number.isFinite(declared) ? declared : (ref.size ?? 0);
+      // 视频边下边播：知道总大小才行（播放器要 Content-Length）。
+      const live =
+        this.opts.live && ref.kind === 'video' && ref.role !== QQ_THUMB_ROLE && total > 0
+          ? await this.opts.live.downloads.start(total, mime ?? 'video/mp4').catch(() => null)
+          : null;
       // 视频、文件推进度给等着的客户端（图片小，不推）。
       const report =
         ref.role !== QQ_THUMB_ROLE && (ref.kind === 'video' || ref.kind === 'file')
-          ? await this.ingest.progressReporter(ref.id, total, knownSha256).catch(() => null)
+          ? await this.ingest.progressReporter(ref.id, total, knownSha256, live && this.opts.live ? this.opts.live.sign(live.id) : '').catch(() => null)
           : null;
       const web = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>);
       let received = 0;
@@ -365,6 +374,8 @@ export class MediaFetcher {
           for await (const chunk of web) {
             received += (chunk as Uint8Array).length;
             stall.refresh();
+            // 边下边播的那份写不进去（磁盘满等）不影响正式下载。
+            if (live) await live.write(chunk as Uint8Array).catch(() => undefined);
             report?.(received);
             yield chunk;
           }
@@ -376,8 +387,10 @@ export class MediaFetcher {
           ...(mime ? { mime } : {}),
           maxBytes,
         });
+        live?.finish(true);
         return { kind: 'stored', sha256: blob.sha256, size: blob.size, mime: blob.mime };
       } catch (error) {
+        live?.finish(false);
         if (error instanceof TooLargeError) return { kind: 'too_large' };
         return { kind: 'error', error: error instanceof Error ? error.message : String(error) };
       }

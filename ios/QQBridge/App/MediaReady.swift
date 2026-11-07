@@ -110,6 +110,8 @@ final class MediaProgress {
     let received: Int64
     let total: Int64
     let at: Date
+    /// 边下边播的链接（相对服务端地址）；空 = 只能等下完。
+    var liveURL: String = ""
     /// 0…1；总大小不知道时为 nil。
     var fraction: Double? { total > 0 ? min(1, Double(received) / Double(total)) : nil }
   }
@@ -122,7 +124,7 @@ final class MediaProgress {
   }
 
   func update(_ e: Qqbridge_V1_MediaProgressUpdate) {
-    let v = Value(received: Int64(e.received), total: Int64(e.total), at: Date())
+    let v = Value(received: Int64(e.received), total: Int64(e.total), at: Date(), liveURL: e.liveURL)
     byPlace[Self.place(e.chatID, e.seq, e.ord, e.forwardPath, e.node)] = v
     if !e.sha256.isEmpty { bySha[e.sha256] = v }
   }

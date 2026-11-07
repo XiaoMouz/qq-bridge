@@ -25,6 +25,12 @@ export class MediaUrlSigner {
     return { url: `/media/${sha256}/${encodeURIComponent(name)}?${query}`, expiresAt };
   }
 
+  /** 正在下载的视频（LiveDownloads）：/media/live/<id>/video.mp4?…，签名对象是 live:<id>。 */
+  signLive(id: string, nowSec = Math.floor(Date.now() / 1000)): string {
+    const expiresAt = nowSec + this.ttlSec;
+    return `/media/live/${id}/video.mp4?exp=${expiresAt}&sig=${this.signature(`live:${id}`, expiresAt)}`;
+  }
+
   verify(sha256: string, exp: string | undefined, sig: string | undefined, nowSec = Math.floor(Date.now() / 1000)): boolean {
     if (!exp || !sig || !/^\d+$/.test(exp)) return false;
     const expiresAt = Number(exp);
