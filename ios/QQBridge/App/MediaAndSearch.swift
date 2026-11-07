@@ -376,7 +376,7 @@ struct MediaViewer: View {
 }
 
 /// 视频还没能播放时：服务端在从 QQ 下载就显示进度环和已下大小，否则只转圈。
-private struct VideoFetchProgress: View {
+struct VideoFetchProgress: View {
   let fetching: Bool
   let value: MediaProgress.Value?
 

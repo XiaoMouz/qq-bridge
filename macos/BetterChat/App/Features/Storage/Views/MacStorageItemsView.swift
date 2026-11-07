@@ -14,11 +14,13 @@ struct MacStorageItemsView: View {
   @Environment(AppModel.self) private var app
 
   init(session: Session, source: StorageChatsView.Source, group: StorageGroup, chatID: Int64?, title: String,
-       service: (any MacStorageItemsService)? = nil, fileService: (any MacStorageFileService)? = nil) {
+       service: (any MacStorageItemsService)? = nil, fileService: (any MacStorageFileService)? = nil,
+       query: StorageItemsQuery = StorageItemsQuery(), showsSenders: Bool? = nil) {
+    sendersOverride = showsSenders
     self.session = session; self.source = source; self.group = group; self.chatID = chatID; self.title = title
     _opener = State(initialValue: MacStorageFileViewModel(service: fileService ?? MacSessionStorageFileService(session: session)))
     _list = State(initialValue: MacStorageItemsViewModel(service: service ?? MacSessionStorageItemsService(
-      session: session, source: source, group: group, chatID: chatID)))
+      session: session, source: source, group: group, chatID: chatID), query: query))
   }
 
   var body: some View {
@@ -92,7 +94,11 @@ struct MacStorageItemsView: View {
   }
 
   /// 群聊（服务端的）才能按发送者筛选、分组。
+  /// 测试里没有本地会话资料时直接指定。
+  private let sendersOverride: Bool?
+
   private var showsSenders: Bool {
+    if let sendersOverride { return sendersOverride }
     guard source == .server, let chatID, let d = try? session.store.dialog(chatId: chatID) else { return false }
     return d.scene == .group
   }

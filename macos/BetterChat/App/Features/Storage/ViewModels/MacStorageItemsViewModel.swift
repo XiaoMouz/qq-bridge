@@ -16,7 +16,10 @@ final class MacStorageItemsViewModel {
   @ObservationIgnored private var generation = UUID()
   @ObservationIgnored private var task: Task<Void, Never>?
 
-  init(service: any MacStorageItemsService) { self.service = service }
+  init(service: any MacStorageItemsService, query: StorageItemsQuery = StorageItemsQuery()) {
+    self.service = service
+    self.query = query
+  }
   deinit { task?.cancel() }
 
   func start() { if !hasLoaded, error == nil { loadMore() } }

@@ -50,7 +50,9 @@ final class ChatCalendarModel {
     }
   }
 
-  private func apply(_ list: [Day]) {
+  /// 直接给数据（测试、预览用）。
+  func apply(_ list: [Day]) {
+    loading = false
     days = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     maxCount = max(1, list.map(\.count).max() ?? 1)
     var calendar = Calendar.current
@@ -87,8 +89,16 @@ struct ChatCalendarSheet: View {
   /// 跳到这个时刻（unix 秒）。
   let onJump: (Int64) -> Void
   @Environment(\.dismiss) private var dismiss
-  @State private var model = ChatCalendarModel()
+  @State private var model: ChatCalendarModel
   @State private var selected: ChatCalendarModel.Day?
+
+  init(session: Session, chatId: Int64, initial: Date, model: ChatCalendarModel = ChatCalendarModel(), onJump: @escaping (Int64) -> Void) {
+    self.session = session
+    self.chatId = chatId
+    self.initial = initial
+    self.onJump = onJump
+    _model = State(initialValue: model)
+  }
 
   private static let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -129,7 +139,7 @@ struct ChatCalendarSheet: View {
       .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
     }
     .presentationDetents([.large])
-    .task { await model.load(session: session, chatId: chatId) }
+    .task { if model.months.isEmpty { await model.load(session: session, chatId: chatId) } }
   }
 
   private func scrollToInitial(_ proxy: ScrollViewProxy) {
