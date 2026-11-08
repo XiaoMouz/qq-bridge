@@ -14,12 +14,17 @@ final class MacSidebarViewModel {
   private(set) var searchFocusRequest = UUID()
   /// 递增即请求把焦点交给消息搜索结果（搜索框里按 Tab）。
   private(set) var resultsFocusRequest = UUID()
+  /// 侧栏收成了窄栏（只有头像 + 角标，搜索在右栏单独一页）。
+  private(set) var isRail = false
+  /// 右栏正在显示搜索页（窄栏时的搜索）。
+  private(set) var showsSearchPage = false
 
   var query: String {
     get { queries[section] ?? "" }
     set { queries[section] = newValue }
   }
   func query(for section: MacSidebarSection) -> String { queries[section] ?? "" }
+  func setQuery(_ query: String, for section: MacSidebarSection) { queries[section] = query }
   /// 以裁剪后的词判断是否筛选：只有空格时仍显示原列表（搜索 ViewModel 也按裁剪后的词查询）。
   var isFiltering: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
   /// 搜索框里是否有任何字符（含空格）；Esc 先清掉它再考虑切换分区。
@@ -32,4 +37,6 @@ final class MacSidebarViewModel {
   func select(_ contact: ContactRoute?) { self.contact = contact }
   func focusSearch() { searchFocusRequest = UUID() }
   func focusResults() { resultsFocusRequest = UUID() }
+  func setRail(_ rail: Bool) { if isRail != rail { isRail = rail } }
+  func setSearchPage(_ shown: Bool) { if showsSearchPage != shown { showsSearchPage = shown } }
 }

@@ -2,9 +2,9 @@ import UIKit
 
 /// 主窗口的分栏：侧栏 + 右栏（聊天 / 资料）+ 右侧检查器（会话资料）。
 ///
-/// 2026-10-17 按 macOS 习惯重做窄窗口：以前窄于 760 点时换成 iPhone 式的单栏导航（列表 → 详情 → 返回），
-/// 现在始终是分栏，窄窗口只把侧栏收起来；⌃⌘S 或工具栏的侧栏按钮让侧栏浮在聊天上面，选了会话自动收回。
-/// 宽窗口里用户自己收起的侧栏，变窄再变宽时不擅自展开。
+/// 2026-10-17 按 macOS 习惯重做窄窗口：以前窄于 760 点时换成 iPhone 式的单栏导航（列表 → 详情 → 返回），现在始终是分栏。
+/// 2026-11-09 用户要求：收起侧栏不是让它消失，而是缩成一条窄栏（切换按钮、消息 / 群助手、会话头像 + 角标、底部搜索）。
+/// 宽窗口里收起 / 展开由用户决定并跨启动记住；窄窗口自动用窄栏，⌃⌘S 临时展开，选了会话自动收回。
 ///
 /// 2026-10-14 实机：Catalyst 让 UISplitViewController 按尺寸类自行折叠时，NSToolbar 计算出 NaN 宽度并崩溃；
 /// 所以尺寸类固定为 regular（只写 traitOverrides、不读取：读取未设置的覆盖值会触发断言），收起 / 展开由这里按宽度决定。
@@ -21,8 +21,17 @@ final class MacAdaptiveSplitController: UIViewController {
   private(set) var inspectorContent: UIViewController?
   /// 窄窗口：侧栏收起（需要时浮在聊天上面），检查器不显示。
   private(set) var isNarrow = false
-  /// 用户在宽窗口里自己收起了侧栏。
-  private var sidebarHiddenByUser = false
+  /// 宽窗口里用户选择的窄栏状态，跨启动记住。
+  private var railByUser = UserDefaults.standard.bool(forKey: MacAdaptiveSplitController.railKey) {
+    didSet { UserDefaults.standard.set(railByUser, forKey: Self.railKey) }
+  }
+  private static let railKey = "mac.sidebarRail"
+  /// 窄窗口里临时展开的完整侧栏（选了会话自动收回）。
+  private var expandedWhileNarrow = false
+  /// 侧栏现在是窄栏。
+  private(set) var isRail = false
+  /// 窄栏 / 完整侧栏切换后通知协调器（换列表样式、搜索入口）。
+  var railChanged: ((Bool) -> Void)?
   /// 出现在窗口中（首次与重新出现）时通知协调器登记命令、恢复上次会话。
   var appeared: (() -> Void)?
 
@@ -32,12 +41,12 @@ final class MacAdaptiveSplitController: UIViewController {
     super.init(nibName: nil, bundle: nil)
     split.preferredDisplayMode = .oneBesideSecondary
     split.preferredSplitBehavior = .tile
-    split.displayModeButtonVisibility = .always
+    // 系统侧栏按钮会把侧栏整个藏起来；收起改为窄栏，按钮由侧栏自己提供（完整时在标题栏，窄栏时在栏内顶部）。
+    split.displayModeButtonVisibility = .never
     split.traitOverrides.horizontalSizeClass = .regular
     split.primaryBackgroundStyle = .sidebar
-    split.minimumPrimaryColumnWidth = MacMetrics.sidebarMinimumWidth
-    split.maximumPrimaryColumnWidth = MacMetrics.sidebarMaximumWidth
-    split.preferredPrimaryColumnWidth = MacMetrics.sidebarPreferredWidth
+    isRail = railByUser
+    applyColumnWidth()
     for navigation in [sidebarNavigation, detailNavigation, inspectorNavigation] {
       navigation.navigationBar.preferredBehavioralStyle = .mac
     }
@@ -75,45 +84,59 @@ final class MacAdaptiveSplitController: UIViewController {
     let narrow = view.bounds.width < MacMetrics.compactWidth
     guard narrow != isNarrow else { return }
     isNarrow = narrow
+    expandedWhileNarrow = false
     if narrow {
-      split.preferredSplitBehavior = .overlay
-      split.preferredDisplayMode = .secondaryOnly
       split.hide(.inspector)
-    } else {
-      split.preferredSplitBehavior = .tile
-      split.preferredDisplayMode = sidebarHiddenByUser ? .secondaryOnly : .oneBesideSecondary
-      if inspectorContent != nil { split.show(.inspector) }
+    } else if inspectorContent != nil {
+      split.show(.inspector)
     }
+    updateRail()
   }
 
   // MARK: 侧栏
 
-  private var isSidebarShown: Bool { split.displayMode == .oneBesideSecondary || split.displayMode == .oneOverSecondary }
-
-  /// 让侧栏可见（切换分区、⌘F）：窄窗口里浮在聊天上面。
-  func showSidebar() {
-    split.preferredDisplayMode = isNarrow ? .oneOverSecondary : .oneBesideSecondary
-    if !isNarrow { sidebarHiddenByUser = false }
-  }
-
-  /// 打开了聊天 / 资料：窄窗口里收回浮着的侧栏，宽窗口不动。
-  func showDetail() {
-    if isNarrow { split.preferredDisplayMode = .secondaryOnly }
-  }
-
-  /// ⌃⌘S、工具栏侧栏按钮。
+  /// ⌃⌘S、侧栏按钮：完整侧栏 ⇄ 窄栏。
   func toggleSidebar() {
-    if isSidebarShown {
-      split.preferredDisplayMode = .secondaryOnly
-      if !isNarrow { sidebarHiddenByUser = true }
-    } else {
-      showSidebar()
-    }
+    if isNarrow { expandedWhileNarrow.toggle() } else { railByUser.toggle() }
+    updateRail()
   }
 
-  /// ⌘F 在侧栏被收起时要先恢复侧栏，再聚焦搜索框。
-  func revealSidebar() {
-    if !isSidebarShown { showSidebar() }
+  /// 需要完整侧栏的操作（联系人分区）：窄栏时展开。
+  func expandSidebar() {
+    guard isRail else { return }
+    if isNarrow { expandedWhileNarrow = true } else { railByUser = false }
+    updateRail()
+  }
+
+  /// 打开了聊天 / 资料：窄窗口里临时展开的侧栏收回窄栏，宽窗口不动。
+  func showDetail() {
+    guard isNarrow, expandedWhileNarrow else { return }
+    expandedWhileNarrow = false
+    updateRail()
+  }
+
+  private func updateRail() {
+    let rail = isNarrow ? !expandedWhileNarrow : railByUser
+    guard rail != isRail else { return }
+    isRail = rail
+    applyColumnWidth()
+    if view.window != nil, !UIAccessibility.isReduceMotionEnabled {
+      UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseInOut) { self.split.view.layoutIfNeeded() }
+    }
+    railChanged?(rail)
+  }
+
+  /// 窄栏宽度固定（不能拖）；完整侧栏恢复可拖动的范围。先放宽再收紧，避免中途最小值大于最大值。
+  private func applyColumnWidth() {
+    if isRail {
+      split.minimumPrimaryColumnWidth = MacMetrics.railWidth
+      split.maximumPrimaryColumnWidth = MacMetrics.railWidth
+      split.preferredPrimaryColumnWidth = MacMetrics.railWidth
+    } else {
+      split.maximumPrimaryColumnWidth = MacMetrics.sidebarMaximumWidth
+      split.minimumPrimaryColumnWidth = MacMetrics.sidebarMinimumWidth
+      split.preferredPrimaryColumnWidth = MacMetrics.sidebarPreferredWidth
+    }
   }
 
   // MARK: 检查器

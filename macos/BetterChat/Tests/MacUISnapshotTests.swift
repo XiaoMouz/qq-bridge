@@ -2,7 +2,7 @@
 // 搜索筛选条、会话内查找、存储页排序 / 按天分组、聊天日历、视频下载进度。不连服务端（会话指向不存在的地址）。
 // 图片写到临时目录，路径打印在测试输出里（「快照：」开头）。
 import Foundation
-import QQBridgeKit
+@testable import QQBridgeKit
 import QQBridgeProto
 import SwiftUI
 import Testing
@@ -129,5 +129,43 @@ struct MacUISnapshotTests {
       ZStack { Color.black; VideoFetchProgress(fetching: true, value: value) }
     }
     #expect(value.fraction == 0.42)
+  }
+
+  private func dialog(_ id: Int64, _ name: String, unread: UInt32, mentions: UInt32 = 0, replies: UInt32 = 0, muted: Bool = false) -> DialogItem {
+    var d = Qqbridge_V1_Dialog()
+    d.chatID = id; d.peerID = id * 1000; d.unreadCount = unread
+    d.unreadMentions = mentions; d.unreadReplies = replies
+    d.notifyPolicy = muted ? "muted" : "default"
+    var p = Qqbridge_V1_Peer(); p.name = name
+    return DialogItem(dialog: d, peer: p)
+  }
+
+  /// 2026-11-09：收起后的窄栏，角标 @我 红、回复我 绿、免打扰灰、其余主题色；三位数显示 99+。
+  @Test func sidebarRailWithColoredBadges() async throws {
+    let items = [dialog(1, "Something", unread: 3, mentions: 1), dialog(2, "张三", unread: 1, replies: 1),
+                 dialog(3, "李四", unread: 12), dialog(4, "大群", unread: 520, muted: true), dialog(5, "王五", unread: 0)]
+    let actions = MacSidebarActions(selectContact: { _ in })
+    _ = try await snapshot("sidebar-rail", size: CGSize(width: MacMetrics.railWidth, height: 560)) {
+      VStack(spacing: 0) {
+        MacSidebarRailHeader(section: .messages, showsArchived: false, archivedUnread: true, searching: false, actions: actions)
+        ForEach(items) { MacRailDialogCell(item: $0).padding(.vertical, MacMetrics.railRowVerticalMargin) }
+        Spacer()
+        MacSidebarRailFooter(searching: false, openSearch: {})
+      }
+      .background(Color(uiColor: .secondarySystemBackground))
+    }
+    #expect(MacRailBadge.color(items[0].dialog, muted: false) == .red)
+    #expect(MacRailBadge.color(items[1].dialog, muted: false) == .green)
+    #expect(MacRailBadge.color(items[2].dialog, muted: false) == .accentColor)
+  }
+
+  @Test func searchPageEmptyState() async throws {
+    let session = try session()
+    let sidebar = MacSidebarViewModel()
+    let dialogs = MacDialogsViewModel(service: MacSessionConversationService(session: session), manualSync: MacManualSync())
+    let search = MacSidebarSearchViewModel(service: MacSessionSearchService(session: session), dialogs: dialogs)
+    _ = try await snapshot("search-page", size: CGSize(width: 700, height: 420)) {
+      NavigationStack { MacSearchPage(session: session, sidebar: sidebar, search: search) }
+    }
   }
 }

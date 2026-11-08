@@ -50,13 +50,21 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     sidebarView.install(factory.sidebar(MacSidebarView(
       session: dependencies.session, sidebar: sidebar, search: search, contacts: contacts, dialogs: dialogs,
       actions: MacSidebarActions(
-        selectContact: { [weak self] in self?.showContact($0) }))))
+        selectContact: { [weak self] in self?.showContact($0) },
+        toggleSidebar: { [weak self] in self?.toggleSidebar() },
+        showMessages: { [weak self] in self?.railShowMessages() },
+        showArchive: { [weak self] in self?.railShowArchive() },
+        showContacts: { [weak self] in self?.select(.contacts) },
+        openSearch: { [weak self] in self?.showSearchPage() }))))
     toolbar = MacSidebarToolbar(item: sidebarView.navigationItem, actions: .init(
       selectSection: { [weak self] in self?.reselectOrSelect($0) },
-      refreshContacts: { [weak self] in self?.contacts.refresh() }))
+      refreshContacts: { [weak self] in self?.contacts.refresh() },
+      toggleSidebar: { [weak self] in self?.toggleSidebar() }))
     wireIntents()
     detail.show(chat.controller)
     rootViewController.appeared = { [weak self] in self?.workspaceAppeared() }
+    rootViewController.railChanged = { [weak self] in self?.railChanged($0) }
+    railChanged(rootViewController.isRail)
     observeSidebar()
     observeAppModel()
   }
@@ -98,7 +106,8 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       MacSidebarToolbar.State(section: sidebar.section,
                               contactsRefreshing: contacts.isRefreshing,
                               showsArchived: dialogs.showsArchived,
-                              hasUnread: sidebar.unread > 0)
+                              hasUnread: sidebar.unread > 0,
+                              rail: sidebar.isRail)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in self?.observeSidebar() }
     }
@@ -124,7 +133,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   var isWorkspaceVisible: Bool { rootViewController.viewIfLoaded?.window != nil }
 
   var canReturnToMessages: Bool {
-    (sidebar.section != .messages || sidebar.hasQueryText || dialogs.showsArchived)
+    (sidebar.section != .messages || sidebar.hasQueryText || dialogs.showsArchived || sidebar.showsSearchPage)
       && rootViewController.presentedViewController == nil
   }
 
@@ -144,7 +153,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
 
   /// 检查器跟着当前会话走；不在消息分区或没有会话时收起（开关状态保留，回来再打开）。
   private func updateChatInfo() {
-    guard chatInfoOpen, sidebar.section == .messages, let id = chat.selectedChat else {
+    guard chatInfoOpen, sidebar.section == .messages, !sidebar.showsSearchPage, let id = chat.selectedChat else {
       rootViewController.showInspector(nil)
       return
     }
@@ -167,8 +176,8 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   }
 
   func focusSidebarSearch() {
-    rootViewController.revealSidebar()
-    sidebar.focusSearch()
+    // 窄栏没有搜索框：⌘F 打开右栏的搜索页。
+    if sidebar.isRail { showSearchPage() } else { sidebar.focusSearch() }
   }
 
   func toggleSidebar() { rootViewController.toggleSidebar() }
@@ -208,7 +217,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     select(.messages, revealList: false)
     // 从群助手的搜索结果再次打开当前会话，也要恢复它所在的列表与选中行。
     dialogs.selectChat(id)
-    if chat.open(id, title: title, composer: composer) { detail.show(chat.controller) }
+    if chat.open(id, title: title, composer: composer) || sidebar.showsSearchPage { showPage(chat.controller) }
     updateChatInfo()
     updateWindowTitle()
     if revealDetail { rootViewController.showDetail() }
@@ -246,11 +255,12 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     if section != .messages { search.cancelPendingOpen() }
     sidebar.select(section)
     switch section {
-    case .messages: detail.show(chat.controller)
-    case .contacts: detail.show(contactPage ?? emptyContactPage)
+    case .messages: showPage(chat.controller)
+    case .contacts: showPage(contactPage ?? emptyContactPage)
     }
     updateChatInfo()
-    if revealList { rootViewController.showSidebar() }
+    // 联系人列表在窄栏里放不下，要展开；消息在窄栏里也看得到，不动。
+    if revealList, section == .contacts { rootViewController.expandSidebar() }
     updateWindowTitle()
   }
 
@@ -273,12 +283,54 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       if sidebar.section == .contacts { select(.contacts) }
     }
     contactPage = page
-    detail.show(page)
+    showPage(page)
     rootViewController.showDetail()
   }
 
+  // MARK: 窄栏
+
+  /// 右栏换页都经过这里，记下是不是搜索页（窄栏底部的搜索按钮高亮、检查器收起）。
+  private func showPage(_ page: UIViewController) {
+    detail.show(page)
+    sidebar.setSearchPage(page === searchPage)
+  }
+
+  private lazy var searchPage = factory.search(sidebar: sidebar, search: search)
+
+  private func showSearchPage() {
+    if rootViewController.presentedViewController != nil { rootViewController.dismiss(animated: true) }
+    if dialogs.showsArchived { dialogs.setArchived(false) }
+    sidebar.select(.messages)
+    showPage(searchPage)
+    updateChatInfo()
+    updateWindowTitle()
+    sidebar.focusSearch()
+  }
+
+  /// 窄栏的「消息」：在群助手或搜索页时回到消息列表 / 当前聊天，已经在了就滚到下一个未读。
+  private func railShowMessages() {
+    if sidebar.section != .messages || sidebar.showsSearchPage { select(.messages, revealList: false) }
+    if dialogs.showsArchived { dialogs.setArchived(false) }
+    else { dialogs.scrollToNextUnread() }
+  }
+
+  private func railShowArchive() {
+    if sidebar.section != .messages || sidebar.showsSearchPage { select(.messages, revealList: false) }
+    dialogs.setArchived(true)
+  }
+
+  private func railChanged(_ rail: Bool) {
+    sidebar.setRail(rail)
+    dialogs.compact = rail
+    // 在联系人分区收起时右栏的资料页保留，窄栏照样列会话头像（窄窗口里选了联系人会自动收起，不能把资料页切走）。
+    if !rail, sidebar.showsSearchPage {
+      // 展开后搜索框和结果回到侧栏（搜索词共用），右栏回到聊天。
+      select(.messages, revealList: false)
+    }
+  }
+
   private func updateWindowTitle() {
-    let title = sidebar.section == .messages ? chat.title : sidebar.section.title
+    let title = sidebar.showsSearchPage ? "搜索" : sidebar.section == .messages ? chat.title : sidebar.section.title
     rootViewController.viewIfLoaded?.window?.windowScene?.title = "\(title) — BetterChat"
   }
 }

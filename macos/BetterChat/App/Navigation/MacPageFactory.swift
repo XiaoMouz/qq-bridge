@@ -73,6 +73,11 @@ struct MacPageFactory: MacChatPageBuilding {
     }
   }
 
+  /// 窄栏时右栏的搜索页（和侧栏共用搜索词与结果）。
+  func search(sidebar: MacSidebarViewModel, search: MacSidebarSearchViewModel) -> UIViewController {
+    host(NavigationStack { MacSearchPage(session: session, sidebar: sidebar, search: search) })
+  }
+
   func sidebar<V: View>(_ content: V) -> UIViewController {
     let controller = UIHostingController(rootView: content.environment(model).environment(\.session, session)
       .environment(\.macFullScreenCoverDidDismiss, { [weak router] in router?.workspace?.presentationDidDismiss() }))

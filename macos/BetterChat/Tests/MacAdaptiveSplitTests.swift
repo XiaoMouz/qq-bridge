@@ -98,4 +98,31 @@ struct MacAdaptiveSplitTests {
     #expect(!fixture.controller.isNarrow)
     await fixture.dismiss()
   }
+
+  /// 2026-11-09：收起是变成窄栏，不是藏起来；窄窗口自动窄栏，⌃⌘S 临时展开、打开详情后收回。
+  @Test func collapseBecomesRailAndNarrowWindowExpandsTemporarily() async throws {
+    UserDefaults.standard.removeObject(forKey: "mac.sidebarRail")
+    defer { UserDefaults.standard.removeObject(forKey: "mac.sidebarRail") }
+    let fixture = try AdaptiveSplitFixture(width: 1024)
+    defer { fixture.dispose() }
+    var changes: [Bool] = []
+    fixture.controller.railChanged = { changes.append($0) }
+    #expect(!fixture.controller.isRail)
+    fixture.controller.toggleSidebar()
+    #expect(fixture.controller.isRail && UserDefaults.standard.bool(forKey: "mac.sidebarRail"))
+    fixture.controller.toggleSidebar()
+    #expect(!fixture.controller.isRail)
+    fixture.resize(700)
+    #expect(fixture.controller.isRail)
+    fixture.controller.toggleSidebar()
+    #expect(!fixture.controller.isRail)
+    fixture.controller.showDetail()
+    #expect(fixture.controller.isRail)
+    fixture.controller.expandSidebar()
+    #expect(!fixture.controller.isRail)
+    fixture.resize(1024)
+    // 宽窗口回到用户自己的选择（完整侧栏），窄窗口里的临时展开不记住。
+    #expect(!fixture.controller.isRail && !UserDefaults.standard.bool(forKey: "mac.sidebarRail"))
+    #expect(changes == [true, false, true, false, true, false])
+  }
 }

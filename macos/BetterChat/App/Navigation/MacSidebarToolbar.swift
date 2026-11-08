@@ -10,10 +10,13 @@ final class MacSidebarToolbar {
     var contactsRefreshing: Bool
     var showsArchived: Bool = false
     var hasUnread = false
+    /// 窄栏：标题栏放不下按钮，切换按钮和分区都在栏内。
+    var rail = false
   }
   struct Actions {
     let selectSection: (MacSidebarSection) -> Void
     let refreshContacts: () -> Void
+    let toggleSidebar: () -> Void
   }
 
   private let item: UINavigationItem
@@ -21,6 +24,7 @@ final class MacSidebarToolbar {
   private var applied: State?
   private let sections: UISegmentedControl
   private let sectionsItem: UIBarButtonItem
+  private let sidebarItem: UIBarButtonItem
 
   init(item: UINavigationItem, actions: Actions) {
     self.item = item
@@ -37,6 +41,9 @@ final class MacSidebarToolbar {
     sections.toolTip = "消息（⌘1）/ 联系人（⌘2）"
     sectionsItem = UIBarButtonItem(customView: sections)
     sectionsItem.title = "分区"
+    // 系统的侧栏按钮会把侧栏整个藏起来（2026-11-09 改成收成窄栏），换成自己的按钮。
+    sidebarItem = UIBarButtonItem(title: "收起侧栏（⌃⌘S）", image: UIImage(systemName: MacSymbol.sidebar),
+                                  primaryAction: UIAction { [actions] _ in actions.toggleSidebar() })
     item.style = .navigator
   }
 
@@ -49,6 +56,11 @@ final class MacSidebarToolbar {
     let messageSymbol = state.hasUnread && state.section != .messages ? "message.badge" : MacSymbol.messages
     sections.setImage(UIImage(systemName: messageSymbol), forSegmentAt: MacSidebarSection.messages.rawValue)
     sections.imageForSegment(at: MacSidebarSection.messages.rawValue)?.accessibilityLabel = state.hasUnread ? "消息，有未读" : "消息"
+    guard !state.rail else {
+      item.leadingItemGroups = []
+      item.trailingItemGroups = []
+      return
+    }
     var trailing: [UIBarButtonItem] = [sectionsItem]
     if state.section == .contacts {
       let refresh = UIBarButtonItem(title: "刷新联系人", image: UIImage(systemName: MacSymbol.sync),
@@ -56,7 +68,7 @@ final class MacSidebarToolbar {
       refresh.isEnabled = !state.contactsRefreshing
       trailing.insert(refresh, at: 0)
     }
-    item.leadingItemGroups = []
+    item.leadingItemGroups = [UIBarButtonItemGroup(barButtonItems: [sidebarItem], representativeItem: nil)]
     item.trailingItemGroups = [UIBarButtonItemGroup(barButtonItems: trailing, representativeItem: nil)]
   }
 }

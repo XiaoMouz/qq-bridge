@@ -4,7 +4,7 @@ import UIKit
 
 /// 侧栏、标题栏与列表共用的尺寸。iMessage 式的密度靠统一数值保证，各页面不再各写一份。
 enum MacMetrics {
-  /// 低于该宽度时侧栏自动收起（需要时浮在聊天上面）、检查器不显示。
+  /// 低于该宽度时侧栏自动收成窄栏（⌃⌘S 临时展开）、检查器不显示。
   static let compactWidth: CGFloat = 760
   /// 2026-10-17：去掉单栏模式后，窗口至少要放得下聊天和收起的侧栏按钮。
   static let minimumWindow = CGSize(width: 640, height: 480)
@@ -12,6 +12,9 @@ enum MacMetrics {
   static let sidebarPreferredWidth: CGFloat = 310
   static let sidebarMinimumWidth: CGFloat = 260
   static let sidebarMaximumWidth: CGFloat = 420
+  /// 收起后的窄栏：要放得下窗口左上角的三个按钮（约 72 点）和头像右上角的角标。
+  static let railWidth: CGFloat = 80
+  static let railRowVerticalMargin: CGFloat = 5
 
   /// 搜索框、分段选择器与列表行使用同一条水平内边距，左侧边缘对齐。
   static let sidebarInset: CGFloat = 12

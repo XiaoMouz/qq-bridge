@@ -30,6 +30,17 @@ final class MacDialogsController: UICollectionViewController {
   private var presentedFailureID: MacDialogsFailure.ID?
 
   var showsArchived: Bool { viewModel.showsArchived }
+  /// 群助手里有未读（窄栏的群助手按钮上加圆点）。
+  var hasArchivedUnread: Bool { viewModel.archived.contains { $0.dialog.unreadCount > 0 } }
+  /// 窄栏：每行只有头像 + 角标，不插群助手汇总行（窄栏顶部有群助手按钮）。
+  var compact = false {
+    didSet {
+      guard compact != oldValue else { return }
+      reconfigureAll = true
+      apply()
+    }
+  }
+  private var reconfigureAll = false
 
   init(session: Session, model: AppModel, viewModel: MacDialogsViewModel) {
     self.session = session
@@ -59,6 +70,13 @@ final class MacDialogsController: UICollectionViewController {
       guard case .chat(let id) = row, let item = viewModel.byID[id] else { return }
       cell.accessories = []
       let model = model, session = session
+      if compact {
+        cell.contentConfiguration = UIHostingConfiguration {
+          MacRailDialogCell(item: item).environment(model).environment(\.session, session)
+        }.margins(.horizontal, 0).margins(.vertical, MacMetrics.railRowVerticalMargin)
+        cell.accessibilityLabel = "\(item.title)，\(item.dialog.unreadCount) 条未读"
+        return
+      }
       cell.contentConfiguration = UIHostingConfiguration {
         MacDialogRow(item: item)
           .environment(model)
@@ -241,20 +259,26 @@ final class MacDialogsController: UICollectionViewController {
     let visible = viewModel.visible
     var rows = visible.map { Row.chat($0.id) }
     let archived = viewModel.archived
-    if !viewModel.showsArchived, !archived.isEmpty {
+    if !compact, !viewModel.showsArchived, !archived.isEmpty {
       // 与 iOS 一致：汇总行按最新消息时间插入普通会话，置顶会话始终在前。
       let archiveTime = archived.map(\.dialog.topTime).max() ?? 0
       let index = visible.firstIndex { !$0.dialog.pinned && $0.dialog.topTime < archiveTime } ?? rows.endIndex
       rows.insert(.archive, at: index)
     }
     // 直接导航已经提交快照，Observation 随后的相同通知无需再做一次自适应布局。
-    guard rows != appliedRows || appliedItems != viewModel.byID || appliedArchived != archived || appliedPage != viewModel.showsArchived else { return }
+    guard reconfigureAll || rows != appliedRows || appliedItems != viewModel.byID || appliedArchived != archived || appliedPage != viewModel.showsArchived else { return }
     appliedRows = rows
     appliedPage = viewModel.showsArchived
     var snapshot = NSDiffableDataSourceSnapshot<Int, Row>()
     snapshot.appendSections([0]); snapshot.appendItems(rows)
     let previous = Set(dataSource.snapshot().itemIdentifiers)
-    snapshot.reconfigureItems(visible.filter { previous.contains(.chat($0.id)) && appliedItems[$0.id] != $0 }.map { .chat($0.id) })
+    if reconfigureAll {
+      // 窄栏 ⇄ 完整：行的样式整个换了，所有留下的行都重配。
+      reconfigureAll = false
+      snapshot.reconfigureItems(rows.filter { previous.contains($0) })
+    } else {
+      snapshot.reconfigureItems(visible.filter { previous.contains(.chat($0.id)) && appliedItems[$0.id] != $0 }.map { .chat($0.id) })
+    }
     if rows.contains(.archive), previous.contains(.archive), archived != appliedArchived { snapshot.reconfigureItems([.archive]) }
     appliedItems = viewModel.byID
     appliedArchived = archived
