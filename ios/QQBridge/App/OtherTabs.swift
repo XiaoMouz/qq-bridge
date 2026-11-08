@@ -35,11 +35,6 @@ struct SearchView: View {
       List {
         let matches = matchedDialogs
         let people = matchedContacts
-        if !query.isEmpty || !pager.filter.isEmpty {
-          SearchFilterBar(filter: Bindable(pager).filter, scope: .global, session: session)
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-        }
         if !matches.isEmpty {
           Section("会话") {
             ForEach(matches.prefix(20)) { item in
@@ -107,6 +102,16 @@ struct SearchView: View {
         }
       }
       .listStyle(.insetGrouped)
+      // 筛选条贴着搜索框放在列表外：放在列表里时上下是分组间距，随下面有没有「会话」等组头变大变小
+      // （2026-11-08 用户截图：离搜索框太远、各情况间距不一）。
+      .safeAreaInset(edge: .top, spacing: 0) {
+        if !query.isEmpty || !pager.filter.isEmpty {
+          SearchFilterBar(filter: Bindable(pager).filter, scope: .global, session: session)
+            // 导航栏搜索框下面本来就留了空，筛选条自己的上边距收掉一些，上下看起来一样。
+            .padding(.top, -8)
+        }
+      }
+      .contentMargins(.top, 8, for: .scrollContent)
       .navigationTitle("搜索")
       .navigationDestination(for: Int64.self) { ChatScreen(session: session, chatId: $0) }
       .searchable(text: $query, prompt: "搜索会话和聊天记录")

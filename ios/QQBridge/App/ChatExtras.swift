@@ -61,18 +61,17 @@ private struct ChatSearchList: View {
   var body: some View {
     ScrollViewReader { proxy in
       List {
-        Section {
-          ForEach(pager.results, id: \.searchKey) { m in resultRow(m) }
-          if pager.hasMore || pager.loadingMore {
-            SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
-          }
-        } header: {
-          SearchFilterBar(filter: Bindable(pager).filter, scope: .chat(chatId), session: session)
-            .padding(.horizontal, -16)
-            .textCase(nil)
+        ForEach(pager.results, id: \.searchKey) { m in resultRow(m) }
+        if pager.hasMore || pager.loadingMore {
+          SearchMoreRow(loading: pager.loadingMore, failed: pager.failed) { Task { await pager.loadMore() } }
         }
       }
       .listStyle(.plain)
+      // 和全局搜索一样贴着搜索框放在列表外（做组头时上方多出组头间距，2026-11-08 用户反馈离搜索框太远）。
+      .safeAreaInset(edge: .top, spacing: 0) {
+        SearchFilterBar(filter: Bindable(pager).filter, scope: .chat(chatId), session: session)
+          // 这里的搜索框在导航栏抽屉里，下面几乎不留空（全局搜索那边留得多，要收掉 8），筛选条保留自己的上边距。
+      }
       .onAppear {
         if let key = state.current { proxy.scrollTo(key, anchor: .center) }
       }

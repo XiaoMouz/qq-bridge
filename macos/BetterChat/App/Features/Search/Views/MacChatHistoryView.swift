@@ -24,11 +24,13 @@ struct MacChatHistoryView: View {
         Button("搜索") { viewModel.search() }
           .disabled(!viewModel.canSearch || viewModel.isSearching)
       }
-      .padding(12)
+      .padding([.horizontal, .top], 12)
+      // 筛选条自带上下 6：搜索框下只留 4，上下看起来一样宽（2026-11-08 用户反馈筛选离搜索框太远）。
+      .padding(.bottom, 4)
       SearchFilterBar(filter: Binding(get: { viewModel.filter }, set: { viewModel.updateFilter($0) }),
                       scope: .chat(viewModel.chatID), session: session)
         .padding(.horizontal, -4)
-        .padding(.bottom, 6)
+        .padding(.bottom, 4)
       Divider()
       List {
         ForEach(viewModel.results, id: \.searchKey) { message in
