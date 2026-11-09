@@ -5,11 +5,11 @@ import SwiftUI
 // 收起后的窄栏（2026-11-09 用户要求）：收起不是让侧栏消失，而是只留切换按钮、消息 / 群助手切换、
 // 会话头像 + 角标，搜索放在底部、点开在右栏单独一页。角标有 @我 时红色、回复我时绿色，其余照常。
 
-/// 窄栏顶部：展开侧栏，下面是消息、群助手、联系人（联系人列表要展开侧栏才放得下）。
+/// 窄栏顶部：展开侧栏，下面是消息、联系人（联系人列表要展开侧栏才放得下）。
+/// 群助手和完整列表一样是会话里的一行（2026-11-09 用户更正：不单独列按钮）；在群助手里时点「消息」返回。
 struct MacSidebarRailHeader: View {
   let section: MacSidebarSection
   let showsArchived: Bool
-  let archivedUnread: Bool
   let searching: Bool
   let actions: MacSidebarActions
 
@@ -20,11 +20,8 @@ struct MacSidebarRailHeader: View {
         .accessibilityIdentifier("mac.rail.expand")
       Divider().padding(.horizontal, 18)
       MacRailButton(symbol: inMessages && !showsArchived ? MacSymbol.messagesSelected : MacSymbol.messages,
-                    title: "消息（⌘1）", on: inMessages && !showsArchived, action: actions.showMessages)
+                    title: showsArchived ? "返回消息列表" : "消息（⌘1）", on: inMessages, action: actions.showMessages)
         .accessibilityIdentifier("mac.rail.messages")
-      MacRailButton(symbol: showsArchived ? "archivebox.fill" : "archivebox", title: "群助手", on: inMessages && showsArchived,
-                    dot: archivedUnread, action: actions.showArchive)
-        .accessibilityIdentifier("mac.rail.archive")
       MacRailButton(symbol: section == .contacts ? MacSymbol.contactsSelected : MacSymbol.contacts,
                     title: "联系人（⌘2）", on: section == .contacts, action: actions.showContacts)
         .accessibilityIdentifier("mac.rail.contacts")
@@ -78,6 +75,29 @@ struct MacRailButton: View {
   }
 }
 
+/// 窄栏里的群助手：和完整列表同一个灰色图标，角标是有未读的群数（灰色，与完整列表一致）。
+struct MacRailArchiveCell: View {
+  let items: [DialogItem]
+
+  var body: some View {
+    let unreadChats = items.filter { $0.dialog.unreadCount > 0 }.count
+    ZStack {
+      Circle().fill(Color.gray.gradient)
+      Image(systemName: "archivebox.fill").font(.title3).foregroundStyle(.white)
+    }
+    .frame(width: MacMetrics.rowAvatar, height: MacMetrics.rowAvatar)
+    .overlay(alignment: .topTrailing) {
+      if unreadChats > 0 {
+        MacRailBadge.capsule("\(unreadChats)", color: Color(white: 0.6))
+          .alignmentGuide(.top) { $0[.top] + 5 }
+          .alignmentGuide(.trailing) { $0[.trailing] - 8 }
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .help("群助手")
+  }
+}
+
 /// 窄栏里的一行会话：只有头像，未读数压在右上角。
 struct MacRailDialogCell: View {
   let item: DialogItem
@@ -107,15 +127,19 @@ struct MacRailBadge: View {
 
   var body: some View {
     if dialog.unreadCount > 0 {
-      Text(dialog.unreadCount > 99 ? "99+" : "\(dialog.unreadCount)")
+      Self.capsule(dialog.unreadCount > 99 ? "99+" : "\(dialog.unreadCount)", color: Self.color(dialog, muted: muted))
+    }
+  }
+
+  static func capsule(_ text: String, color: Color) -> some View {
+      Text(text)
         .font(.system(size: 11, weight: .bold).monospacedDigit())
         .foregroundStyle(.white)
         .padding(.horizontal, 5)
         .frame(minWidth: 18, minHeight: 18)
-        .background(Self.color(dialog, muted: muted), in: Capsule())
+        .background(color, in: Capsule())
         // 白边把角标和头像分开（头像本身颜色各异）。
         .overlay(Capsule().stroke(Color(uiColor: .systemBackground), lineWidth: 1.5))
         .fixedSize()
-    }
   }
 }

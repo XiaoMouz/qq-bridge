@@ -53,7 +53,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
         selectContact: { [weak self] in self?.showContact($0) },
         toggleSidebar: { [weak self] in self?.toggleSidebar() },
         showMessages: { [weak self] in self?.railShowMessages() },
-        showArchive: { [weak self] in self?.railShowArchive() },
         showContacts: { [weak self] in self?.select(.contacts) },
         openSearch: { [weak self] in self?.showSearchPage() }))))
     toolbar = MacSidebarToolbar(item: sidebarView.navigationItem, actions: .init(
@@ -312,11 +311,6 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     if sidebar.section != .messages || sidebar.showsSearchPage { select(.messages, revealList: false) }
     if dialogs.showsArchived { dialogs.setArchived(false) }
     else { dialogs.scrollToNextUnread() }
-  }
-
-  private func railShowArchive() {
-    if sidebar.section != .messages || sidebar.showsSearchPage { select(.messages, revealList: false) }
-    dialogs.setArchived(true)
   }
 
   private func railChanged(_ rail: Bool) {

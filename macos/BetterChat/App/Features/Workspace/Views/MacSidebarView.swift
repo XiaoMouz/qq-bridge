@@ -8,7 +8,6 @@ struct MacSidebarActions {
   /// 窄栏里的按钮：展开侧栏、消息、联系人（展开后进入）、搜索页。
   var toggleSidebar: () -> Void = {}
   var showMessages: () -> Void = {}
-  var showArchive: () -> Void = {}
   var showContacts: () -> Void = {}
   var openSearch: () -> Void = {}
 }
@@ -29,7 +28,7 @@ struct MacSidebarView: View {
   var body: some View {
     VStack(spacing: 0) {
       if sidebar.isRail {
-        MacSidebarRailHeader(section: sidebar.section, showsArchived: dialogs.showsArchived, archivedUnread: dialogs.hasArchivedUnread,
+        MacSidebarRailHeader(section: sidebar.section, showsArchived: dialogs.showsArchived,
                              searching: sidebar.showsSearchPage, actions: actions)
       }
       if !sidebar.isRail, sidebar.section == .messages, dialogs.showsArchived {

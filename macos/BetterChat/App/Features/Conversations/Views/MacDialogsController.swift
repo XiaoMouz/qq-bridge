@@ -30,9 +30,7 @@ final class MacDialogsController: UICollectionViewController {
   private var presentedFailureID: MacDialogsFailure.ID?
 
   var showsArchived: Bool { viewModel.showsArchived }
-  /// 群助手里有未读（窄栏的群助手按钮上加圆点）。
-  var hasArchivedUnread: Bool { viewModel.archived.contains { $0.dialog.unreadCount > 0 } }
-  /// 窄栏：每行只有头像 + 角标，不插群助手汇总行（窄栏顶部有群助手按钮）。
+  /// 窄栏：每行只有头像 + 角标（群助手汇总行也一样，只剩图标和有未读的群数）。
   var compact = false {
     didSet {
       guard compact != oldValue else { return }
@@ -60,11 +58,18 @@ final class MacDialogsController: UICollectionViewController {
       guard let self else { return }
       if row == .archive {
         let groups = viewModel.archived
+        cell.accessibilityLabel = "群助手，\(groups.count) 个群，\(groups.filter { $0.dialog.unreadCount > 0 }.count) 个群有未读消息"
+        if compact {
+          cell.contentConfiguration = UIHostingConfiguration {
+            MacRailArchiveCell(items: groups)
+          }.margins(.horizontal, 0).margins(.vertical, MacMetrics.railRowVerticalMargin)
+          cell.accessories = []
+          return
+        }
         cell.contentConfiguration = UIHostingConfiguration {
           ArchiveRow(items: groups, style: MacMetrics.dialogRow)
         }.margins(.horizontal, MacMetrics.rowHorizontalMargin).margins(.vertical, MacMetrics.rowVerticalMargin)
         cell.accessories = [.disclosureIndicator()]
-        cell.accessibilityLabel = "群助手，\(groups.count) 个群，\(groups.filter { $0.dialog.unreadCount > 0 }.count) 个群有未读消息"
         return
       }
       guard case .chat(let id) = row, let item = viewModel.byID[id] else { return }
@@ -259,7 +264,7 @@ final class MacDialogsController: UICollectionViewController {
     let visible = viewModel.visible
     var rows = visible.map { Row.chat($0.id) }
     let archived = viewModel.archived
-    if !compact, !viewModel.showsArchived, !archived.isEmpty {
+    if !viewModel.showsArchived, !archived.isEmpty {
       // 与 iOS 一致：汇总行按最新消息时间插入普通会话，置顶会话始终在前。
       let archiveTime = archived.map(\.dialog.topTime).max() ?? 0
       let index = visible.firstIndex { !$0.dialog.pinned && $0.dialog.topTime < archiveTime } ?? rows.endIndex
@@ -279,7 +284,8 @@ final class MacDialogsController: UICollectionViewController {
     } else {
       snapshot.reconfigureItems(visible.filter { previous.contains(.chat($0.id)) && appliedItems[$0.id] != $0 }.map { .chat($0.id) })
     }
-    if rows.contains(.archive), previous.contains(.archive), archived != appliedArchived { snapshot.reconfigureItems([.archive]) }
+    if rows.contains(.archive), previous.contains(.archive), archived != appliedArchived,
+       !snapshot.reconfiguredItemIdentifiers.contains(.archive) { snapshot.reconfigureItems([.archive]) }
     appliedItems = viewModel.byID
     appliedArchived = archived
     // 2026-10-14 实机截图：多个群连续来消息时，搬行动画叠加会留下重叠文字和空洞。

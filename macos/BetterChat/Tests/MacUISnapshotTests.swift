@@ -147,7 +147,8 @@ struct MacUISnapshotTests {
     let actions = MacSidebarActions(selectContact: { _ in })
     _ = try await snapshot("sidebar-rail", size: CGSize(width: MacMetrics.railWidth, height: 560)) {
       VStack(spacing: 0) {
-        MacSidebarRailHeader(section: .messages, showsArchived: false, archivedUnread: true, searching: false, actions: actions)
+        MacSidebarRailHeader(section: .messages, showsArchived: false, searching: false, actions: actions)
+        MacRailArchiveCell(items: [dialog(6, "归档群", unread: 4, muted: true)]).padding(.vertical, MacMetrics.railRowVerticalMargin)
         ForEach(items) { MacRailDialogCell(item: $0).padding(.vertical, MacMetrics.railRowVerticalMargin) }
         Spacer()
         MacSidebarRailFooter(searching: false, openSearch: {})
