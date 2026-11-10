@@ -499,6 +499,9 @@ final class ChatLookup {
   private var names: [Int64: String?] = [:]
   private var avatars: [Int64: String?] = [:]
   private var messages: [Int64: Qqbridge_V1_Message] = [:]
+  /// 这一页里见到的名字：消息的发送者名字（发消息时的群名片 / 昵称）、群事件入库时记下的名字（data.names）。
+  /// 退群的人、不是好友的人本地没有资料，灰条和发送者靠它显示名字而不是号码。
+  private var seen: [Int64: String] = [:]
 
   func attach(_ store: LocalStore, qqAccountId id: Int64) {
     guard self.store == nil || id != qqAccountId else { return }
@@ -510,15 +513,31 @@ final class ChatLookup {
 
   func update(_ items: [ChatItem]) {
     var map: [Int64: Qqbridge_V1_Message] = [:]
-    for item in items { if case .message(let m) = item { map[m.seq] = m } }
+    for item in items {
+      switch item {
+      case .message(let m):
+        map[m.seq] = m
+        if !m.senderName.isEmpty, m.senderName != String(m.senderID) { seen[m.senderID] = m.senderName }
+      case .event(let e):
+        guard e.dataJson.contains("\"names\""),
+              let data = try? JSONSerialization.jsonObject(with: Data(e.dataJson.utf8)) as? [String: Any],
+              let names = data["names"] as? [String: String] else { continue }
+        for (id, name) in names { if let id = Int64(id), !name.isEmpty { seen[id] = name } }
+      default: break
+      }
+    }
     messages = map
   }
+
+  /// 这一页里见到的这个人的名字（见 seen）。
+  func seenName(_ userId: Int64) -> String? { seen[userId] }
 
   func message(_ seq: Int64) -> Qqbridge_V1_Message? { messages[seq] }
 
   func userName(_ userId: Int64) -> String? {
     if let cached = names[userId] { return cached }
-    let n = try? store?.userName(qqAccountId: qqAccountId, userId: userId)
+    // 资料里只有号码（名字为空）的当没有，让调用方接着找别的名字。
+    let n = (try? store?.userName(qqAccountId: qqAccountId, userId: userId)).flatMap { $0 == String(userId) ? nil : $0 }
     names[userId] = .some(n)
     return n
   }

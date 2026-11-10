@@ -24,6 +24,7 @@ import { maybeOne, one, rows, type Db, type Queryable, type Tx } from '../db/cli
 import { pgJson, stripNul } from '../db/nul.ts';
 import { addUsage, findReusableBlob, removeUsage, reusedMediaPatch, type ReusableBlob } from '../media/accounting.ts';
 import { NotFoundError } from '../sync/difference.ts';
+import { localNames } from '../contacts/people.ts';
 import { CHAT_EVENT_COLUMNS, MESSAGE_COLUMNS, PEER_COLUMNS, toChatEvent, toMessage, toPeer, type Update } from '../sync/rows.ts';
 import type { WriteContext, WriterRegistry } from '../sync/writer.ts';
 
@@ -660,8 +661,11 @@ export class IngestService {
       }
       const chatPts = await w.allocChatPts(chat.id);
       const time = new Date(event.time * 1000).toISOString();
+      // 当时的名字（群名片 / 昵称）：客户端没有这个人的资料（已退群、不是好友）时用它，不只显示号码。
+      const names = await localNames(w.tx, qqAccountId, event.scene === 'group' ? event.peerId : null, [event.actorId, event.targetId]);
       const data = {
         ...(event.data ?? {}),
+        ...(names.size ? { names: Object.fromEntries(names) } : {}),
         ...(event.media ? { media: { ord: 0, state: 'pending', ...(event.media.size ? { size: event.media.size } : {}) } } : {}),
       };
       const row = toChatEvent(

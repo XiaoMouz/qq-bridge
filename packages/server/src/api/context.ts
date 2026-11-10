@@ -7,6 +7,7 @@ import { InvalidCredentialsError, type AuthContext, type AuthService } from '../
 import type { AdminService } from '../admin/service.ts';
 import type { NapcatWebUi } from '../admin/napcat-webui.ts';
 import type { CallService } from '../calls/service.ts';
+import type { PeopleResolver } from '../contacts/people.ts';
 import type { ContactService } from '../contacts/service.ts';
 import type { ForwardService } from '../messages/forwards.ts';
 import type { MessageForwarder } from '../messages/forwarding.ts';
@@ -58,6 +59,7 @@ export interface ApiDeps {
   interactions: MessageInteractions;
   forwards: ForwardService;
   contacts: ContactService;
+  people: PeopleResolver;
   tiering: TierManager;
   stickers: StickerService;
   storageBrowser: StorageBrowser;

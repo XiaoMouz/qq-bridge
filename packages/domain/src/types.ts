@@ -43,7 +43,11 @@ export type Segment =
   | { type: 'mention_all' }
   /** name：QQ 给的表情名（如「微笑」），客户端本地没有这个表情时用来显示。 */
   | { type: 'face'; faceId: string; isLarge?: boolean; name?: string }
-  | { type: 'reply'; seq: number; senderId?: number }
+  /**
+   * text：被回复内容的摘要（QQ 回复元素自带的 sourceMsgTextElems），合并转发里拿不到原消息时显示它；
+   * name：被回复的人的名字（合并转发里按本地资料补上）。
+   */
+  | { type: 'reply'; seq: number; senderId?: number; text?: string; name?: string }
   | { type: 'image'; media: MediaInfo; width?: number; height?: number; summary?: string; subType?: 'normal' | 'sticker' }
   | { type: 'record'; media: MediaInfo; durationSec?: number }
   | { type: 'video'; media: MediaInfo; width?: number; height?: number; durationSec?: number }

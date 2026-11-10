@@ -119,7 +119,7 @@ export function segmentToProto(seg: Segment): MessageInitShape<typeof SegmentSch
     case 'face':
       return { kind: { case: 'face', value: { faceId: seg.faceId, isLarge: Boolean(seg.isLarge), name: seg.name ?? '' } } };
     case 'reply':
-      return { kind: { case: 'reply', value: { seq: big(seg.seq), senderId: big(seg.senderId) } } };
+      return { kind: { case: 'reply', value: { seq: big(seg.seq), senderId: big(seg.senderId), text: seg.text ?? '', senderName: seg.name ?? '' } } };
     case 'image':
       return {
         kind: {

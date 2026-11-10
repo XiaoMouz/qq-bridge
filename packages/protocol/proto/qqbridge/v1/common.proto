@@ -123,6 +123,10 @@ message FaceSegment {
 message ReplySegment {
   int64 seq = 1;
   int64 sender_id = 2;
+  // 被回复内容的摘要（QQ 回复元素自带）：合并转发里拿不到原消息时显示。
+  string text = 3;
+  // 被回复的人的名字（合并转发里由服务端按本地资料补上；会话里客户端自己查）。
+  string sender_name = 4;
 }
 
 message ImageSegment {

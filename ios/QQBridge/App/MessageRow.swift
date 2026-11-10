@@ -24,12 +24,16 @@ struct MessageContext {
   var suppliedTranscripts: VoiceTranscripts? = nil
   @MainActor var transcripts: VoiceTranscripts { suppliedTranscripts ?? .shared }
 
-  /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 号码。
+  /// 显示名：我 > 群名片 / 昵称 > 联系人备注 / 昵称 > 这一页里见到的名字（发消息时的名片、事件里记下的）> 号码。
+  /// 群里退群的人不在成员表：先用这个群里见到的名字（群名片），再用资料里的昵称。
   @MainActor
   func name(of userId: Int64) -> String {
     if userId == selfUin { return "我" }
-    if isGroup, let n = members.displayName(userId) { return n }
-    return lookup.userName(userId) ?? String(userId)
+    if isGroup {
+      if let n = members.displayName(userId) { return n }
+      if let n = lookup.seenName(userId) { return n }
+    }
+    return lookup.userName(userId) ?? lookup.seenName(userId) ?? String(userId)
   }
 
   /// @ 徽章里的小头像：内存里有就用；没有时先只显示名字，头像加载好后（imageTick 变了）重画。
@@ -521,7 +525,7 @@ enum TimePlacement {
 /// 排版块：相邻的文字、@、表情合成一段富文本，其余各成一块。
 enum Block {
   case text([Inline])
-  case reply(Int64)
+  case reply(Qqbridge_V1_ReplySegment)
   case image(Qqbridge_V1_ImageSegment)
   /// size：表情的原始尺寸（不知道时为 nil，按正方形显示）。
   case sticker(media: Qqbridge_V1_MediaInfo, summary: String, size: CGSize?)
@@ -599,7 +603,7 @@ enum Block {
         a.font = .body.bold()
         text += a
       case .face(let f): cut(); runs.append(.face(f.faceID, name: f.name, large: f.isLarge))
-      case .reply(let r): out.insert(.reply(r.seq), at: 0)
+      case .reply(let r): out.insert(.reply(r), at: 0)
       case .image(let i):
         flush()
         out.append(i.sticker ? .sticker(media: i.media, summary: i.summary, size: Block.size(i.width, i.height, i.media)) : .image(i))
@@ -665,8 +669,8 @@ struct BlockView: View {
         MentionText(runs: runs, context: context, outgoing: outgoing, seq: message?.seq ?? 0, reserve: timeReserve)
 
       }
-    case .reply(let seq):
-      ReplyQuote(seq: seq, context: context, outgoing: outgoing)
+    case .reply(let r):
+      ReplyQuote(seq: r.seq, context: context, outgoing: outgoing, fallback: r)
     case .image(let i):
       MediaThumb(media: i.media, width: i.width, height: i.height, chatId: context.chatId, onNeedThumb: { requestMedia(i.media) })
         .modifier(MessageBlockAction(title: "打开图片") {
@@ -980,16 +984,19 @@ struct ReplyQuote: View {
   let seq: Int64
   let context: MessageContext
   let outgoing: Bool
+  /// QQ 回复元素自带的被回复人和内容摘要：原消息拿不到（太早、没存档）时显示它，不只是「…」。
+  var fallback: Qqbridge_V1_ReplySegment? = nil
   @Environment(\.session) private var session
   @State private var original: Qqbridge_V1_Message?
   @State private var missing = false
   /// 点了之后正在拉原消息 / 往上翻找它。
   @State private var jumping = false
 
-  init(seq: Int64, context: MessageContext, outgoing: Bool) {
+  init(seq: Int64, context: MessageContext, outgoing: Bool, fallback: Qqbridge_V1_ReplySegment? = nil) {
     self.seq = seq
     self.context = context
     self.outgoing = outgoing
+    self.fallback = fallback
     // 被回复的消息已经在列表里就直接用：不先显示"…"再撑开（会让列表跳一下）。
     _original = State(initialValue: context.lookup.message(seq))
   }
@@ -1031,6 +1038,11 @@ struct ReplyQuote: View {
           Text(Format.preview(shown)).font(.caption).lineLimit(2)
         } else if jumping {
           Text("正在拉取原消息…").font(.caption)
+        } else if let fallback, !fallback.text.isEmpty {
+          if fallback.senderID != 0 {
+            Text(fallback.senderName.isEmpty ? context.name(of: fallback.senderID) : fallback.senderName).font(.caption.bold()).lineLimit(1)
+          }
+          Text(fallback.text).font(.caption).lineLimit(2)
         } else {
           Text(missing ? "原消息暂时拿不到，点一下重试" : "…").font(.caption)
         }

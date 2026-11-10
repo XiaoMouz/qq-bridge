@@ -619,6 +619,12 @@ public nonisolated struct Qqbridge_V1_ReplySegment: Sendable {
 
   public var senderID: Int64 = 0
 
+  /// 被回复内容的摘要（QQ 回复元素自带）：合并转发里拿不到原消息时显示。
+  public var text: String = String()
+
+  /// 被回复的人的名字（合并转发里由服务端按本地资料补上；会话里客户端自己查）。
+  public var senderName: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1883,7 +1889,7 @@ nonisolated extension Qqbridge_V1_FaceSegment: SwiftProtobuf.Message, SwiftProto
 
 nonisolated extension Qqbridge_V1_ReplySegment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ReplySegment"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seq\0\u{3}sender_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}seq\0\u{3}sender_id\0\u{1}text\0\u{3}sender_name\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1893,6 +1899,8 @@ nonisolated extension Qqbridge_V1_ReplySegment: SwiftProtobuf.Message, SwiftProt
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.senderID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.text) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.senderName) }()
       default: break
       }
     }
@@ -1905,12 +1913,20 @@ nonisolated extension Qqbridge_V1_ReplySegment: SwiftProtobuf.Message, SwiftProt
     if self.senderID != 0 {
       try visitor.visitSingularInt64Field(value: self.senderID, fieldNumber: 2)
     }
+    if !self.text.isEmpty {
+      try visitor.visitSingularStringField(value: self.text, fieldNumber: 3)
+    }
+    if !self.senderName.isEmpty {
+      try visitor.visitSingularStringField(value: self.senderName, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_ReplySegment, rhs: Qqbridge_V1_ReplySegment) -> Bool {
     if lhs.seq != rhs.seq {return false}
     if lhs.senderID != rhs.senderID {return false}
+    if lhs.text != rhs.text {return false}
+    if lhs.senderName != rhs.senderName {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

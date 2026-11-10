@@ -32,6 +32,7 @@ import { WriterRegistry } from './sync/writer.ts';
 import { CallService } from './calls/service.ts';
 import { AdminService } from './admin/service.ts';
 import { NapcatWebUi } from './admin/napcat-webui.ts';
+import { PeopleResolver } from './contacts/people.ts';
 import { ContactService } from './contacts/service.ts';
 import { TierManager } from './media/tiering.ts';
 import { MessageForwarder } from './messages/forwarding.ts';
@@ -86,7 +87,8 @@ export function createDeps(
     // 没有上游 / LiveKit / 网关时只能记录和查询，接听会返回 Unavailable；startServer 里按配置替换。
     calls: new CallService(db, ingest, null, null, null),
     interactions: new MessageInteractions(db, ingest, () => deps.upstream),
-    forwards: new ForwardService(db, ingest, () => deps.upstream),
+    forwards: null as unknown as ForwardService,
+    people: new PeopleResolver(db, ingest, () => deps.upstream, { logger: logger.child({ component: 'people' }) }),
     tiering: new TierManager(db, media, logger.child({ component: 'tiering' })),
     rehydrate: null,
     pokeMediaFetcher: () => undefined,
@@ -108,7 +110,9 @@ export function createDeps(
     activeChats: new ActiveChats(),
     onlineDevices: new OnlineDevices(),
     logger,
-  };  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow, deps.forwards, () => deps.upstream, deps.logger.child({ component: 'forward' }));
+  };
+  deps.forwards = new ForwardService(db, ingest, () => deps.upstream, deps.people);
+  deps.forwarder = new MessageForwarder(db, ingest, deps.outbox, () => deps.fetchMediaNow, deps.forwards, () => deps.upstream, deps.logger.child({ component: 'forward' }));
   deps.groupContent = new GroupContentService(db, media, () => deps.upstream, {
     ...(opts.uploadMaxBytes ? { maxFileBytes: opts.uploadMaxBytes * 2 } : {}),
     logger: logger.child({ component: 'group-content' }),
@@ -153,6 +157,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
           activeChats: deps.activeChats,
           onCall: (qqAccountId, state) => deps.calls.onPluginState(qqAccountId, state),
           onMemberChanged: (qqAccountId, groupId, userId) => deps.contacts.refreshMember(qqAccountId, groupId, userId),
+          ensurePeople: (qqAccountId, groupId, userIds) => deps.people.ensure(qqAccountId, groupId, userIds),
         },
       )
     : null;
@@ -298,10 +303,13 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     };
   }
   if (upstream) deps.contacts.start(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
+  // 已存档的群事件、合并转发里只有号码的人：启动 2 分钟后开始慢慢向 QQ 要资料（要过的不再要）。
+  if (upstream) deps.people.startBackfill(async () => (await rows<{ id: number }>(db, sql`select id from qq_accounts`)).map((r) => Number(r.id)));
   deps.imports.start();
   const close = async () => {
     await deps.imports.stop();
     deps.contacts.stop();
+    deps.people.stop();
     settingsSync?.stop();
     deps.tiering.stop();
     clearInterval(uploadCleanup);

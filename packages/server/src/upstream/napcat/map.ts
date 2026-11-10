@@ -251,7 +251,8 @@ export function mapRawMessage(raw: NtRawMessage, opts: MapRawOptions): UpstreamA
         const replySeq = int(r.replayMsgSeq);
         // 被回复的人：QQ 把号码放在 senderUid 里（不是 uid 字符串，那个在 senderUidStr），senderUin 通常是空的。
         const replyTo = int(r.senderUin) || int(r.senderUid);
-        if (replySeq) segments.push({ type: 'reply', seq: replySeq, ...(replyTo ? { senderId: replyTo } : {}) });
+        const quoted = replyAbstract(r.sourceMsgTextElems);
+        if (replySeq) segments.push({ type: 'reply', seq: replySeq, ...(replyTo ? { senderId: replyTo } : {}), ...(quoted ? { text: quoted } : {}) });
         break;
       }
       case NtElementType.PIC: {
@@ -589,4 +590,21 @@ function withElementType(el: NtElement): NtElement {
   if (el.elementType) return el;
   const hit = ELEMENT_FIELDS.find(([field]) => (el as unknown as Record<string, unknown>)[field as string] != null);
   return hit ? { ...el, elementType: hit[1] } : el;
+}
+
+/**
+ * 回复元素自带的被回复内容摘要（sourceMsgTextElems）。2026-11-10 在库里抓到两种：
+ * replyAbsElemType 1 = 文字（textElemContent，媒体也写成「[视频]」这样的文字），2 = 小黄脸（faceElem，faceText 常为空），
+ * 3 = 图片（picElem.picText，「[图片]」「[动画表情]」）。其余类型没见过，不拼（白名单，L2）。
+ */
+function replyAbstract(elems: NonNullable<NtElement['replyElement']>['sourceMsgTextElems']): string | undefined {
+  if (!Array.isArray(elems)) return undefined;
+  const parts = elems.map((e) => {
+    if (e?.replyAbsElemType === 1) return e.textElemContent ?? '';
+    if (e?.replyAbsElemType === 2) return e.faceElem?.faceText || '[表情]';
+    if (e?.replyAbsElemType === 3) return e.picElem?.picText || '[图片]';
+    return '';
+  });
+  const text = parts.join('').trim();
+  return text || undefined;
 }

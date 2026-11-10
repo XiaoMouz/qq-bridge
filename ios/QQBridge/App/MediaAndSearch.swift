@@ -411,6 +411,10 @@ struct ForwardView: View {
   @State private var nodes: [Qqbridge_V1_ForwardNode] = []
   @State private var unavailable = false
   @State private var loading = true
+  @State private var profile: ProfileTarget?
+
+  /// QQ 隐藏了发送者的节点：号码一律是 1094950020、名字「QQ用户」（2026-11-10 服务端库里实测），不是真人，不能点开资料。
+  static let anonymousSender: Int64 = 1094950020
 
   static func downloading(_ node: Qqbridge_V1_ForwardNode) -> Bool {
     node.segments.contains { seg in
@@ -428,7 +432,15 @@ struct ForwardView: View {
       ForEach(Array(nodes.enumerated()), id: \.offset) { index, node in
         VStack(alignment: .leading, spacing: 4) {
           HStack {
-            Text(node.senderName).font(.caption.bold())
+            if node.senderID != 0, node.senderID != Self.anonymousSender {
+              Button { profile = ProfileTarget(userId: node.senderID) } label: {
+                Text(node.senderName.isEmpty ? String(node.senderID) : node.senderName).font(.caption.bold())
+              }
+              .buttonStyle(.plain)
+              .accessibilityHint("查看资料")
+            } else {
+              Text(node.senderName).font(.caption.bold())
+            }
             Spacer()
             Text(Format.chatTime(node.time)).font(.caption2).foregroundStyle(.secondary)
           }
@@ -440,6 +452,11 @@ struct ForwardView: View {
       }
     }
     .listStyle(.plain)
+    .profileCard(item: $profile) { target in
+      NavigationStack {
+        UserProfileView(session: session, userId: target.userId, groupMember: nil, asCard: true, onClose: { profile = nil })
+      }
+    }
     .navigationTitle("聊天记录")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
@@ -497,7 +514,10 @@ struct ForwardSegmentView: View {
   @ViewBuilder private var content: some View {
     switch segment.kind {
     case .text(let t): Text(t.text).bubbleTextSelection()
-    case .mention(let m): Text("@\(m.name.isEmpty ? String(m.userID) : m.name)").bold()
+    case .mention(let m) where m.userID != 0:
+      Button { profile = ProfileTarget(userId: m.userID) } label: { Text("@\(m.name.isEmpty ? String(m.userID) : m.name)").bold() }
+        .buttonStyle(.plain)
+    case .mention(let m): Text("@\(m.name)").bold()
     case .face(let f): QQFace.inline(f.faceID, name: f.name)
     case .image(let i) where i.sticker:
       // 表情：和聊天里一样，原图、会动、不加底。
@@ -540,9 +560,22 @@ struct ForwardSegmentView: View {
     case .file(let f): Label(f.name, systemImage: "doc")
     case .record: Label("语音", systemImage: "waveform")
     case .marketFace(let f): Text(f.summary.isEmpty ? "[表情]" : f.summary)
-    case .reply:
-      // 引用的是原会话里的消息，聊天记录里拿不到原文：只标一下是回复。
-      Label("回复了一条消息", systemImage: "arrowshape.turn.up.left").font(.caption).foregroundStyle(.secondary)
+    case .reply(let r):
+      // 引用的是原会话里的消息，聊天记录里拿不到原消息：显示 QQ 回复元素自带的被回复人和内容摘要（服务端补了名字）。
+      HStack(spacing: 6) {
+        Rectangle().frame(width: 3).opacity(0.5)
+        VStack(alignment: .leading, spacing: 1) {
+          if r.senderID != 0 {
+            let name = r.senderName.isEmpty ? String(r.senderID) : r.senderName
+            Button { profile = ProfileTarget(userId: r.senderID) } label: { Text(name).font(.caption.bold()).lineLimit(1) }
+              .buttonStyle(.plain)
+              .accessibilityHint("查看资料")
+          }
+          Text(r.text.isEmpty ? "回复了一条消息" : r.text).font(.caption).lineLimit(2)
+        }
+      }
+      .foregroundStyle(.secondary)
+      .fixedSize(horizontal: false, vertical: true)
     case .lightApp(let a):
       if let card = ContactCard.parse(json: a.json, app: a.appName) {
         ContactCardView(card: card) { card in

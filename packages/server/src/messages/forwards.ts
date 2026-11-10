@@ -3,6 +3,7 @@
 // 嵌套的合并转发按 path 逐层展开：上一层第 i 个节点的 msgId 就是下一层的 parentMsgId，rootMsgId 始终是会话里那条消息。
 import type { Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
+import { ANONYMOUS_FORWARD_SENDER, localNames, type PeopleResolver } from '../contacts/people.ts';
 import { maybeOne, type Db } from '../db/client.ts';
 import type { ForwardBundleRow, ForwardNodeInput, IngestService, StoredForwardNode } from '../ingest/service.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
@@ -20,6 +21,19 @@ const BACKUP_RETRY_MS = 6 * 3600_000;
  * 2026-11-04 实测：QQ 按 resid 还能拉到约三个月内的合并转发（带下载链接），更早的拉不到（FetchForwardMsg 报 unexpected end of file）。
  * 所以这种缓存不当成「已就绪」挡住向 QQ 拉取。
  */
+/**
+ * 2026-11-10 以前缓存的一层：回复段没有被回复内容的摘要（那时不存），聊天记录里只显示「回复了一条消息」。
+ * 从 QQ 拉来的（节点有 msgId）重拉一次补上；现在存的回复段 text 至少是空串。
+ */
+function repliesWithoutAbstract(nodes: StoredForwardNode[]): boolean {
+  return nodes.some((n) => n.msgId && n.segments.some((s) => s.type === 'reply' && s.text === undefined));
+}
+
+/** 名字是纯号码的节点（QQ 没给名字）。匿名的「QQ用户」不算。 */
+function unnamed(node: StoredForwardNode): boolean {
+  return node.senderId !== ANONYMOUS_FORWARD_SENDER && (!node.senderName || node.senderName === String(node.senderId));
+}
+
 function backupWithMissingMedia(nodes: StoredForwardNode[]): boolean {
   return nodes.length > 0 && nodes.every((n) => !n.msgId)
     && nodes.some((n) => n.segments.some((s) => 'media' in s && (s as { media?: { state?: string } }).media?.state === 'expired'));
@@ -30,6 +44,7 @@ export class ForwardService {
     private readonly db: Db,
     private readonly ingest: Pick<IngestService, 'storeForward' | 'touchForward'>,
     private readonly upstream: () => Pick<UpstreamHub, 'call' | 'isConnected'> | null,
+    private readonly people: Pick<PeopleResolver, 'ensure'> | null = null,
   ) {}
 
   async get(accountId: number, chatId: number, seq: number, path: number[]): Promise<ForwardBundleRow> {
@@ -49,7 +64,29 @@ export class ForwardService {
     );
     if (!message) throw new InteractionError('not_found', `message ${chatId}/${seq} not found`);
     if (!message.segments.some((s) => s.type === 'forward')) throw new InteractionError('unsupported', 'message has no forward');
-    return this.level(message, chatId, seq, path);
+    const bundle = await this.level(message, chatId, seq, path);
+    return { ...bundle, nodes: await this.withNames(message.qq_account_id, message.scene === 'group' ? Number(message.peer_id) : null, bundle.nodes) };
+  }
+
+  /**
+   * 只有号码的发送者、回复段里被回复的人：按本地资料（群名片 > 备注 > 昵称）补上名字。本地没有的先向 QQ 要（最多等 2 秒）。
+   * 读的时候补，不改缓存：资料以后到了，下次打开就是新名字。
+   */
+  private async withNames(qqAccountId: number, groupId: number | null, nodes: StoredForwardNode[]): Promise<StoredForwardNode[]> {
+    const ids = new Set<number>();
+    for (const n of nodes) {
+      if (unnamed(n)) ids.add(n.senderId);
+      for (const s of n.segments) if (s.type === 'reply' && s.senderId && !s.name) ids.add(s.senderId);
+    }
+    if (!ids.size) return nodes;
+    await this.people?.ensure(qqAccountId, groupId, [...ids], 2000).catch(() => undefined);
+    const names = await localNames(this.db, qqAccountId, groupId, [...ids]);
+    if (!names.size) return nodes;
+    return nodes.map((n) => ({
+      ...n,
+      senderName: unnamed(n) ? (names.get(n.senderId) ?? n.senderName) : n.senderName,
+      segments: n.segments.map((s) => (s.type === 'reply' && s.senderId && !s.name && names.has(s.senderId) ? { ...s, name: names.get(s.senderId)! } : s)),
+    }));
   }
 
   private async level(
@@ -65,7 +102,10 @@ export class ForwardService {
     );
     const age = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
     const fromBackup = cached?.state === 'ready' && backupWithMissingMedia(cached.nodes);
-    const fresh = cached && (fromBackup ? age < BACKUP_RETRY_MS : cached.state === 'ready' || age < UNAVAILABLE_RETRY_MS);
+    const oldReplies = cached?.state === 'ready' && !fromBackup && repliesWithoutAbstract(cached.nodes);
+    const fresh =
+      cached &&
+      (fromBackup || oldReplies ? age < (fromBackup ? BACKUP_RETRY_MS : UNAVAILABLE_RETRY_MS) : cached.state === 'ready' || age < UNAVAILABLE_RETRY_MS);
     if (cached && fresh) return { id: cached.id, state: cached.state, nodes: cached.nodes };
 
     let parentMsgId = message.qq_msg_id;
@@ -116,12 +156,13 @@ export class ForwardService {
         senderName: r.sendMemberName || r.sendRemarkName || r.sendNickName || String(action.message.senderId),
         time: action.message.time,
         msgId: String(raw.msgId ?? ''),
-        segments: action.message.segments,
+        // 回复段的 text 至少存空串：区分「QQ 没给摘要」和 2026-11-10 以前没存摘要的旧缓存（repliesWithoutAbstract）。
+        segments: action.message.segments.map((s) => (s.type === 'reply' ? { ...s, text: s.text ?? '' } : s)),
         media: action.message.media,
       });
     }
-    if (fromBackup) {
-      // QQ 也拉不到：留着备份里的内容（文字都在），记下这次尝试的时间。
+    if (fromBackup || oldReplies) {
+      // QQ 也拉不到：留着备份里 / 以前的内容（文字都在），记下这次尝试的时间。
       if (!nodes.length) return this.ingest.touchForward(cached!.id);
       return this.ingest.storeForward(message.qq_account_id, chatId, seq, key, nodes, { replace: true });
     }

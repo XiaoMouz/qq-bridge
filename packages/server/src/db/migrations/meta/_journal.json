@@ -218,6 +218,13 @@
       "when": 1793664600000,
       "tag": "0030_media_attention_index",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0031_people_lookups",
+      "breakpoints": true
     }
   ]
 }

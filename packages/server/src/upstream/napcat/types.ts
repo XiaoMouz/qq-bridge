@@ -28,7 +28,13 @@ export interface NtElement {
   textElement?: { content?: string; atType?: number; atUid?: string; atNtUid?: string };
   faceElement?: { faceIndex?: number; faceType?: number; faceText?: string; resultId?: string };
   marketFaceElement?: { emojiPackageId?: number; faceName?: string; emojiId?: string; key?: string };
-  replyElement?: { replayMsgSeq?: string; replayMsgId?: string; senderUin?: string; senderUid?: string };
+  replyElement?: {
+    replayMsgSeq?: string;
+    replayMsgId?: string;
+    senderUin?: string;
+    senderUid?: string;
+    sourceMsgTextElems?: Array<{ replyAbsElemType?: number; textElemContent?: string | null; faceElem?: { faceText?: string | null } | null; picElem?: { picText?: string } | null }> | null;
+  };
   picElement?: {
     md5HexStr?: string;
     fileSize?: number | string;

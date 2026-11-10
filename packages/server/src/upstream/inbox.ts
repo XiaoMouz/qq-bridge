@@ -21,6 +21,8 @@ export interface InboxOptions {
   onCall?: (qqAccountId: number, state: PluginCallState) => Promise<boolean>;
   /** 群员资料可能变了（ContactService.refreshMember）。 */
   onMemberChanged?: (qqAccountId: number, groupId: number, userId: number) => void;
+  /** 服务事件、灰条入库前：补全只有号码的人的资料（PeopleResolver.ensure），入库时就能带上名字。 */
+  ensurePeople?: (qqAccountId: number, groupId: number | null, userIds: readonly (number | undefined)[]) => Promise<void>;
 }
 
 export type Outcome = { state: 'done' } | { state: 'ignored'; reason: string } | { state: 'failed'; error: string };
@@ -156,6 +158,13 @@ export class InboxProcessor {
         case 'ignore':
           return { state: 'ignored', reason: action.reason };
         case 'message': {
+          if (action.message.kind === 'service') {
+            // 灰条里的人（撤回、拍一拍……）：有号码没名字的先要资料，入库时 resolveTipPeople 就能换上名字。
+            const ids = action.message.segments.map((s) => (s.type === 'mention' && !s.name ? s.userId : undefined));
+            if (ids.some(Boolean)) {
+              await this.opts.ensurePeople?.(qqAccountId, action.message.scene === 'group' ? action.message.peerId : null, ids).catch(() => undefined);
+            }
+          }
           await this.ingest.ingestMessage(qqAccountId, action.message);
           await this.upsertPeers(qqAccountId, action.peers);
           if (action.message.media.length > 0) this.opts.onMediaQueued?.();
@@ -166,6 +175,9 @@ export class InboxProcessor {
           return changed ? { state: 'done' } : { state: 'ignored', reason: 'recalled message is not archived' };
         }
         case 'chatEvent':
+          await this.opts.ensurePeople
+            ?.(qqAccountId, action.event.scene === 'group' ? action.event.peerId : null, [action.event.actorId, action.event.targetId])
+            .catch(() => undefined);
           await this.ingest.addChatEvent(qqAccountId, action.event, sourceEventId);
           return { state: 'done' };
         case 'reaction': {
