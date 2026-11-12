@@ -39,3 +39,12 @@ describe('runtime switch file', () => {
     expect(cfg.calls).toBe(true);
   });
 });
+
+describe('qq cleanup days', () => {
+  it('defaults to 7, can be turned off from the switch file, rejects fractions', () => {
+    expect(loadConfig({ ...base, QQBRIDGE_OVERRIDES_FILE: '/nonexistent' }).qqCleanupDays).toBe(7);
+    const file = overridesFile('QQBRIDGE_QQ_CLEANUP_DAYS=0\n');
+    expect(loadConfig({ ...base, QQBRIDGE_OVERRIDES_FILE: file }).qqCleanupDays).toBe(0);
+    expect(() => loadConfig({ ...base, QQBRIDGE_QQ_CLEANUP_DAYS: '0.5', QQBRIDGE_OVERRIDES_FILE: '/nonexistent' })).toThrow();
+  });
+});

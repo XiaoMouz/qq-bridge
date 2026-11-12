@@ -10,6 +10,7 @@ import { ControlServer } from './control-server.js';
 import { selfInfo } from './core.js';
 import type { NapCatPluginContext, OB11Event } from './napcat.js';
 import { Probe } from './probe.js';
+import { runCleanup, scheduleCleanup, stopCleanup } from './qq-cleanup.js';
 import { registerDebugRoutes } from './debug-routes.js';
 import { EventForwarder } from './upstream/forwarder.js';
 import { createHandlers } from './upstream/handlers.js';
@@ -47,6 +48,13 @@ export async function plugin_init(ctx: NapCatPluginContext): Promise<void> {
     const probe = new Probe(ctx, capture, cfg.probeMediaUrls);
     probe.registerRoutes(server);
     registerDebugRoutes(server, ctx);
+    // QQ 本地旧缓存：GET 只统计会删多少（?days= 可改天数），POST 立即清一次。
+    server.route('GET', '/v1/qq-cleanup', async ({ url }) =>
+      runCleanup(cfg.qqDataDir, Number(url.searchParams.get('days') ?? cfg.qqCleanupDays) || 7, true),
+    );
+    server.route('POST', '/v1/qq-cleanup', async () =>
+      cfg.qqCleanupDays > 0 ? runCleanup(cfg.qqDataDir, cfg.qqCleanupDays, false) : { disabled: true },
+    );
 
     let calls: AvsdkBridge | null = cfg.calls ? new AvsdkBridge(ctx, cfg, capture) : null;
     try {
@@ -65,9 +73,10 @@ export async function plugin_init(ctx: NapCatPluginContext): Promise<void> {
       calls.onChange((call) => upstream.forwarder.onEvent({ post_type: 'qqbridge_call', time: Math.floor(Date.now() / 1000), call }));
     }
     runtime = { capture, server, probe, calls, upstream };
+    scheduleCleanup(cfg.qqDataDir, cfg.qqCleanupDays, logger);
     logger.info(
       `[qqbridge] ready: control=${cfg.controlHost}:${cfg.controlPort} capture=${cfg.captureEnabled} ` +
-        `calls=${calls ? 'on' : 'off'} autoAccept=${cfg.autoAccept} lab=${cfg.lab} upstream=${upstream ? cfg.upstreamUrl : 'off'}`,
+        `calls=${calls ? 'on' : 'off'} autoAccept=${cfg.autoAccept} lab=${cfg.lab} upstream=${upstream ? cfg.upstreamUrl : 'off'} qqCleanupDays=${cfg.qqCleanupDays}`,
     );
   } catch (error) {
     logger.error('[qqbridge] startup failed:', error);
@@ -115,6 +124,7 @@ function startUpstream(ctx: NapCatPluginContext, url: string | null, token: stri
 }
 
 export async function plugin_cleanup(): Promise<void> {
+  stopCleanup();
   const current = runtime;
   runtime = null;
   if (!current) return;

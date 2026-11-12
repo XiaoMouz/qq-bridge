@@ -5,7 +5,7 @@
 | 脚本 | 用途 |
 |---|---|
 | `qq-plugin.sh` | 插件：`deploy`（构建 → 拷进容器 → 热重载，不重新登录 QQ）、`reload`、`calls on|off`、`set KEY VALUE`（开关文件 `deploy/data/napcat-config/qqbridge.env`） |
-| `qq.sh` | 调试 QQ 容器：`status`、`call`、`accept`、`record`（录对方的声音）、`tone`（往 QQ 麦克风放测试音）、`get <插件路径>` |
+| `qq.sh` | 调试 QQ 容器：`status`、`call`、`accept`、`record`（录对方的声音）、`tone`（往 QQ 麦克风放测试音）、`get <插件路径>`、`cleanup [now]`（QQ 本地旧缓存：默认只统计，now 立即清） |
 | `qface-sync.py` | 同步 QQ 表情资源（来源 koishijs/QFace）到 `deploy/data/qface`；`--ios` 同时更新 App 的 `Resources/QQFaces` 和 `QQFaceNames.swift`。QQ 出新表情时重跑 |
 | `call-e2e.sh` | 通话音频链路自测（不登录 QQ）：假 iPhone ⇄ LiveKit ⇄ 网关 ⇄ PulseAudio 回环，测往返时延 |
 | `analyze-capture.mjs` | 分析插件抓的 JSONL（P0 问题：seq 语义、媒体链接有效期等） |

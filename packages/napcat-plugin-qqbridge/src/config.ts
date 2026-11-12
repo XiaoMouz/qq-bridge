@@ -27,6 +27,10 @@ export interface BridgeConfig {
   upstreamUrl: string | null;
   /** 与服务端 UPSTREAM_TOKEN 相同；缺失或短于 32 字节时不连服务端。 */
   upstreamToken: string | null;
+  /** 定时删 QQ 本地 N 天前的媒体缓存和日志（见 qq-cleanup.ts）；0 = 关闭。 */
+  qqCleanupDays: number;
+  /** 容器里 QQ 的数据目录（compose 挂载的 qq-user）。 */
+  qqDataDir: string;
 }
 
 function port(value: string | undefined, fallback: number, name: string): number {
@@ -34,6 +38,16 @@ function port(value: string | undefined, fallback: number, name: string): number
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
     throw new Error(`${name} must be an integer TCP port`);
+  }
+  return parsed;
+}
+
+function days(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  // 整数天，0 = 关闭；不接受小数，避免把正在写的文件当旧文件删掉。
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be 0 (off) or a whole number of days`);
   }
   return parsed;
 }
@@ -52,9 +66,9 @@ function loopback(value: string | undefined, name: string): string {
 /**
  * 运行时开关文件（KEY=VALUE，每行一个，# 开头是注释）：放在挂载卷上，覆盖同名环境变量。
  * 改了之后重载插件（tools/qq-plugin.sh reload）即可生效，不用重建容器、不用重新登录 QQ。
- * 只接受通话和研究相关的开关，连接地址和口令仍以环境变量为准。
+ * 只接受通话、研究和 QQ 缓存清理的开关，连接地址和口令仍以环境变量为准。
  */
-export const OVERRIDABLE = ['QQBRIDGE_CALLS', 'QQBRIDGE_CALL_AUTO_ACCEPT', 'QQBRIDGE_CAPTURE_AVSDK_VALUES', 'QQBRIDGE_LAB'] as const;
+export const OVERRIDABLE = ['QQBRIDGE_CALLS', 'QQBRIDGE_CALL_AUTO_ACCEPT', 'QQBRIDGE_CAPTURE_AVSDK_VALUES', 'QQBRIDGE_LAB', 'QQBRIDGE_QQ_CLEANUP_DAYS'] as const;
 
 export function readOverrides(file: string): Record<string, string> {
   const text = readIfExists(file);
@@ -88,6 +102,8 @@ export function loadConfig(processEnv: NodeJS.ProcessEnv = process.env): BridgeC
     lab: flag(env.QQBRIDGE_LAB, false),
     upstreamUrl: upstreamUrl(env.QQBRIDGE_UPSTREAM_URL),
     upstreamToken: upstreamToken(env),
+    qqCleanupDays: days(env.QQBRIDGE_QQ_CLEANUP_DAYS, 7, 'QQBRIDGE_QQ_CLEANUP_DAYS'),
+    qqDataDir: env.QQBRIDGE_QQ_DATA_DIR || '/app/.config/QQ',
   };
 }
 

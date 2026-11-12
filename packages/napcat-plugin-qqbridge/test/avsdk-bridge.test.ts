@@ -105,6 +105,8 @@ describe('AvsdkBridge', () => {
       calls: true,
       upstreamUrl: null,
       upstreamToken: null,
+      qqCleanupDays: 0,
+      qqDataDir: '/nonexistent',
     };
     capture = new CaptureWriter(tmpDir, true, (error) => captureErrors.push(error));
     bridge = new AvsdkBridge(makeContext(service), cfg, capture, { reloginBaseDelayMs: 20 });

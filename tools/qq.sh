@@ -7,6 +7,7 @@
 #   tools/qq.sh avhost            AV Host 状态（通话引擎是否加载、方法列表）
 #   tools/qq.sh get <path>        对插件发任意 GET，例如 '/x/recent_contacts?count=20'
 #   tools/qq.sh post <path> <json>
+#   tools/qq.sh cleanup [now]     QQ 本地旧缓存（媒体缓存、日志、NapCat 临时文件）：默认只统计会删多少，now 立即清一次
 #   tools/qq.sh record [秒]       录下通话对方的声音（qq_speaker.monitor）到 fixtures/raw/
 #   tools/qq.sh tone [秒]         往 QQ 麦克风（qq_mic）播放 440Hz 测试音
 #   tools/qq.sh pulse             查看虚拟声卡状态
@@ -39,7 +40,12 @@ case "${1:-help}" in
   accept) curl_plugin POST /v1/calls/accept '{}' ;;
   avhost) curl_plugin GET /v1/status '' 6111 ;;
   get) curl_plugin GET "${2:?path required}" ;;
-  post) curl_plugin POST "${2:?path required}" "${3:-{\}}" ;;
+  post)
+    body=${3:-}
+    [ -n "$body" ] || body='{}'
+    curl_plugin POST "${2:?path required}" "$body" ;;
+  cleanup)
+    if [ "${2:-}" = now ]; then curl_plugin POST /v1/qq-cleanup '{}'; else curl_plugin GET /v1/qq-cleanup; fi ;;
   record)
     secs=${2:-15}
     mkdir -p "$ROOT/fixtures/raw"

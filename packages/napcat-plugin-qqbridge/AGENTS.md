@@ -11,6 +11,7 @@
 | `src/config.ts` | 环境变量 + 开关文件（`/app/napcat/config/qqbridge.env`，即 `deploy/data/napcat-config/qqbridge.env`） |
 | `src/control-server.ts` | 容器内回环的 HTTP 控制口（Bearer 令牌） |
 | `src/debug-routes.ts` | 研究用：`GET /v1/debug/raw?kind=ob11|methods|history|groups…`，`POST /v1/debug/rpc {"name":"x.xxx","params":{}}` 直接调处理函数 |
+| `src/qq-cleanup.ts` | 定时（6 小时）删 QQ 本地 N 天前的媒体缓存、日志、NapCat 临时文件（`QQBRIDGE_QQ_CLEANUP_DAYS`，默认 7，0 关闭）；**不碰 `nt_db`**。`GET /v1/qq-cleanup` 只统计，`POST` 立即清（`tools/qq.sh cleanup [now]`） |
 | `src/probe.ts` / `src/capture.ts` | P0 采样、事件抓取（写到插件数据目录的 `capture/*.jsonl`，只保留当天，按 UTC 日期切分） |
 | `src/upstream/link.ts` / `queue.ts` / `wire.ts` | 到服务端的 WebSocket：事件先进本地持久队列，按服务端确认的游标续传。`wire.ts` 和服务端的 `upstream/wire.ts` 必须同步改 |
 | `src/upstream/forwarder.ts` | OneBot 事件 → 队列（补齐原始字段） |
