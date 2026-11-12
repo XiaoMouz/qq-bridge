@@ -10,6 +10,15 @@ struct DialogListView: View {
   @State private var path = NavigationPath()
   /// 上一次"再点消息标签"跳到的会话：下次从它后面接着找。
   @State private var lastJumped: Int64?
+  /// 正在看的会话和位置（"会话ID" 或 "会话ID:seq"）。2026-11-12 用户要求：App 在后台被系统回收（墓碑）后重开，
+  /// 回到原来的会话和消息位置。用 SceneStorage 跟系统的状态恢复走：被系统回收会恢复，用户从多任务里划掉则不恢复。
+  @SceneStorage("ios.openChat") private var savedChat = ""
+  /// 滚动时位置只记在这里（不触发重绘），离开前台时才写进 savedChat。
+  @State private var position = ChatPositionTracker()
+  /// 启动时恢复出来的那一页要滚到的位置；其他方式打开的会话都从最新开始。
+  @State private var restoring: ChatPositionTracker.Saved?
+  @State private var restoreChecked = false
+  @Environment(\.scenePhase) private var scenePhase
 
   private var visible: [DialogItem] { items.filter { !$0.isArchived } }
   private var archived: [DialogItem] { items.filter(\.isArchived) }
@@ -47,8 +56,10 @@ struct DialogListView: View {
       .navigationSubtitle(model.connection == .connecting ? "正在同步…" : " ")
       .navigationDestination(for: Route.self) { route in
         switch route {
-        case .chat(let id): ChatScreen(session: session, chatId: id)
-        case .archive: ArchivedListView(session: session)
+        case .chat(let id): chatPage(id)
+        case .archive:
+          // 从会话退回群助手列表：不再有正在看的会话。
+          ArchivedListView(session: session).onAppear { position.leave() }
         }
       }
       .refreshable {
@@ -69,8 +80,12 @@ struct DialogListView: View {
         }
       } catch {}
     }
+    .onChange(of: path.count) { _, count in if count == 0 { position.leave() } }
+    .onChange(of: scenePhase) { _, phase in if phase != .active { savedChat = position.encoded } }
     .onChange(of: model.pendingChat, initial: true) { _, chatId in
-      guard let chatId else { return }
+      guard let chatId else { restoreSavedChat(); return }
+      // 通知、横幅点进来的会话优先，不再恢复上次的。
+      restoreChecked = true
       model.pendingChat = nil
       guard !path.isEmpty else {
         path.append(Route.chat(chatId))
@@ -83,6 +98,26 @@ struct DialogListView: View {
         path.append(Route.chat(chatId))
       }
     }
+  }
+
+  /// 会话页：恢复出来的那一页带上次的位置；位置变化记到 position（单独成函数，见 lessons L5）。
+  private func chatPage(_ id: Int64) -> some View {
+    let tracker = position
+    return ChatScreen(session: session, chatId: id,
+                      restoredPosition: restoring?.chat == id ? restoring?.seq : nil,
+                      onPositionChange: { seq in tracker.update(chat: id, seq: seq) })
+      .onAppear { tracker.enter(id) }
+  }
+
+  /// 启动后恢复被系统回收前正在看的会话（只做一次；会话已删除就算了）。
+  private func restoreSavedChat() {
+    guard !restoreChecked else { return }
+    restoreChecked = true
+    guard path.isEmpty, let saved = ChatPositionTracker.Saved(savedChat),
+          (try? session.store.dialog(chatId: saved.chat)) != nil else { return }
+    restoring = saved
+    position.update(chat: saved.chat, seq: saved.seq)
+    path.append(Route.chat(saved.chat))
   }
 
   /// 再点一次"消息"标签：在会话里就先回到列表；在列表就滚到下一个有未读（算进角标的）的会话，到底了从头再来。
@@ -154,6 +189,39 @@ private struct PhoneNotificationsBanner: View {
     .padding(.vertical, 6)
     .listRowSeparator(.hidden)
   }
+}
+
+/// iPhone 正在看的会话和位置。普通引用：滚动时频繁更新，不参与 SwiftUI 观察。
+@MainActor
+final class ChatPositionTracker {
+  struct Saved: Equatable {
+    let chat: Int64
+    let seq: Int64?
+
+    init(chat: Int64, seq: Int64?) {
+      self.chat = chat
+      self.seq = seq
+    }
+    /// "会话ID" 或 "会话ID:seq"（seq 可以是备份导入的负数）。
+    init?(_ text: String) {
+      let parts = text.split(separator: ":", maxSplits: 1)
+      guard let first = parts.first, let chat = Int64(first) else { return nil }
+      self.chat = chat
+      seq = parts.count == 2 ? Int64(parts[1]) : nil
+    }
+    var encoded: String { seq.map { "\(chat):\($0)" } ?? String(chat) }
+  }
+
+  private(set) var current: Saved?
+
+  var encoded: String { current?.encoded ?? "" }
+
+  /// 会话页出现：换了会话才重置位置（从下一级页面返回时保留）。
+  func enter(_ chat: Int64) {
+    if current?.chat != chat { current = Saved(chat: chat, seq: nil) }
+  }
+  func update(chat: Int64, seq: Int64?) { current = Saved(chat: chat, seq: seq) }
+  func leave() { current = nil }
 }
 
 enum Route: Hashable {

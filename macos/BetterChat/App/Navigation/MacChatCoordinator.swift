@@ -24,8 +24,10 @@ final class MacChatCoordinator {
     self.factory = factory
     self.store = store
     controller = factory.empty(.chat)
-    // 滚动位置只在内存里跟着变；切到别的 App、退出时写一次盘，下次启动恢复（⌘Q 不经过页面消失）。
-    for name in [UIApplication.willResignActiveNotification, UIApplication.willTerminateNotification] {
+    // 滚动位置只在内存里跟着变；切到别的 App、进后台、退出时写一次盘，下次启动恢复（⌘Q 不经过页面消失；
+    // 进后台后可能被系统直接回收，不会再收到 willTerminate）。
+    for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                 UIApplication.willTerminateNotification] {
       observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
         MainActor.assumeIsolated { self?.persistPosition() }
       })
