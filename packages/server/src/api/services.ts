@@ -830,15 +830,28 @@ function mediaService(deps: ApiDeps): ServiceImpl<typeof MediaService> {
         chatId: toSafeNumber(r.chatId, 'chat_id'),
         seq: toSafeNumber(r.seq, 'seq'),
         ord: r.ord,
+        forward: r.forward && r.forward.path.length <= 8 && r.forward.node >= 0 ? { path: r.forward.path, node: r.forward.node } : null,
       }));
-      const queued = await deps.ingest.requestMedia(accountId, refs, req.original ? 'original' : 'thumb');
+      const inChat = refs.filter((r) => !r.forward);
+      // 合并转发里的只有看大图要原图（缩略图展开时就排了）。
+      const inForward = req.original ? refs.flatMap((r) => (r.forward ? [{ chatId: r.chatId, seq: r.seq, ord: r.ord, ...r.forward }] : [])) : [];
+      const queued = [
+        ...(await deps.ingest.requestMedia(accountId, inChat, req.original ? 'original' : 'thumb')),
+        ...(await deps.ingest.requestForwardOriginals(accountId, inForward)),
+      ];
       if (!req.original) {
         if (queued.length > 0) deps.pokeMediaFetcher();
         return { queued: queued.length };
       }
       // 看大图：当场下载，下完把结果带回去。
       if (deps.fetchMediaNow) await Promise.all(queued.map((id) => deps.fetchMediaNow!(id)));
-      const media = await Promise.all(refs.map((r) => deps.ingest.messageMedia(r.chatId, r.seq, r.ord)));
+      const media = await Promise.all(
+        refs.map((r) =>
+          r.forward
+            ? deps.ingest.forwardMedia({ chatId: r.chatId, seq: r.seq, ord: r.ord, ...r.forward })
+            : deps.ingest.messageMedia(r.chatId, r.seq, r.ord),
+        ),
+      );
       return { queued: queued.length, media: media.map((m) => (m ? mediaInfo(m) : {})) };
     },
     async prepareStickers(req, ctx) {

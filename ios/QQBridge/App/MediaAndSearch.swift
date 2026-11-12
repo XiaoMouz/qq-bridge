@@ -412,13 +412,18 @@ struct ForwardView: View {
   @State private var unavailable = false
   @State private var loading = true
   @State private var profile: ProfileTarget?
+  /// QQ 缩略图拿不到的图片（"节点:ord"）：不再转圈等，显示下载图标，点开看大图时才下原图。
+  @State private var thumbMissing: Set<String> = []
 
   /// QQ 隐藏了发送者的节点：号码一律是 1094950020、名字「QQ用户」（2026-11-10 服务端库里实测），不是真人，不能点开资料。
   static let anonymousSender: Int64 = 1094950020
 
-  static func downloading(_ node: Qqbridge_V1_ForwardNode) -> Bool {
+  /// 还在等服务端下载的：照片等 QQ 缩略图（原图按需，点开才下），其余等原件。
+  static func downloading(_ node: Qqbridge_V1_ForwardNode, index: Int, thumbMissing: Set<String>) -> Bool {
     node.segments.contains { seg in
       switch seg.kind {
+      case .image(let i) where !i.sticker:
+        i.media.thumbSha256.isEmpty && (i.media.state == .pending || i.media.state == .onDemand) && !thumbMissing.contains("\(index):\(i.media.ord)")
       case .image(let i): i.media.state == .pending
       case .video(let v): v.media.state == .pending
       case .marketFace(let f): f.media.state == .pending
@@ -445,7 +450,7 @@ struct ForwardView: View {
             Text(Format.chatTime(node.time)).font(.caption2).foregroundStyle(.secondary)
           }
           ForEach(Array(node.segments.enumerated()), id: \.offset) { _, seg in
-            ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)])
+            ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)], thumbMissing: thumbMissing)
           }
         }
         .padding(.vertical, 2)
@@ -481,9 +486,10 @@ struct ForwardView: View {
           unavailable = true
         }
         loading = false
-        guard nodes.contains(where: Self.downloading) else { break }
+        guard nodes.enumerated().contains(where: { Self.downloading($1, index: $0, thumbMissing: thumbMissing) }) else { break }
         // 一批里常常几张一起下好：等到一个后再稍等一下，合并成一次刷新。
-        guard await watch.next() != nil else { continue }
+        guard let event = await watch.next() else { continue }
+        if event.thumb, event.state != "stored" { thumbMissing.insert("\(event.node):\(event.ord)") }
         try? await Task.sleep(for: .milliseconds(300))
       }
     }
@@ -496,6 +502,7 @@ struct ForwardSegmentView: View {
   let chatId: Int64
   let seq: Int64
   let path: [Int32]
+  var thumbMissing: Set<String> = []
   @State private var media: MediaTarget?
   @State private var unsupported: UnsupportedItem?
   @State private var profile: ProfileTarget?
@@ -527,8 +534,13 @@ struct ForwardSegmentView: View {
       .aspectRatio(contentMode: .fit)
       .frame(maxWidth: 140, maxHeight: 140)
     case .image(let i):
-      MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId)
-        .modifier(MessageBlockAction(title: "打开图片") { media = MediaTarget(kind: .image, media: i.media) })
+      let node = Int(path.last ?? 0)
+      MediaThumb(media: i.media, width: i.width, height: i.height, chatId: chatId,
+                 idleIcon: thumbMissing.contains("\(node):\(i.media.ord)") ? "arrow.down.circle" : nil)
+        .modifier(MessageBlockAction(title: "打开图片") {
+          // 原图按需：查看器按位置向服务端要（点开才下）。
+          media = MediaTarget(kind: .image, media: i.media, chatId: chatId, forward: ForwardRef(seq: seq, path: Array(path.dropLast()), node: node))
+        })
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .video(let v):
       MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId)

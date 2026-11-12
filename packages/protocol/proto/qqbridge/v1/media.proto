@@ -43,6 +43,7 @@ service MediaService {
   // - original = false：图片显示到时要 QQ 缩略图（不常用会话不会自动下），视频、文件点开时要整个文件；排进队列后立即返回，
   //   下好后消息经同步更新。
   // - original = true：看大图时要原图：服务端当场从 QQ 拉，拉完（或确定拿不到）才返回，media 里是结果。
+  //   合并转发里的照片原图也是按需的，带上 MediaRef.forward 要。
   rpc RequestMedia(RequestMediaRequest) returns (RequestMediaResponse);
 }
 
@@ -50,6 +51,15 @@ message MediaRef {
   int64 chat_id = 1;
   int64 seq = 2;
   uint32 ord = 3;
+  // 合并转发里的媒体：seq 是会话里那条合并转发消息；只用于 original = true（看大图要原图）。
+  ForwardPosition forward = 4;
+}
+
+message ForwardPosition {
+  // 展开到哪一层（同 GetForwardRequest.path）。
+  repeated int32 path = 1;
+  // 这一层里第几个节点（从 0 开始）。
+  int32 node = 2;
 }
 
 message RequestMediaRequest {

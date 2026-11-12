@@ -59,6 +59,9 @@ export const QQ_THUMB_ROLE = 'qq_thumb';
 /** 照片（不含动画表情：表情要原图才能动，QQ 的缩略档只有第一帧）。 */
 const isPhoto = (m: { kind: string; role: string }) => m.kind === 'image' && m.role !== 'sticker';
 
+/** 合并转发节点里的照片原图：有定位信息（以后能换新链接）就按需，点开看大图时才下；没有的只能立刻下。 */
+const forwardOnDemand = (m: { kind: string; role: string; locator?: unknown }) => isPhoto(m) && Boolean(m.locator);
+
 /** 入库时这个媒体（的原件）是不是按需。见上面的下载规则。 */
 function onDemandAtIngest(m: { kind: string; role: string; locator?: unknown }, groupChat: boolean, quietGroup: boolean): boolean {
   // 照片原图一律按需；没有定位信息的（以后换不了新链接）只能立刻下原图。
@@ -80,6 +83,15 @@ export interface ForwardNodeInput {
 }
 
 export type StoredForwardNode = Omit<ForwardNodeInput, 'media'>;
+
+/** 合并转发里的一个媒体：会话 chatId 里 seq 那条消息，展开到 path 那一层，第 node 个节点的第 ord 个媒体。 */
+export interface ForwardMediaPosition {
+  chatId: number;
+  seq: number;
+  path: readonly number[];
+  node: number;
+  ord: number;
+}
 
 export interface ForwardBundleRow {
   id: number;
@@ -800,6 +812,7 @@ export class IngestService {
           const hit = known ?? (media.qqMd5 ? await findReusableBlob(w.tx, media.qqMd5, media.size, Boolean(media.qqMd5Partial)) : null);
           if (!hit) {
             if (expired) segments = updateMediaInfo(segments, media.ord, { state: 'expired' });
+            else if (forwardOnDemand(media)) segments = updateMediaInfo(segments, media.ord, { state: 'on_demand' });
             continue;
           }
           reused.set(media.ord, hit);
@@ -826,16 +839,15 @@ export class IngestService {
                         ${hit?.sha256 ?? null}, ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)},
                         ${media.qqFileUuid ?? null}, ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
                         ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
-                        ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null}, ${hit ? 'stored' : expired ? 'expired' : 'pending'},
+                        ${media.size ?? null}, ${media.name ?? null}, ${media.mime ?? null}, ${hit ? 'stored' : expired ? 'expired' : forwardOnDemand(media) ? 'on_demand' : 'pending'},
                         ${hit?.thumbhash ?? null}, ${media.locator ? pgJson(media.locator) : null}::jsonb, ${node.senderId},
                         ${new Date(node.time * 1000).toISOString()})`,
           );
           if (hit) await addUsage(w.tx, chatId, hit.sha256);
         }
       }
-      // 照片另排 QQ 缩略图（spec=720，下好压成 WebP 给气泡），和会话里的消息一样。2026-11-12 实测：原来转发里只排原图，
-      // 气泡要等原图下完、再把原图整张下到手机（一条 11 张的聊天记录每张 5.4 MB，共 56 MB）。
-      // 放在所有原图之后登记：下载队列新的先认领，缩略图先下。
+      // 照片另排 QQ 缩略图（spec=720，下好压成 WebP 给气泡），原图按需（点开看大图时才下），和会话里的消息一样。
+      // 2026-11-12 实测：原来转发里只排原图，气泡要等原图下完、再把原图整张下到手机（一条 11 张的聊天记录每张 5.4 MB，共 56 MB）。
       if (!expired) {
         for (const [index, node] of (nodes ?? []).entries()) {
           for (const media of node.media) {
@@ -965,6 +977,55 @@ export class IngestService {
     for (const seg of row?.segments ?? []) {
       const media = (seg as { media?: MediaInfo }).media;
       if (media && media.ord === ord) return media;
+    }
+    return null;
+  }
+
+  /**
+   * 客户端要合并转发节点里的原图（点开看大图）：按需 / 失败 / 过期的重新排队（记为客户端要的），
+   * 已在队列里、正在下载的也算上（调用方会等它下完）。只认这个账号自己会话里的。返回引用 id。
+   */
+  async requestForwardOriginals(accountId: number, refs: readonly ForwardMediaPosition[]): Promise<number[]> {
+    if (refs.length === 0) return [];
+    return this.writers.forAccount(accountId).run(async (w) => {
+      const queued: number[] = [];
+      for (const r of refs) {
+        const ref = await maybeOne<MediaRefTarget & { id: number; fetch_state: string }>(
+          w.tx,
+          sql`select m.id, m.fetch_state, m.chat_id, m.message_seq, m.chat_event_id, m.forward_bundle_id, m.node_path, m.ordinal
+                from forward_bundles b
+                join media_refs m on m.forward_bundle_id = b.id::text and m.node_path = ${sql.raw(`ARRAY[${Math.trunc(r.node)}]::int[]`)}
+                                 and m.ordinal = ${r.ord} and m.role <> ${QQ_THUMB_ROLE}
+                join chats c on c.id = b.chat_id join qq_accounts q on q.id = c.qq_account_id
+               where b.chat_id = ${r.chatId} and b.message_seq = ${r.seq} and b.path = ${r.path.join('.')} and q.account_id = ${accountId}
+               order by m.id limit 1`,
+        );
+        if (!ref) continue;
+        if (ref.fetch_state === 'pending' || ref.fetch_state === 'fetching') {
+          queued.push(ref.id);
+          continue;
+        }
+        if (!['on_demand', 'failed', 'expired', 'skipped'].includes(ref.fetch_state)) continue;
+        await w.tx.execute(
+          sql`update media_refs set fetch_state = 'pending', attempts = 0, next_attempt_at = null, last_error = null, requested_at = now()
+               where id = ${ref.id}`,
+        );
+        await updateMessageMedia(w, ref, { state: 'pending' });
+        queued.push(ref.id);
+      }
+      return queued;
+    });
+  }
+
+  /** 合并转发节点里某个媒体的当前信息（RequestMedia 拉原图后返回给客户端）。 */
+  async forwardMedia(r: ForwardMediaPosition): Promise<MediaInfo | null> {
+    const row = await maybeOne<{ nodes: StoredForwardNode[] }>(
+      this.db,
+      sql`select nodes from forward_bundles where chat_id = ${r.chatId} and message_seq = ${r.seq} and path = ${r.path.join('.')}`,
+    );
+    for (const seg of row?.nodes[r.node]?.segments ?? []) {
+      const media = (seg as { media?: MediaInfo }).media;
+      if (media && media.ord === r.ord) return media;
     }
     return null;
   }

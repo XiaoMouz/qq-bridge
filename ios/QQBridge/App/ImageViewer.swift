@@ -933,7 +933,16 @@ final class ImagePage {
     }
     // 原图：服务端还在下载就等它推「下好了」（先登记再请求，不会漏）；没等到（断线）再问一次兜底。
     // 只有确实拿不到（过期、失败）才提示。
-    let watch = target.seq > 0 ? MediaReady.shared.watch(chatId: target.chatId, seq: target.seq, ord: media.ord, thumb: false) : nil
+    let watch: MediaReady.Watch?
+    if let f = target.forward {
+      let key = f.path.map(String.init).joined(separator: ".")
+      let (chatId, ord) = (target.chatId, media.ord)
+      watch = MediaReady.shared.watch { e in
+        !e.thumb && e.chatID == chatId && e.seq == f.seq && e.forwardPath == key && Int(e.node) == f.node && e.ord == ord
+      }
+    } else {
+      watch = target.seq > 0 ? MediaReady.shared.watch(chatId: target.chatId, seq: target.seq, ord: media.ord, thumb: false) : nil
+    }
     var found: (String, URL)?
     for attempt in 0..<6 {
       if Task.isCancelled { return }
@@ -979,11 +988,18 @@ final class ImagePage {
   private func originalSha() async -> OriginalState {
     let media = target.media
     if !media.sha256.isEmpty { return .ready(media.sha256) }
-    guard target.seq > 0 else { return .gone }
     var ref = Qqbridge_V1_MediaRef()
     ref.chatID = target.chatId
-    ref.seq = target.seq
     ref.ord = media.ord
+    if let f = target.forward {
+      // 合并转发里的照片：原图按需，按层、节点要。
+      ref.seq = f.seq
+      ref.forward.path = f.path
+      ref.forward.node = Int32(f.node)
+    } else {
+      guard target.seq > 0 else { return .gone }
+      ref.seq = target.seq
+    }
     var req = Qqbridge_V1_RequestMediaRequest()
     req.refs = [ref]
     req.original = true
@@ -995,6 +1011,12 @@ final class ImagePage {
     case .expired, .failed, .skipped: return .gone
     default: return .waiting
     }
+  }
+
+  /// 服务端正在从 QQ 下原图的进度（点开才下的原图；没在下时为 nil）。
+  var serverProgress: MediaProgress.Value? {
+    let forward = target.forward.map { (path: $0.path.map(String.init).joined(separator: "."), node: Int32($0.node)) }
+    return MediaProgress.shared.value(chatId: target.chatId, seq: target.forward?.seq ?? target.seq, ord: target.media.ord, forward: forward)
   }
 
   nonisolated static func decode(_ file: URL) async -> UIImage? {
@@ -1019,7 +1041,14 @@ struct ImagePageView: View {
         ZoomableImage(image: image, onTap: onTap, onDrag: onDrag, onDismiss: onDismiss)
       }
       if page.original == nil, !page.originalFailed {
-        ProgressView().tint(.white).controlSize(.large)
+        if let progress = page.serverProgress {
+          // 服务端在从 QQ 下原图：进度环和已下大小。
+          VideoFetchProgress(fetching: true, value: progress)
+            .padding(14)
+            .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 16))
+        } else {
+          ProgressView().tint(.white).controlSize(.large)
+        }
       }
     }
     .onAppear { page.start() }

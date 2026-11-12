@@ -852,6 +852,8 @@ struct MediaThumb: View {
   var onNeedThumb: (() -> Void)? = nil
   /// 视频：没有封面时不拿视频原件当缩略图（那是视频文件）。
   var isVideo = false
+  /// 确定等不到缩略图时（QQ 缩略图拿不到、原图按需）显示这个图标，不转圈。
+  var idleIcon: String? = nil
   @Environment(\.session) private var session
   @State private var localOriginal = false
 
@@ -874,6 +876,8 @@ struct MediaThumb: View {
         Rectangle().fill(.quaternary)
         if media.state == .expired || media.state == .failed {
           Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
+        } else if displaySha == nil, let idleIcon {
+          Image(systemName: idleIcon).font(.title).foregroundStyle(.secondary)
         } else if displaySha == nil {
           ProgressView()
         }

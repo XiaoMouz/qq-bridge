@@ -362,9 +362,9 @@ export class MediaFetcher {
         this.opts.live && ref.kind === 'video' && ref.role !== QQ_THUMB_ROLE && total > 0
           ? await this.opts.live.downloads.start(total, mime ?? 'video/mp4').catch(() => null)
           : null;
-      // 视频、文件推进度给等着的客户端（图片小，不推）。
+      // 视频、文件推进度给等着的客户端；图片只在点开看原图时推（原图按需，大的有几 MB）。
       const report =
-        ref.role !== QQ_THUMB_ROLE && (ref.kind === 'video' || ref.kind === 'file')
+        ref.role !== QQ_THUMB_ROLE && (ref.kind === 'video' || ref.kind === 'file' || (ref.kind === 'image' && ref.requested))
           ? await this.ingest.progressReporter(ref.id, total, knownSha256, live && this.opts.live ? this.opts.live.sign(live.id) : '').catch(() => null)
           : null;
       const web = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>);
@@ -445,23 +445,7 @@ export class MediaFetcher {
       return;
     }
     const extra = this.processor ? await this.processor.process(stored.sha256, ref.kind) : {};
-    if (this.processor && ref.inForward && ref.kind === 'image' && ref.role !== 'sticker' && !extra.thumbSha256 && !(await this.forwardThumbStored(ref.id))) {
-      // 合并转发里的照片：QQ 缩略图还没到（或没有定位信息、拿不到），用原图压一张给气泡，不让客户端把原图整张下下来。
-      const shown = await this.processor.compactThumb(stored.sha256);
-      if (shown !== stored.sha256) extra.thumbSha256 = shown;
-    }
     await this.ingest.mediaStored(ref.id, stored, extra);
-  }
-
-  /** 同一个转发节点媒体的 QQ 缩略图已经下好了。 */
-  private async forwardThumbStored(refId: number): Promise<boolean> {
-    const row = await maybeOne<{ x: number }>(
-      this.db,
-      sql`select 1 as x from media_refs o join media_refs t
-              on t.forward_bundle_id = o.forward_bundle_id and t.node_path = o.node_path and t.ordinal = o.ordinal
-           where o.id = ${refId} and t.role = ${QQ_THUMB_ROLE} and t.sha256 is not null limit 1`,
-    );
-    return Boolean(row);
   }
 
   private async retryLater(ref: PendingRef, error: string): Promise<void> {
@@ -500,7 +484,7 @@ export class MediaFetcher {
 }
 
 const REF_COLUMNS =
-  'id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts, requested_at, forward_bundle_id';
+  'id, chat_id, kind, role, url, url_expires_at, size, name, mime, qq_md5, qq_file_uuid, qq_resource_id, qq_file_id, locator, attempts, requested_at';
 
 function toPendingRef(r: Record<string, unknown>): PendingRef {
   return {
@@ -520,6 +504,5 @@ function toPendingRef(r: Record<string, unknown>): PendingRef {
     locator: (r.locator as Record<string, unknown> | null) ?? null,
     attempts: r.attempts as number,
     requested: r.requested_at != null,
-    inForward: r.forward_bundle_id != null,
   };
 }

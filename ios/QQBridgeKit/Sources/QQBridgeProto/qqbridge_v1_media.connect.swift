@@ -83,6 +83,7 @@ public protocol Qqbridge_V1_MediaServiceClientInterface: Sendable {
     /// - original = false：图片显示到时要 QQ 缩略图（不常用会话不会自动下），视频、文件点开时要整个文件；排进队列后立即返回，
     ///   下好后消息经同步更新。
     /// - original = true：看大图时要原图：服务端当场从 QQ 拉，拉完（或确定拿不到）才返回，media 里是结果。
+    ///   合并转发里的照片原图也是按需的，带上 MediaRef.forward 要。
     @available(iOS 13, *)
     func `requestMedia`(request: Qqbridge_V1_RequestMediaRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RequestMediaResponse>
 }

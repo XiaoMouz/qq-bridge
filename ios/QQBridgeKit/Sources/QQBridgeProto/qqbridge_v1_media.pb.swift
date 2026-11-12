@@ -73,6 +73,34 @@ public nonisolated struct Qqbridge_V1_MediaRef: Sendable {
 
   public var ord: UInt32 = 0
 
+  /// 合并转发里的媒体：seq 是会话里那条合并转发消息；只用于 original = true（看大图要原图）。
+  public var forward: Qqbridge_V1_ForwardPosition {
+    get {_forward ?? Qqbridge_V1_ForwardPosition()}
+    set {_forward = newValue}
+  }
+  /// Returns true if `forward` has been explicitly set.
+  public var hasForward: Bool {self._forward != nil}
+  /// Clears the value of `forward`. Subsequent reads from it will return its default value.
+  public mutating func clearForward() {self._forward = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _forward: Qqbridge_V1_ForwardPosition? = nil
+}
+
+public nonisolated struct Qqbridge_V1_ForwardPosition: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// 展开到哪一层（同 GetForwardRequest.path）。
+  public var path: [Int32] = []
+
+  /// 这一层里第几个节点（从 0 开始）。
+  public var node: Int32 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1052,7 +1080,7 @@ nonisolated extension Qqbridge_V1_PolicyScope: SwiftProtobuf._ProtoNameProviding
 
 nonisolated extension Qqbridge_V1_MediaRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".MediaRef"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{1}ord\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}chat_id\0\u{1}seq\0\u{1}ord\0\u{1}forward\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1063,12 +1091,17 @@ nonisolated extension Qqbridge_V1_MediaRef: SwiftProtobuf.Message, SwiftProtobuf
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.chatID) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.seq) }()
       case 3: try { try decoder.decodeSingularUInt32Field(value: &self.ord) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._forward) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.chatID != 0 {
       try visitor.visitSingularInt64Field(value: self.chatID, fieldNumber: 1)
     }
@@ -1078,6 +1111,9 @@ nonisolated extension Qqbridge_V1_MediaRef: SwiftProtobuf.Message, SwiftProtobuf
     if self.ord != 0 {
       try visitor.visitSingularUInt32Field(value: self.ord, fieldNumber: 3)
     }
+    try { if let v = self._forward {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1085,6 +1121,42 @@ nonisolated extension Qqbridge_V1_MediaRef: SwiftProtobuf.Message, SwiftProtobuf
     if lhs.chatID != rhs.chatID {return false}
     if lhs.seq != rhs.seq {return false}
     if lhs.ord != rhs.ord {return false}
+    if lhs._forward != rhs._forward {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ForwardPosition: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ForwardPosition"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}node\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedInt32Field(value: &self.path) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.node) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.path.isEmpty {
+      try visitor.visitPackedInt32Field(value: self.path, fieldNumber: 1)
+    }
+    if self.node != 0 {
+      try visitor.visitSingularInt32Field(value: self.node, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ForwardPosition, rhs: Qqbridge_V1_ForwardPosition) -> Bool {
+    if lhs.path != rhs.path {return false}
+    if lhs.node != rhs.node {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -123,9 +123,10 @@ describe('ForwardService', () => {
       t.db,
       sql`select forward_bundle_id, node_path, kind, role, fetch_state from media_refs where chat_id = ${chat} order by id`,
     );
-    // 原图之后另排 QQ 缩略图（id 更大，下载队列先认领）。
+    // 照片：自动只下 QQ 缩略图，原图按需（点开看大图时才下）。
+    expect(top.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'on_demand' } });
     expect(refs).toEqual([
-      { forward_bundle_id: String(top.id), node_path: [0], kind: 'image', role: 'attachment', fetch_state: 'pending' },
+      { forward_bundle_id: String(top.id), node_path: [0], kind: 'image', role: 'attachment', fetch_state: 'on_demand' },
       { forward_bundle_id: String(top.id), node_path: [0], kind: 'image', role: 'qq_thumb', fetch_state: 'pending' },
     ]);
 
@@ -146,7 +147,15 @@ describe('ForwardService', () => {
     );
     await ingest.thumbStored(thumbRef.id, { sha256: 'c'.repeat(64), size: 5 });
     const withThumb = await forwards.get(acc.accountId, chat, 9, []);
-    expect(withThumb.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'pending', thumbSha256: 'c'.repeat(64) } });
+    expect(withThumb.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'on_demand', thumbSha256: 'c'.repeat(64) } });
+
+    // 点开看大图：按位置（层、节点、ord）要原图，排进队列并记为客户端要的；别的账号要不到。
+    const other = await createTestAccount(t.db, ingest);
+    expect(await ingest.requestForwardOriginals(other.accountId, [{ chatId: chat, seq: 9, path: [], node: 0, ord: 0 }])).toEqual([]);
+    expect(await ingest.requestForwardOriginals(acc.accountId, [{ chatId: chat, seq: 9, path: [], node: 1, ord: 0 }])).toEqual([]);
+    expect(await ingest.requestForwardOriginals(acc.accountId, [{ chatId: chat, seq: 9, path: [], node: 0, ord: 0 }])).toEqual([ref.id]);
+    expect(await one(t.db, sql`select fetch_state, requested_at is not null as requested from media_refs where id = ${ref.id}`)).toEqual({ fetch_state: 'pending', requested: true });
+    expect(await ingest.forwardMedia({ chatId: chat, seq: 9, path: [], node: 0, ord: 0 })).toMatchObject({ state: 'pending', thumbSha256: 'c'.repeat(64) });
     await ingest.mediaStored(ref.id, { sha256: 'b'.repeat(64), size: 10, mime: 'image/png' });
     const again = await forwards.get(acc.accountId, chat, 9, []);
     expect(again.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'stored', sha256: 'b'.repeat(64), thumbSha256: 'c'.repeat(64) } });
@@ -172,14 +181,14 @@ describe('ForwardService', () => {
     await forwards.get(acc.accountId, chat, 3, []);
     expect(hub.calls.filter((c) => c.action === 'x.forward_by_resid')).toHaveLength(1);
 
-    // 拉到了：换成 QQ 的节点，旧节点的媒体引用撤掉，新图片排下载。
+    // 拉到了：换成 QQ 的节点，旧节点的媒体引用撤掉，新图片排 QQ 缩略图、原图按需。
     await t.db.execute(sql`update forward_bundles set fetched_at = now() - interval '7 hours' where chat_id = ${chat}`);
     hub.forwards.set('resid:res-backup', [raw({ chatType: 2, peer: '940006', seq: 1, sender: '30050', sendNickName: '甲', elements: [el.pic({ md5: 'c'.repeat(32), size: 10, w: 1, h: 1 })] })]);
     const replaced = await forwards.get(acc.accountId, chat, 3, []);
     expect(replaced.nodes[0]!.msgId).not.toBe('');
-    expect(replaced.nodes[0]!.segments[0]).toMatchObject({ type: 'image', media: { state: 'pending' } });
-    const refs = await rows<{ fetch_state: string }>(t.db, sql`select fetch_state from media_refs where chat_id = ${chat} and role <> 'qq_thumb'`);
-    expect(refs).toEqual([{ fetch_state: 'pending' }]);
+    expect(replaced.nodes[0]!.segments[0]).toMatchObject({ type: 'image', media: { state: 'on_demand' } });
+    const refs = await rows<{ role: string; fetch_state: string }>(t.db, sql`select role, fetch_state from media_refs where chat_id = ${chat} order by id`);
+    expect(refs).toEqual([{ role: 'attachment', fetch_state: 'on_demand' }, { role: 'qq_thumb', fetch_state: 'pending' }]);
   });
 
   it('remembers forwards QQ no longer has', async () => {
