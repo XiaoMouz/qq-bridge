@@ -414,6 +414,29 @@ describe('MediaFetcher', () => {
     expect(await f.backfillChatThumbs({ pauseMs: 0 })).toBe(0);
   });
 
+  it('gives forwarded photos a compact thumbnail made from the original when QQ has none for them', async () => {
+    const noise = Buffer.alloc(1200 * 900 * 3);
+    for (let i = 0; i < noise.length; i++) noise[i] = (i * 2246822519) >>> 24;
+    const big = await sharp(noise, { raw: { width: 1200, height: 900, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    files.set('fwd.jpg', { body: big, type: 'image/jpeg' });
+    const { chatId } = await ingestImage(nextPeer(), 1, { url: `${base}/file/none.png` });
+    await t.db.execute(sql`update media_refs set fetch_state = 'stored' where chat_id = ${chatId}`); // 只看转发里的
+    const node = {
+      senderId: 30060, senderName: '甲', time: 1, msgId: '7400000000000001000',
+      segments: [{ type: 'image', media: { ord: 0, state: 'pending' } }] as Segment[],
+      media: [{ ord: 0, kind: 'image', role: 'attachment', url: `${base}/file/fwd.jpg`, size: big.length }] as never,
+    };
+    const bundle = await ingest.storeForward(acc.qqAccountId, chatId, 1, '', [node]);
+
+    expect(await fetcher().runOnce()).toBe(1);
+    const nodes = (await one<{ nodes: { segments: Segment[] }[] }>(t.db, sql`select nodes from forward_bundles where id = ${bundle.id}`)).nodes;
+    const info = (nodes[0]!.segments[0] as Extract<Segment, { type: 'image' }>).media;
+    expect(info).toMatchObject({ state: 'stored', sha256: sha256(big) });
+    expect(info.thumbSha256).toBeDefined();
+    expect(info.thumbSha256).not.toBe(sha256(big));
+    expect((await media.getBlob(info.thumbSha256!))!.size).toBeLessThan(big.length * 0.8);
+  });
+
   it('runs in the background until stopped', async () => {
     const body = await png(48, 48, { r: 0, g: 255, b: 0 });
     files.set('g.png', { body, type: 'image/png' });

@@ -119,11 +119,15 @@ describe('ForwardService', () => {
       [30041, '乙'],
     ]);
     expect(top.nodes[0]!.segments.map((s) => s.type)).toEqual(['text', 'image']);
-    const refs = await rows<{ forward_bundle_id: string; node_path: number[]; kind: string }>(
+    const refs = await rows<{ forward_bundle_id: string; node_path: number[]; kind: string; role: string; fetch_state: string }>(
       t.db,
-      sql`select forward_bundle_id, node_path, kind from media_refs where chat_id = ${chat}`,
+      sql`select forward_bundle_id, node_path, kind, role, fetch_state from media_refs where chat_id = ${chat} order by id`,
     );
-    expect(refs).toEqual([{ forward_bundle_id: String(top.id), node_path: [0], kind: 'image' }]);
+    // 原图之后另排 QQ 缩略图（id 更大，下载队列先认领）。
+    expect(refs).toEqual([
+      { forward_bundle_id: String(top.id), node_path: [0], kind: 'image', role: 'attachment', fetch_state: 'pending' },
+      { forward_bundle_id: String(top.id), node_path: [0], kind: 'image', role: 'qq_thumb', fetch_state: 'pending' },
+    ]);
 
     await forwards.get(acc.accountId, chat, 9, []);
     expect(hub.calls.filter((c) => c.action === 'x.forward')).toHaveLength(1); // 第二次读缓存
@@ -134,13 +138,18 @@ describe('ForwardService', () => {
     await expect(forwards.get(acc.accountId, chat, 9, [0])).rejects.toMatchObject({ code: 'not_found' }); // 第 0 个节点不是合并转发
 
     // 下载完成后，缓存里的媒体信息跟着更新。
-    const ref = await one<{ id: number }>(t.db, sql`select id from media_refs where chat_id = ${chat}`);
+    const ref = await one<{ id: number }>(t.db, sql`select id from media_refs where chat_id = ${chat} and role <> 'qq_thumb'`);
+    const thumbRef = await one<{ id: number }>(t.db, sql`select id from media_refs where chat_id = ${chat} and role = 'qq_thumb'`);
     await t.db.execute(
-      sql`insert into blobs (sha256, md5, md5_head, size, storage_key) values (${'b'.repeat(64)}, ${'a'.repeat(32)}, ${'a'.repeat(32)}, 10, 'k')`,
+      sql`insert into blobs (sha256, md5, md5_head, size, storage_key) values (${'b'.repeat(64)}, ${'a'.repeat(32)}, ${'a'.repeat(32)}, 10, 'k'),
+                                                                               (${'c'.repeat(64)}, ${'d'.repeat(32)}, ${'d'.repeat(32)}, 5, 'k2')`,
     );
+    await ingest.thumbStored(thumbRef.id, { sha256: 'c'.repeat(64), size: 5 });
+    const withThumb = await forwards.get(acc.accountId, chat, 9, []);
+    expect(withThumb.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'pending', thumbSha256: 'c'.repeat(64) } });
     await ingest.mediaStored(ref.id, { sha256: 'b'.repeat(64), size: 10, mime: 'image/png' });
     const again = await forwards.get(acc.accountId, chat, 9, []);
-    expect(again.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'stored', sha256: 'b'.repeat(64) } });
+    expect(again.nodes[0]!.segments[1]).toMatchObject({ type: 'image', media: { state: 'stored', sha256: 'b'.repeat(64), thumbSha256: 'c'.repeat(64) } });
   });
 
   it('tries QQ for forwards imported from a phone backup whose pictures are missing', async () => {

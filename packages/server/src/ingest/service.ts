@@ -833,6 +833,25 @@ export class IngestService {
           if (hit) await addUsage(w.tx, chatId, hit.sha256);
         }
       }
+      // 照片另排 QQ 缩略图（spec=720，下好压成 WebP 给气泡），和会话里的消息一样。2026-11-12 实测：原来转发里只排原图，
+      // 气泡要等原图下完、再把原图整张下到手机（一条 11 张的聊天记录每张 5.4 MB，共 56 MB）。
+      // 放在所有原图之后登记：下载队列新的先认领，缩略图先下。
+      if (!expired) {
+        for (const [index, node] of (nodes ?? []).entries()) {
+          for (const media of node.media) {
+            if (!isPhoto(media) || !media.locator || reusedByNode[index]!.get(media.ord)?.thumbSha256) continue;
+            await w.tx.execute(
+              sql`insert into media_refs (chat_id, ordinal, forward_bundle_id, node_path, role, kind, qq_md5, qq_md5_partial, qq_file_uuid,
+                                          qq_resource_id, qq_file_id, url, url_expires_at, fetch_state, locator, sender_uin, time)
+                  values (${chatId}, ${media.ord}, ${String(bundle.id)}, ${sql.raw(`ARRAY[${index}]::int[]`)}, ${QQ_THUMB_ROLE}, 'image',
+                          ${media.qqMd5?.toLowerCase() ?? null}, ${Boolean(media.qqMd5Partial)}, ${media.qqFileUuid ?? null},
+                          ${media.qqResourceId ?? null}, ${media.qqFileId ?? null}, ${media.url ?? null},
+                          ${media.urlExpiresAt ? new Date(media.urlExpiresAt * 1000).toISOString() : null},
+                          'pending', ${pgJson(media.locator)}::jsonb, ${node.senderId}, ${new Date(node.time * 1000).toISOString()})`,
+            );
+          }
+        }
+      }
       return bundle;
     });
   }
