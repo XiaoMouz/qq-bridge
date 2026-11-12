@@ -7,6 +7,10 @@ import SwiftUI
 final class MacChatDraft {
   var request = UUID()
   var composer = Composer()
+  /// 这一页建出来时要恢复到的消息（只有启动恢复上次会话时有，见 MacChatCoordinator.open）。
+  @ObservationIgnored var restoredPosition: Int64?
+  /// 正在看的位置（屏幕中间那条；nil = 在最底下）。滚动时频繁更新，不参与观察；退到后台 / 退出时写盘。
+  @ObservationIgnored var position: Int64?
 }
 
 /// 右栏聊天页：复用 iOS ChatScreen（资料、群文件、媒体、转发、回应、语音、通话入口都在其中）。
@@ -17,7 +21,8 @@ struct MacChatPage: View {
 
   var body: some View {
     NavigationStack {
-      ChatScreen(session: session, chatId: chatId, navigationRequest: draft.request, suppliedComposer: draft.composer)
+      ChatScreen(session: session, chatId: chatId, navigationRequest: draft.request, suppliedComposer: draft.composer,
+                 restoredPosition: draft.restoredPosition, onPositionChange: { [draft] in draft.position = $0 })
     }
   }
 }

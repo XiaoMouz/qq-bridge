@@ -15,6 +15,10 @@ struct ChatScreen: View {
   /// 桌面复用聊天页时，用新的请求返回消息内容，保留输入草稿与已加载的历史。
   var navigationRequest: UUID? = nil
   var suppliedComposer: Composer? = nil
+  /// Mac 主窗口重启后恢复上次会话：首屏出来后静默滚到上次看到的这条（nil = 照常停在最新；iOS 不传）。
+  var restoredPosition: Int64? = nil
+  /// Mac 主窗口：看到的位置变了（屏幕中间那条；nil = 在最底下），由工作区记下来跨启动恢复。iOS 不传。
+  var onPositionChange: ((Int64?) -> Void)? = nil
   @Environment(AppModel.self) private var model
   @Environment(\.dismiss) private var dismiss
   /// 这个聊天页在「正在看的会话」里的登记号（同一个会话可能同时有两页，例如快速回复浮层）。
@@ -85,6 +89,9 @@ struct ChatScreen: View {
   @State private var visibleAnchor = VisibleAnchor()
   /// 恢复位置要滚到的消息：滚过去但不闪高亮。
   @State private var quietTarget: Int64?
+  /// restoredPosition 已经处理过（开始恢复后不再重复；恢复完之前不上报位置，免得首屏的「在最底下」盖掉要恢复的位置）。
+  @State private var positionRestoreStarted = false
+  @State private var positionRestoreDone = false
   /// 从查找结果跳来后，点底部的位置回到结果列表。
   @State private var showSearchList = false
   @State private var showCalendar = false
@@ -242,6 +249,7 @@ struct ChatScreen: View {
       onReachTop: loadOlder,
       onBottomChange: { bottom in
         atBottom = bottom
+        if bottom { reportPosition() }
         if bottom, !historyWindow.isActive, let last = items.lastMessageSeq { bottomMark = max(bottomMark, last) }
         markReadIfNeeded()
         if bottom { trimIfStillAtBottom() }
@@ -252,6 +260,7 @@ struct ChatScreen: View {
         mentionsSeen(visible)
         let sorted = visible.sorted()
         if !sorted.isEmpty { visibleAnchor.seq = sorted[sorted.count / 2] }
+        reportPosition()
       },
       onScrollDate: { time in showScrollDay(time) },
       scrollRequest: scrollRequest,
@@ -549,6 +558,7 @@ struct ChatScreen: View {
           messageJump.updateRendered(Set(items.compactMap { if case .message(let m) = $0 { m.seq } else { nil } }), limit: observedLimit)
           noteNewMessages()
           markReadIfNeeded()
+          restorePositionIfNeeded()
         }
     }
     .task {
@@ -939,6 +949,23 @@ struct ChatScreen: View {
     }
   }
 
+  /// 上报正在看的位置（Mac 跨启动恢复用）。在最底下报 nil；历史窗口里也报屏幕中间那条，恢复时会重新打开那一段。
+  private func reportPosition() {
+    guard let onPositionChange, restoredPosition == nil || positionRestoreDone else { return }
+    onPositionChange(atBottom && !historyWindow.isActive ? nil : visibleAnchor.seq)
+  }
+
+  /// 首屏出来后滚到 restoredPosition：近的在最新那段里往上接，远的开历史窗口；都不闪高亮。只做一次。
+  private func restorePositionIfNeeded() {
+    guard let seq = restoredPosition, !positionRestoreStarted, !items.isEmpty else { return }
+    positionRestoreStarted = true
+    Task {
+      // 那条已经没了（撤回清理、被裁剪）就停在最新，不弹「无法定位消息」。
+      if !(await jump(to: seq, quiet: true)), messageJump.failure?.seq == seq { messageJump.dismissFailure() }
+      positionRestoreDone = true
+    }
+  }
+
   /// 追平时会话被重置（服务端说变化太多）：正在看的那段留在本机但不再和最新相连，改成历史窗口显示它，滚回原来那条。
   private func restoreAfterReset() async {
     guard !atBottom, !historyWindow.isActive, let seq = visibleAnchor.seq,
@@ -1168,8 +1195,9 @@ struct ChatScreen: View {
     }
   }
 
+  /// quiet：恢复位置用，只滚过去，不闪高亮、失败不提示。
   @discardableResult
-  private func jump(to seq: Int64, delay: Duration = .zero) async -> Bool {
+  private func jump(to seq: Int64, delay: Duration = .zero, quiet: Bool = false) async -> Bool {
     if historyWindow.isActive {
       if historyWindow.contains(seq) {
         scrollToMessage(seq)
@@ -1177,17 +1205,20 @@ struct ChatScreen: View {
       }
       returnToLatest(scroll: false)
     }
-    guard await needsHistoryWindow(seq) else { return await jumpInLatest(to: seq, delay: delay) }
+    guard await needsHistoryWindow(seq) else { return await jumpInLatest(to: seq, delay: delay, quiet: quiet) }
     if delay > .zero { try? await Task.sleep(for: delay) }
     messageJump.cancel()
+    if quiet { quietTarget = seq }
     switch await historyWindow.open(at: seq, using: windowService) {
     case .opened:
       // 列表观察到这条消息时再滚过去（observeHistoryWindow）。
       return true
     case .inNewest:
-      return await jumpInLatest(to: seq)
+      if quiet { quietTarget = nil }
+      return await jumpInLatest(to: seq, quiet: quiet)
     case .failed(let message):
-      if !message.isEmpty { show("无法定位消息：\(message)") }
+      if quiet { quietTarget = nil }
+      if !message.isEmpty, !quiet { show("无法定位消息：\(message)") }
       return false
     }
   }
@@ -1289,11 +1320,11 @@ struct ChatScreen: View {
 
   /// 在最新那段里定位（目标不远：从最新一页页往上接）。
   @discardableResult
-  private func jumpInLatest(to seq: Int64, delay: Duration = .zero) async -> Bool {
+  private func jumpInLatest(to seq: Int64, delay: Duration = .zero, quiet: Bool = false) async -> Bool {
     await messageJump.jump(to: seq, delay: delay,
       using: SessionChatMessageJumpService(session: session, chatId: chatId), history: history) { target in
       scrollRequest = ChatScrollRequest(target: .item("m\(target)"))
-      highlight.flash(target)
+      if !quiet { highlight.flash(target) }
     }
   }
 

@@ -62,7 +62,8 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       toggleSidebar: { [weak self] in self?.toggleSidebar() }))
     // 上次的会话在建工作区时就放进右栏：窗口第一帧就是聊天，不先闪「选择会话」空状态（2026-11-12 用户反馈）。
     // 以前等 viewDidAppear 才恢复，窗口已经画过一次空状态页。列表选中和检查器要等视图出现（workspaceAppeared）。
-    if model.pendingChat == nil, let id = chat.restorableChat { chat.open(id) }
+    // 聊天页滚到上次退出时看到的那条（MacWorkspaceStore.lastPosition）。
+    if model.pendingChat == nil, let id = chat.restorableChat { chat.open(id, restoringPosition: true) }
     wireIntents()
     detail.show(chat.controller)
     rootViewController.appeared = { [weak self] in self?.workspaceAppeared() }

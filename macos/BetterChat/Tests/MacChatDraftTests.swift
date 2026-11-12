@@ -17,7 +17,10 @@ private final class DraftPageFactory: MacChatPageBuilding {
 @MainActor
 private final class DraftWorkspaceStore: MacWorkspaceStore {
   var lastChat: Int64?
+  var position: (chat: Int64, seq: Int64)?
   func rememberLastChat(_ id: Int64) { lastChat = id }
+  func lastPosition(in id: Int64) -> Int64? { position?.chat == id ? position?.seq : nil }
+  func rememberPosition(_ seq: Int64?, in id: Int64) { position = seq.map { (id, $0) } }
   func chatExists(_ id: Int64) -> Bool { true }
   func chatTitle(_ id: Int64) -> String? { "测试会话 \(id)" }
 }
@@ -28,6 +31,40 @@ struct MacChatDraftTests {
   private func fixture() -> (MacChatCoordinator, DraftPageFactory) {
     let factory = DraftPageFactory()
     return (MacChatCoordinator(factory: factory, store: DraftWorkspaceStore()), factory)
+  }
+
+  /// 重启后恢复上次会话（2026-11-12）：只有启动恢复的那一页带上次的位置，平常点开仍从最新开始。
+  @Test func restoredChatCarriesLastPositionOnlyOnRestore() throws {
+    let factory = DraftPageFactory()
+    let store = DraftWorkspaceStore()
+    store.lastChat = 7
+    store.position = (7, 4200)
+    let coordinator = MacChatCoordinator(factory: factory, store: store)
+    #expect(coordinator.restorableChat == 7)
+    coordinator.open(7, restoringPosition: true)
+    let restored = try #require(factory.pages.last?.1)
+    #expect(restored.restoredPosition == 4200 && restored.position == 4200)
+
+    // 页面上报新的位置，切走时写盘；切回同一会话是新页面，从最新开始。
+    restored.position = 4300
+    coordinator.open(8)
+    #expect(store.position?.chat == 7 && store.position?.seq == 4300)
+    #expect(factory.pages.last?.1.restoredPosition == nil)
+    coordinator.open(7)
+    #expect(restored.restoredPosition == nil && restored.position == nil)
+  }
+
+  @Test func persistingAtBottomClearsPosition() throws {
+    let (coordinator, factory) = fixture()
+    coordinator.open(3)
+    let draft = try #require(factory.pages.last?.1)
+    draft.position = 99
+    coordinator.persistPosition()
+    draft.position = nil
+    coordinator.persistPosition()
+    coordinator.open(4)
+    coordinator.open(3, restoringPosition: true)
+    #expect(factory.pages.last?.1.restoredPosition == nil)
   }
 
   @Test func switchingChatsPreservesCompleteDraftWithoutSharingIt() throws {
