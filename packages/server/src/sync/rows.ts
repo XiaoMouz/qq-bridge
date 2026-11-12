@@ -245,6 +245,11 @@ export function toOutbox(r: DbRow): OutboxRow {
 }
 
 /** 推送给在线客户端的更新。带全局 pts 的三种用于会话列表与资料；chatMessage 带会话内的 chat_pts。 */
+/** 账号级设置（accounts 表上的几列），所有设备共享。 */
+export interface AccountSettingsRow {
+  phoneNotificationsOff: boolean;
+}
+
 export type Update =
   | { type: 'dialog'; pts: number; dialog: DialogRow }
   | { type: 'peer'; pts: number; peer: PeerRow }
@@ -252,6 +257,8 @@ export type Update =
   | { type: 'chatMessage'; chatId: number; chatPts: number; message: MessageRow }
   | { type: 'outbox'; pts: number; entry: OutboxRow }
   | { type: 'chatEvent'; chatId: number; chatPts: number; event: ChatEventRow }
+  /** 账号设置变了（占 pts）。 */
+  | { type: 'settings'; pts: number; settings: AccountSettingsRow }
   /** 临时事件（"对方正在输入"）：不占 pts、不存档。 */
   | { type: 'typing'; chatId: number; userId: number; text: string }
   | { type: 'call'; call: CallRecord }

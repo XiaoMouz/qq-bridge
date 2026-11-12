@@ -4,6 +4,7 @@
 // - 免打扰、收进群助手的会话不推。
 // - "只提醒 @我和回复我"：只推 @我、回复我，以及打开了"@全体成员 提醒"时的 @全体成员。
 // - 其余（默认 / 全部提醒）都推。
+// - 账号设置「通知手机」关了：新消息只推给 Mac，不推 iOS 设备（来电、已读同步照常）。
 // 角标 = 会提醒的会话的未读数，加上其他会话（免打扰、群助手、只提醒 @我）里的 @我 和回复我；@全体成员 不单独算。
 import { MessageFlag, plainText, type Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
@@ -303,12 +304,20 @@ export class PushNotifier {
   async notify(event: NewMessageEvent): Promise<number> {
     const n = await this.build(event);
     if (!n) return 0;
-    const devices = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null }>(
+    const all = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null; phone_off: boolean }>(
       this.db,
-      sql`select id, platform, apns_token, apns_env from devices
-           where account_id = ${event.accountId} and revoked_at is null and apns_token is not null`,
+      sql`select d.id, d.platform, d.apns_token, d.apns_env, a.phone_notifications_off as phone_off
+            from devices d join accounts a on a.id = d.account_id
+           where d.account_id = ${event.accountId} and d.revoked_at is null and d.apns_token is not null`,
     );
-    const avatar = devices.length > 0 ? await this.avatarThumb(n.qqAccountId, n.senderId) : null;
+    // 「手机」= platform ios（iPhone / iPad 都登记成 ios）；Mac、其他平台不受影响。
+    const devices = all.filter((d) => d.platform !== 'ios' || !d.phone_off);
+    if (devices.length < all.length) {
+      // 用于确认开关生效：日志里能看到这条消息跳过了哪些手机。
+      this.opts.logger?.info({ chatId: event.chatId, seq: event.seq, skippedDevices: all.filter((d) => !devices.includes(d)).map((d) => d.id) }, 'phone notifications off, skip phone push');
+    }
+    if (devices.length === 0) return 0;
+    const avatar = await this.avatarThumb(n.qqAccountId, n.senderId);
     let sent = 0;
     const attempted = new Set<string>();
     for (const d of devices) {

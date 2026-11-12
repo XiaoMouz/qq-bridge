@@ -180,8 +180,38 @@ extension LocalStore {
       for peer in d.peers { try Self.upsert(peer: peer, db) }
       for t in d.tombstones { try Self.apply(tombstone: t, db) }
       for o in d.outbox { try Self.upsert(outbox: o, db) }
+      if d.hasSettings { try Self.upsert(settings: d.settings, db) }
       try Self.setPts(d.pts, db)
     }
+  }
+
+  /// 账号设置更新（Subscribe 的 settings）。
+  public func apply(settings: Qqbridge_V1_AccountSettings, pts: Int64) throws {
+    try db.write { db in
+      try Self.upsert(settings: settings, db)
+      try Self.setPts(pts, db)
+    }
+  }
+
+  /// 账号设置（服务端存、各设备共享）；没收到过 = 默认值。
+  /// 存在 kv 里，reset() 不清：清库后从 0 补差量时，服务端改过的设置会再带下来，没改过的就是默认值。
+  public func accountSettings() throws -> Qqbridge_V1_AccountSettings {
+    try db.read { db in try Self.accountSettings(db) }
+  }
+
+  static let phoneNotificationsOffKey = "settings:phoneNotificationsOff"
+
+  static func accountSettings(_ db: Database) throws -> Qqbridge_V1_AccountSettings {
+    var s = Qqbridge_V1_AccountSettings()
+    s.phoneNotificationsOff = (try Int64.fetchOne(db, sql: "select value from kv where key = ?", arguments: [phoneNotificationsOffKey]) ?? 0) != 0
+    return s
+  }
+
+  static func upsert(settings s: Qqbridge_V1_AccountSettings, _ db: Database) throws {
+    try db.execute(
+      sql: "insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
+      arguments: [phoneNotificationsOffKey, s.phoneNotificationsOff ? 1 : 0]
+    )
   }
 
   public func apply(dialog: Qqbridge_V1_Dialog, pts: Int64) throws {

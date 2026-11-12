@@ -22,6 +22,7 @@ import {
   type OutboxRow,
   type PeerRow,
   type TombstoneRow,
+  type AccountSettingsRow,
 } from './rows.ts';
 
 export class NotFoundError extends Error {}
@@ -40,6 +41,8 @@ export interface Difference {
   tombstones: TombstoneRow[];
   /** 发件箱变化；全新同步（pts = 0）只包含尚未发送成功的条目。 */
   outbox: OutboxRow[];
+  /** 账号设置在 (fromPts, pts] 里变过才有。 */
+  settings: AccountSettingsRow | null;
 }
 
 export interface ChatDifference {
@@ -65,7 +68,7 @@ export async function getDifference(db: Db, accountId: number, fromPts: number, 
       sql`select pts, tombstone_horizon_pts from sync_state where account_id = ${accountId}`,
     );
     if (!state) throw new NotFoundError(`account ${accountId} not found`);
-    const empty = { dialogs: [], peers: [], tombstones: [], outbox: [] };
+    const empty = { dialogs: [], peers: [], tombstones: [], outbox: [], settings: null };
     if (fromPts < state.tombstone_horizon_pts) return { pts: state.pts, final: true, tooLong: true, ...empty };
     if (fromPts >= state.pts) return { pts: state.pts, final: true, tooLong: false, ...empty };
 
@@ -89,6 +92,10 @@ export async function getDifference(db: Db, accountId: number, fromPts: number, 
             from outbox o
            where o.account_id = ${accountId} and o.pts > ${fromPts}
              ${fromPts === 0 ? sql`and o.state <> 'sent'` : sql``}
+          union all
+          select 'settings', null, null, null, a.settings_pts
+            from accounts a
+           where a.id = ${accountId} and a.settings_pts > ${fromPts}
         ) changes
         order by pts
         limit ${limit}`,
@@ -124,8 +131,18 @@ export async function getDifference(db: Db, accountId: number, fromPts: number, 
                    )})`,
             )
           ).map(toPeer);
-    return { pts: newPts, final: !partial, tooLong: false, dialogs, peers, tombstones, outbox };
+    const settings = changes.some((c) => c.kind === 'settings') ? await loadAccountSettings(tx, accountId) : null;
+    return { pts: newPts, final: !partial, tooLong: false, dialogs, peers, tombstones, outbox, settings };
   }, SNAPSHOT);
+}
+
+export async function loadAccountSettings(db: Queryable, accountId: number): Promise<AccountSettingsRow> {
+  const row = await maybeOne<{ phone_notifications_off: boolean }>(
+    db,
+    sql`select phone_notifications_off from accounts where id = ${accountId}`,
+  );
+  if (!row) throw new NotFoundError(`account ${accountId} not found`);
+  return { phoneNotificationsOff: row.phone_notifications_off };
 }
 
 /** 按 id 读取会话，并附上顶部消息（会话列表的预览）。 */

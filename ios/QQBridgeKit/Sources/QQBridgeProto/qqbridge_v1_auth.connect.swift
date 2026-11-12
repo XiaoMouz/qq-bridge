@@ -28,6 +28,10 @@ public protocol Qqbridge_V1_AuthServiceClientInterface: Sendable {
     /// 登记本设备的推送令牌（APNs 普通推送和 VoIP 推送）。令牌变化时（例如重装 App）重新调用；传空表示取消。
     @available(iOS 13, *)
     func `registerPush`(request: Qqbridge_V1_RegisterPushRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RegisterPushResponse>
+
+    /// 账号级设置（目前只有「通知手机」）。改完经 pts 推给所有设备（Difference.settings / SubscribeResponse.settings）。
+    @available(iOS 13, *)
+    func `setAccountSettings`(request: Qqbridge_V1_SetAccountSettingsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetAccountSettingsResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_AuthServiceClientInterface`.
@@ -63,6 +67,11 @@ public final class Qqbridge_V1_AuthServiceClient: Qqbridge_V1_AuthServiceClientI
         return await self.client.unary(path: "/qqbridge.v1.AuthService/RegisterPush", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `setAccountSettings`(request: Qqbridge_V1_SetAccountSettingsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_SetAccountSettingsResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.AuthService/SetAccountSettings", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let login = Connect.MethodSpec(name: "Login", service: "qqbridge.v1.AuthService", type: .unary)
@@ -70,6 +79,7 @@ public final class Qqbridge_V1_AuthServiceClient: Qqbridge_V1_AuthServiceClientI
             public static let listDevices = Connect.MethodSpec(name: "ListDevices", service: "qqbridge.v1.AuthService", type: .unary)
             public static let revokeDevice = Connect.MethodSpec(name: "RevokeDevice", service: "qqbridge.v1.AuthService", type: .unary)
             public static let registerPush = Connect.MethodSpec(name: "RegisterPush", service: "qqbridge.v1.AuthService", type: .unary)
+            public static let setAccountSettings = Connect.MethodSpec(name: "SetAccountSettings", service: "qqbridge.v1.AuthService", type: .unary)
         }
     }
 }

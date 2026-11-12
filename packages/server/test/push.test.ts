@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { CallRecord } from '../src/calls/service.ts';
 import { DialogPrefs } from '../src/dialogs/prefs.ts';
 import { one } from '../src/db/client.ts';
+import { setAccountSettings } from '../src/auth/settings.ts';
 import { ApnsClient, type ApnsMessage, type ApnsResult, type PushSender } from '../src/push/apns.ts';
 import { PushNotifier, type ReadEvent } from '../src/push/notifier.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
@@ -252,6 +253,22 @@ describe('PushNotifier', () => {
       expect(sent.find((m) => m.token === 'mac-token')).toMatchObject({ platform: 'macos', env: 'sandbox' });
       expect(sent.find((m) => m.token === 'aaaa')).toMatchObject({ platform: 'ios' });
     } finally {
+      await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
+    }
+  });
+
+  it('「通知手机」关了：新消息只推给 Mac，打开后恢复', async () => {
+    await t.db.execute(sql`update devices set apns_token = 'mac-token', apns_env = 'sandbox' where account_id = ${acc.accountId} and platform = 'macos'`);
+    try {
+      await setAccountSettings(svc.writers, acc.accountId, { phoneNotificationsOff: true });
+      const off = await receive(textMessage('friend', 400, seq++, 400, { text: '只给 Mac' }));
+      expect(off.n).toBe(1);
+      expect(sent.map((m) => m.token)).toEqual(['mac-token']);
+      await setAccountSettings(svc.writers, acc.accountId, { phoneNotificationsOff: false });
+      const on = await receive(textMessage('friend', 400, seq++, 400, { text: '都推' }));
+      expect(on.n).toBe(3);
+    } finally {
+      await setAccountSettings(svc.writers, acc.accountId, { phoneNotificationsOff: false });
       await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
     }
   });

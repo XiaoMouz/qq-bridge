@@ -32,6 +32,10 @@ export const accounts = pgTable('accounts', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   createdAt: ts('created_at').notNull().defaultNow(),
+  /** 账号设置「通知手机」关了：新消息不推给 iOS 设备（push/notifier.ts）。 */
+  phoneNotificationsOff: boolean('phone_notifications_off').notNull().default(false),
+  /** 设置最后一次改动的全局 pts；差量据此带上设置（0 = 没改过）。 */
+  settingsPts: ref('settings_pts').notNull().default(0),
 });
 
 /** 每个服务端账号一行：全局 pts。用行锁串行化分配，保证"序号顺序 = 提交顺序"。 */

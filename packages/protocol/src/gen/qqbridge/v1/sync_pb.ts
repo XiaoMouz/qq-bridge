@@ -4,6 +4,8 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { AccountSettings } from "./auth_pb.ts";
+import { file_qqbridge_v1_auth } from "./auth_pb.ts";
 import type { Call } from "./calls_pb.ts";
 import { file_qqbridge_v1_calls } from "./calls_pb.ts";
 import type { ChatEvent, Dialog, Message as Message$1, OutboxEntry, Peer, Tombstone } from "./common_pb.ts";
@@ -14,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/sync.proto.
  */
 export const file_qqbridge_v1_sync: GenFile = /*@__PURE__*/
-  fileDesc("ChZxcWJyaWRnZS92MS9zeW5jLnByb3RvEgtxcWJyaWRnZS52MSIRCg9HZXRTdGF0ZVJlcXVlc3QiZQoQR2V0U3RhdGVSZXNwb25zZRILCgNwdHMYASABKAMSEwoLc2VydmVyX3RpbWUYAiABKAMSLwoLcXFfYWNjb3VudHMYAyADKAsyGi5xcWJyaWRnZS52MS5RcUFjY291bnRJbmZvIjoKDVFxQWNjb3VudEluZm8SCgoCaWQYASABKAMSCwoDdWluGAIgASgDEhAKCG5pY2tuYW1lGAMgASgJIjIKFEdldERpZmZlcmVuY2VSZXF1ZXN0EgsKA3B0cxgBIAEoAxINCgVsaW1pdBgCIAEoDSJEChVHZXREaWZmZXJlbmNlUmVzcG9uc2USKwoKZGlmZmVyZW5jZRgBIAEoCzIXLnFxYnJpZGdlLnYxLkRpZmZlcmVuY2Ui2wEKCkRpZmZlcmVuY2USCwoDcHRzGAEgASgDEhAKCGlzX2ZpbmFsGAIgASgIEhAKCHRvb19sb25nGAMgASgIEiQKB2RpYWxvZ3MYBCADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2cSIAoFcGVlcnMYBSADKAsyES5xcWJyaWRnZS52MS5QZWVyEioKCnRvbWJzdG9uZXMYBiADKAsyFi5xcWJyaWRnZS52MS5Ub21ic3RvbmUSKAoGb3V0Ym94GAcgAygLMhgucXFicmlkZ2UudjEuT3V0Ym94RW50cnkiTAoYR2V0Q2hhdERpZmZlcmVuY2VSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMSDQoFbGltaXQYAyABKA0ioQEKGUdldENoYXREaWZmZXJlbmNlUmVzcG9uc2USEAoIY2hhdF9wdHMYASABKAMSEAoIaXNfZmluYWwYAiABKAgSEAoIdG9vX2xvbmcYAyABKAgSJgoIbWVzc2FnZXMYBCADKAsyFC5xcWJyaWRnZS52MS5NZXNzYWdlEiYKBmV2ZW50cxgFIAMoCzIWLnFxYnJpZGdlLnYxLkNoYXRFdmVudCIyCg1DaGF0U3luY1N0YXRlEg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMiXgoZR2V0Q2hhdERpZmZlcmVuY2VzUmVxdWVzdBIpCgVjaGF0cxgBIAMoCzIaLnFxYnJpZGdlLnYxLkNoYXRTeW5jU3RhdGUSFgoOcGVyX2NoYXRfbGltaXQYAiABKA0irQEKFENoYXREaWZmZXJlbmNlUmVzdWx0Eg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMSEAoIaXNfZmluYWwYAyABKAgSEAoIdG9vX2xvbmcYBCABKAgSJgoIbWVzc2FnZXMYBSADKAsyFC5xcWJyaWRnZS52MS5NZXNzYWdlEiYKBmV2ZW50cxgGIAMoCzIWLnFxYnJpZGdlLnYxLkNoYXRFdmVudCJOChpHZXRDaGF0RGlmZmVyZW5jZXNSZXNwb25zZRIwCgVjaGF0cxgBIAMoCzIhLnFxYnJpZGdlLnYxLkNoYXREaWZmZXJlbmNlUmVzdWx0Ih8KEFN1YnNjcmliZVJlcXVlc3QSCwoDcHRzGAEgASgDIokFChFTdWJzY3JpYmVSZXNwb25zZRItCgpkaWZmZXJlbmNlGAEgASgLMhcucXFicmlkZ2UudjEuRGlmZmVyZW5jZUgAEisKBmRpYWxvZxgCIAEoCzIZLnFxYnJpZGdlLnYxLkRpYWxvZ1VwZGF0ZUgAEicKBHBlZXIYAyABKAsyFy5xcWJyaWRnZS52MS5QZWVyVXBkYXRlSAASMQoJdG9tYnN0b25lGAQgASgLMhwucXFicmlkZ2UudjEuVG9tYnN0b25lVXBkYXRlSAASNgoMY2hhdF9tZXNzYWdlGAUgASgLMh4ucXFicmlkZ2UudjEuQ2hhdE1lc3NhZ2VVcGRhdGVIABIrCgloZWFydGJlYXQYBiABKAsyFi5xcWJyaWRnZS52MS5IZWFydGJlYXRIABIlCgZyZXN5bmMYByABKAsyEy5xcWJyaWRnZS52MS5SZXN5bmNIABIrCgZvdXRib3gYCCABKAsyGS5xcWJyaWRnZS52MS5PdXRib3hVcGRhdGVIABIyCgpjaGF0X2V2ZW50GAkgASgLMhwucXFicmlkZ2UudjEuQ2hhdEV2ZW50VXBkYXRlSAASKwoGdHlwaW5nGAogASgLMhkucXFicmlkZ2UudjEuVHlwaW5nVXBkYXRlSAASJwoEY2FsbBgLIAEoCzIXLnFxYnJpZGdlLnYxLkNhbGxVcGRhdGVIABI0CgttZWRpYV9yZWFkeRgMIAEoCzIdLnFxYnJpZGdlLnYxLk1lZGlhUmVhZHlVcGRhdGVIABI6Cg5tZWRpYV9wcm9ncmVzcxgNIAEoCzIgLnFxYnJpZGdlLnYxLk1lZGlhUHJvZ3Jlc3NVcGRhdGVIAEIHCgVldmVudCKnAQoTTWVkaWFQcm9ncmVzc1VwZGF0ZRIPCgdjaGF0X2lkGAEgASgDEgsKA3NlcRgCIAEoAxILCgNvcmQYAyABKA0SFAoMZm9yd2FyZF9wYXRoGAQgASgJEgwKBG5vZGUYBSABKAUSEAoIcmVjZWl2ZWQYBiABKAQSDQoFdG90YWwYByABKAQSDgoGc2hhMjU2GAggASgJEhAKCGxpdmVfdXJsGAkgASgJIo8BChBNZWRpYVJlYWR5VXBkYXRlEg8KB2NoYXRfaWQYASABKAMSCwoDc2VxGAIgASgDEgsKA29yZBgDIAEoDRIUCgxmb3J3YXJkX3BhdGgYBCABKAkSDAoEbm9kZRgFIAEoBRINCgV0aHVtYhgGIAEoCBINCgVzdGF0ZRgHIAEoCRIOCgZzaGEyNTYYCCABKAkiLQoKQ2FsbFVwZGF0ZRIfCgRjYWxsGAEgASgLMhEucXFicmlkZ2UudjEuQ2FsbCJbCg9DaGF0RXZlbnRVcGRhdGUSDwoHY2hhdF9pZBgBIAEoAxIQCghjaGF0X3B0cxgCIAEoAxIlCgVldmVudBgDIAEoCzIWLnFxYnJpZGdlLnYxLkNoYXRFdmVudCI+CgxUeXBpbmdVcGRhdGUSDwoHY2hhdF9pZBgBIAEoAxIPCgd1c2VyX2lkGAIgASgDEgwKBHRleHQYAyABKAkiRAoMT3V0Ym94VXBkYXRlEgsKA3B0cxgBIAEoAxInCgVlbnRyeRgCIAEoCzIYLnFxYnJpZGdlLnYxLk91dGJveEVudHJ5IkAKDERpYWxvZ1VwZGF0ZRILCgNwdHMYASABKAMSIwoGZGlhbG9nGAIgASgLMhMucXFicmlkZ2UudjEuRGlhbG9nIjoKClBlZXJVcGRhdGUSCwoDcHRzGAEgASgDEh8KBHBlZXIYAiABKAsyES5xcWJyaWRnZS52MS5QZWVyIkkKD1RvbWJzdG9uZVVwZGF0ZRILCgNwdHMYASABKAMSKQoJdG9tYnN0b25lGAIgASgLMhYucXFicmlkZ2UudjEuVG9tYnN0b25lIl0KEUNoYXRNZXNzYWdlVXBkYXRlEg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMSJQoHbWVzc2FnZRgDIAEoCzIULnFxYnJpZGdlLnYxLk1lc3NhZ2UiLQoJSGVhcnRiZWF0EgsKA3B0cxgBIAEoAxITCgtzZXJ2ZXJfdGltZRgCIAEoAyIICgZSZXN5bmMyxwMKC1N5bmNTZXJ2aWNlEkcKCEdldFN0YXRlEhwucXFicmlkZ2UudjEuR2V0U3RhdGVSZXF1ZXN0Gh0ucXFicmlkZ2UudjEuR2V0U3RhdGVSZXNwb25zZRJWCg1HZXREaWZmZXJlbmNlEiEucXFicmlkZ2UudjEuR2V0RGlmZmVyZW5jZVJlcXVlc3QaIi5xcWJyaWRnZS52MS5HZXREaWZmZXJlbmNlUmVzcG9uc2USYgoRR2V0Q2hhdERpZmZlcmVuY2USJS5xcWJyaWRnZS52MS5HZXRDaGF0RGlmZmVyZW5jZVJlcXVlc3QaJi5xcWJyaWRnZS52MS5HZXRDaGF0RGlmZmVyZW5jZVJlc3BvbnNlEmUKEkdldENoYXREaWZmZXJlbmNlcxImLnFxYnJpZGdlLnYxLkdldENoYXREaWZmZXJlbmNlc1JlcXVlc3QaJy5xcWJyaWRnZS52MS5HZXRDaGF0RGlmZmVyZW5jZXNSZXNwb25zZRJMCglTdWJzY3JpYmUSHS5xcWJyaWRnZS52MS5TdWJzY3JpYmVSZXF1ZXN0Gh4ucXFicmlkZ2UudjEuU3Vic2NyaWJlUmVzcG9uc2UwAWIGcHJvdG8z", [file_qqbridge_v1_calls, file_qqbridge_v1_common]);
+  fileDesc("ChZxcWJyaWRnZS92MS9zeW5jLnByb3RvEgtxcWJyaWRnZS52MSIRCg9HZXRTdGF0ZVJlcXVlc3QiZQoQR2V0U3RhdGVSZXNwb25zZRILCgNwdHMYASABKAMSEwoLc2VydmVyX3RpbWUYAiABKAMSLwoLcXFfYWNjb3VudHMYAyADKAsyGi5xcWJyaWRnZS52MS5RcUFjY291bnRJbmZvIjoKDVFxQWNjb3VudEluZm8SCgoCaWQYASABKAMSCwoDdWluGAIgASgDEhAKCG5pY2tuYW1lGAMgASgJIjIKFEdldERpZmZlcmVuY2VSZXF1ZXN0EgsKA3B0cxgBIAEoAxINCgVsaW1pdBgCIAEoDSJEChVHZXREaWZmZXJlbmNlUmVzcG9uc2USKwoKZGlmZmVyZW5jZRgBIAEoCzIXLnFxYnJpZGdlLnYxLkRpZmZlcmVuY2UiiwIKCkRpZmZlcmVuY2USCwoDcHRzGAEgASgDEhAKCGlzX2ZpbmFsGAIgASgIEhAKCHRvb19sb25nGAMgASgIEiQKB2RpYWxvZ3MYBCADKAsyEy5xcWJyaWRnZS52MS5EaWFsb2cSIAoFcGVlcnMYBSADKAsyES5xcWJyaWRnZS52MS5QZWVyEioKCnRvbWJzdG9uZXMYBiADKAsyFi5xcWJyaWRnZS52MS5Ub21ic3RvbmUSKAoGb3V0Ym94GAcgAygLMhgucXFicmlkZ2UudjEuT3V0Ym94RW50cnkSLgoIc2V0dGluZ3MYCCABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MiTAoYR2V0Q2hhdERpZmZlcmVuY2VSZXF1ZXN0Eg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMSDQoFbGltaXQYAyABKA0ioQEKGUdldENoYXREaWZmZXJlbmNlUmVzcG9uc2USEAoIY2hhdF9wdHMYASABKAMSEAoIaXNfZmluYWwYAiABKAgSEAoIdG9vX2xvbmcYAyABKAgSJgoIbWVzc2FnZXMYBCADKAsyFC5xcWJyaWRnZS52MS5NZXNzYWdlEiYKBmV2ZW50cxgFIAMoCzIWLnFxYnJpZGdlLnYxLkNoYXRFdmVudCIyCg1DaGF0U3luY1N0YXRlEg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMiXgoZR2V0Q2hhdERpZmZlcmVuY2VzUmVxdWVzdBIpCgVjaGF0cxgBIAMoCzIaLnFxYnJpZGdlLnYxLkNoYXRTeW5jU3RhdGUSFgoOcGVyX2NoYXRfbGltaXQYAiABKA0irQEKFENoYXREaWZmZXJlbmNlUmVzdWx0Eg8KB2NoYXRfaWQYASABKAMSEAoIY2hhdF9wdHMYAiABKAMSEAoIaXNfZmluYWwYAyABKAgSEAoIdG9vX2xvbmcYBCABKAgSJgoIbWVzc2FnZXMYBSADKAsyFC5xcWJyaWRnZS52MS5NZXNzYWdlEiYKBmV2ZW50cxgGIAMoCzIWLnFxYnJpZGdlLnYxLkNoYXRFdmVudCJOChpHZXRDaGF0RGlmZmVyZW5jZXNSZXNwb25zZRIwCgVjaGF0cxgBIAMoCzIhLnFxYnJpZGdlLnYxLkNoYXREaWZmZXJlbmNlUmVzdWx0Ih8KEFN1YnNjcmliZVJlcXVlc3QSCwoDcHRzGAEgASgDIroFChFTdWJzY3JpYmVSZXNwb25zZRItCgpkaWZmZXJlbmNlGAEgASgLMhcucXFicmlkZ2UudjEuRGlmZmVyZW5jZUgAEisKBmRpYWxvZxgCIAEoCzIZLnFxYnJpZGdlLnYxLkRpYWxvZ1VwZGF0ZUgAEicKBHBlZXIYAyABKAsyFy5xcWJyaWRnZS52MS5QZWVyVXBkYXRlSAASMQoJdG9tYnN0b25lGAQgASgLMhwucXFicmlkZ2UudjEuVG9tYnN0b25lVXBkYXRlSAASNgoMY2hhdF9tZXNzYWdlGAUgASgLMh4ucXFicmlkZ2UudjEuQ2hhdE1lc3NhZ2VVcGRhdGVIABIrCgloZWFydGJlYXQYBiABKAsyFi5xcWJyaWRnZS52MS5IZWFydGJlYXRIABIlCgZyZXN5bmMYByABKAsyEy5xcWJyaWRnZS52MS5SZXN5bmNIABIrCgZvdXRib3gYCCABKAsyGS5xcWJyaWRnZS52MS5PdXRib3hVcGRhdGVIABIyCgpjaGF0X2V2ZW50GAkgASgLMhwucXFicmlkZ2UudjEuQ2hhdEV2ZW50VXBkYXRlSAASKwoGdHlwaW5nGAogASgLMhkucXFicmlkZ2UudjEuVHlwaW5nVXBkYXRlSAASJwoEY2FsbBgLIAEoCzIXLnFxYnJpZGdlLnYxLkNhbGxVcGRhdGVIABI0CgttZWRpYV9yZWFkeRgMIAEoCzIdLnFxYnJpZGdlLnYxLk1lZGlhUmVhZHlVcGRhdGVIABI6Cg5tZWRpYV9wcm9ncmVzcxgNIAEoCzIgLnFxYnJpZGdlLnYxLk1lZGlhUHJvZ3Jlc3NVcGRhdGVIABIvCghzZXR0aW5ncxgOIAEoCzIbLnFxYnJpZGdlLnYxLlNldHRpbmdzVXBkYXRlSABCBwoFZXZlbnQiTQoOU2V0dGluZ3NVcGRhdGUSCwoDcHRzGAEgASgDEi4KCHNldHRpbmdzGAIgASgLMhwucXFicmlkZ2UudjEuQWNjb3VudFNldHRpbmdzIqcBChNNZWRpYVByb2dyZXNzVXBkYXRlEg8KB2NoYXRfaWQYASABKAMSCwoDc2VxGAIgASgDEgsKA29yZBgDIAEoDRIUCgxmb3J3YXJkX3BhdGgYBCABKAkSDAoEbm9kZRgFIAEoBRIQCghyZWNlaXZlZBgGIAEoBBINCgV0b3RhbBgHIAEoBBIOCgZzaGEyNTYYCCABKAkSEAoIbGl2ZV91cmwYCSABKAkijwEKEE1lZGlhUmVhZHlVcGRhdGUSDwoHY2hhdF9pZBgBIAEoAxILCgNzZXEYAiABKAMSCwoDb3JkGAMgASgNEhQKDGZvcndhcmRfcGF0aBgEIAEoCRIMCgRub2RlGAUgASgFEg0KBXRodW1iGAYgASgIEg0KBXN0YXRlGAcgASgJEg4KBnNoYTI1NhgIIAEoCSItCgpDYWxsVXBkYXRlEh8KBGNhbGwYASABKAsyES5xcWJyaWRnZS52MS5DYWxsIlsKD0NoYXRFdmVudFVwZGF0ZRIPCgdjaGF0X2lkGAEgASgDEhAKCGNoYXRfcHRzGAIgASgDEiUKBWV2ZW50GAMgASgLMhYucXFicmlkZ2UudjEuQ2hhdEV2ZW50Ij4KDFR5cGluZ1VwZGF0ZRIPCgdjaGF0X2lkGAEgASgDEg8KB3VzZXJfaWQYAiABKAMSDAoEdGV4dBgDIAEoCSJECgxPdXRib3hVcGRhdGUSCwoDcHRzGAEgASgDEicKBWVudHJ5GAIgASgLMhgucXFicmlkZ2UudjEuT3V0Ym94RW50cnkiQAoMRGlhbG9nVXBkYXRlEgsKA3B0cxgBIAEoAxIjCgZkaWFsb2cYAiABKAsyEy5xcWJyaWRnZS52MS5EaWFsb2ciOgoKUGVlclVwZGF0ZRILCgNwdHMYASABKAMSHwoEcGVlchgCIAEoCzIRLnFxYnJpZGdlLnYxLlBlZXIiSQoPVG9tYnN0b25lVXBkYXRlEgsKA3B0cxgBIAEoAxIpCgl0b21ic3RvbmUYAiABKAsyFi5xcWJyaWRnZS52MS5Ub21ic3RvbmUiXQoRQ2hhdE1lc3NhZ2VVcGRhdGUSDwoHY2hhdF9pZBgBIAEoAxIQCghjaGF0X3B0cxgCIAEoAxIlCgdtZXNzYWdlGAMgASgLMhQucXFicmlkZ2UudjEuTWVzc2FnZSItCglIZWFydGJlYXQSCwoDcHRzGAEgASgDEhMKC3NlcnZlcl90aW1lGAIgASgDIggKBlJlc3luYzLHAwoLU3luY1NlcnZpY2USRwoIR2V0U3RhdGUSHC5xcWJyaWRnZS52MS5HZXRTdGF0ZVJlcXVlc3QaHS5xcWJyaWRnZS52MS5HZXRTdGF0ZVJlc3BvbnNlElYKDUdldERpZmZlcmVuY2USIS5xcWJyaWRnZS52MS5HZXREaWZmZXJlbmNlUmVxdWVzdBoiLnFxYnJpZGdlLnYxLkdldERpZmZlcmVuY2VSZXNwb25zZRJiChFHZXRDaGF0RGlmZmVyZW5jZRIlLnFxYnJpZGdlLnYxLkdldENoYXREaWZmZXJlbmNlUmVxdWVzdBomLnFxYnJpZGdlLnYxLkdldENoYXREaWZmZXJlbmNlUmVzcG9uc2USZQoSR2V0Q2hhdERpZmZlcmVuY2VzEiYucXFicmlkZ2UudjEuR2V0Q2hhdERpZmZlcmVuY2VzUmVxdWVzdBonLnFxYnJpZGdlLnYxLkdldENoYXREaWZmZXJlbmNlc1Jlc3BvbnNlEkwKCVN1YnNjcmliZRIdLnFxYnJpZGdlLnYxLlN1YnNjcmliZVJlcXVlc3QaHi5xcWJyaWRnZS52MS5TdWJzY3JpYmVSZXNwb25zZTABYgZwcm90bzM", [file_qqbridge_v1_auth, file_qqbridge_v1_calls, file_qqbridge_v1_common]);
 
 /**
  * @generated from message qqbridge.v1.GetStateRequest
@@ -170,6 +172,13 @@ export type Difference = Message<"qqbridge.v1.Difference"> & {
    * @generated from field: repeated qqbridge.v1.OutboxEntry outbox = 7;
    */
   outbox: OutboxEntry[];
+
+  /**
+   * 账号设置在这段 pts 里变过才有；没有 = 不变（全新设备没有 = 一直是默认值）。
+   *
+   * @generated from field: qqbridge.v1.AccountSettings settings = 8;
+   */
+  settings?: AccountSettings | undefined;
 };
 
 /**
@@ -474,6 +483,14 @@ export type SubscribeResponse = Message<"qqbridge.v1.SubscribeResponse"> & {
      */
     value: MediaProgressUpdate;
     case: "mediaProgress";
+  } | {
+    /**
+     * 账号设置变了（占 pts）。
+     *
+     * @generated from field: qqbridge.v1.SettingsUpdate settings = 14;
+     */
+    value: SettingsUpdate;
+    case: "settings";
   } | { case: undefined; value?: undefined };
 };
 
@@ -483,6 +500,28 @@ export type SubscribeResponse = Message<"qqbridge.v1.SubscribeResponse"> & {
  */
 export const SubscribeResponseSchema: GenMessage<SubscribeResponse> = /*@__PURE__*/
   messageDesc(file_qqbridge_v1_sync, 13);
+
+/**
+ * @generated from message qqbridge.v1.SettingsUpdate
+ */
+export type SettingsUpdate = Message<"qqbridge.v1.SettingsUpdate"> & {
+  /**
+   * @generated from field: int64 pts = 1;
+   */
+  pts: bigint;
+
+  /**
+   * @generated from field: qqbridge.v1.AccountSettings settings = 2;
+   */
+  settings?: AccountSettings | undefined;
+};
+
+/**
+ * Describes the message qqbridge.v1.SettingsUpdate.
+ * Use `create(SettingsUpdateSchema)` to create a new message.
+ */
+export const SettingsUpdateSchema: GenMessage<SettingsUpdate> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_sync, 14);
 
 /**
  * @generated from message qqbridge.v1.MediaProgressUpdate
@@ -547,7 +586,7 @@ export type MediaProgressUpdate = Message<"qqbridge.v1.MediaProgressUpdate"> & {
  * Use `create(MediaProgressUpdateSchema)` to create a new message.
  */
 export const MediaProgressUpdateSchema: GenMessage<MediaProgressUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 14);
+  messageDesc(file_qqbridge_v1_sync, 15);
 
 /**
  * @generated from message qqbridge.v1.MediaReadyUpdate
@@ -607,7 +646,7 @@ export type MediaReadyUpdate = Message<"qqbridge.v1.MediaReadyUpdate"> & {
  * Use `create(MediaReadyUpdateSchema)` to create a new message.
  */
 export const MediaReadyUpdateSchema: GenMessage<MediaReadyUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 15);
+  messageDesc(file_qqbridge_v1_sync, 16);
 
 /**
  * @generated from message qqbridge.v1.CallUpdate
@@ -624,7 +663,7 @@ export type CallUpdate = Message<"qqbridge.v1.CallUpdate"> & {
  * Use `create(CallUpdateSchema)` to create a new message.
  */
 export const CallUpdateSchema: GenMessage<CallUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 16);
+  messageDesc(file_qqbridge_v1_sync, 17);
 
 /**
  * @generated from message qqbridge.v1.ChatEventUpdate
@@ -651,7 +690,7 @@ export type ChatEventUpdate = Message<"qqbridge.v1.ChatEventUpdate"> & {
  * Use `create(ChatEventUpdateSchema)` to create a new message.
  */
 export const ChatEventUpdateSchema: GenMessage<ChatEventUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 17);
+  messageDesc(file_qqbridge_v1_sync, 18);
 
 /**
  * "对方正在输入…"：只推给在线的客户端，几秒后自动消失。
@@ -680,7 +719,7 @@ export type TypingUpdate = Message<"qqbridge.v1.TypingUpdate"> & {
  * Use `create(TypingUpdateSchema)` to create a new message.
  */
 export const TypingUpdateSchema: GenMessage<TypingUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 18);
+  messageDesc(file_qqbridge_v1_sync, 19);
 
 /**
  * @generated from message qqbridge.v1.OutboxUpdate
@@ -702,7 +741,7 @@ export type OutboxUpdate = Message<"qqbridge.v1.OutboxUpdate"> & {
  * Use `create(OutboxUpdateSchema)` to create a new message.
  */
 export const OutboxUpdateSchema: GenMessage<OutboxUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 19);
+  messageDesc(file_qqbridge_v1_sync, 20);
 
 /**
  * @generated from message qqbridge.v1.DialogUpdate
@@ -724,7 +763,7 @@ export type DialogUpdate = Message<"qqbridge.v1.DialogUpdate"> & {
  * Use `create(DialogUpdateSchema)` to create a new message.
  */
 export const DialogUpdateSchema: GenMessage<DialogUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 20);
+  messageDesc(file_qqbridge_v1_sync, 21);
 
 /**
  * @generated from message qqbridge.v1.PeerUpdate
@@ -746,7 +785,7 @@ export type PeerUpdate = Message<"qqbridge.v1.PeerUpdate"> & {
  * Use `create(PeerUpdateSchema)` to create a new message.
  */
 export const PeerUpdateSchema: GenMessage<PeerUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 21);
+  messageDesc(file_qqbridge_v1_sync, 22);
 
 /**
  * @generated from message qqbridge.v1.TombstoneUpdate
@@ -768,7 +807,7 @@ export type TombstoneUpdate = Message<"qqbridge.v1.TombstoneUpdate"> & {
  * Use `create(TombstoneUpdateSchema)` to create a new message.
  */
 export const TombstoneUpdateSchema: GenMessage<TombstoneUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 22);
+  messageDesc(file_qqbridge_v1_sync, 23);
 
 /**
  * @generated from message qqbridge.v1.ChatMessageUpdate
@@ -795,7 +834,7 @@ export type ChatMessageUpdate = Message<"qqbridge.v1.ChatMessageUpdate"> & {
  * Use `create(ChatMessageUpdateSchema)` to create a new message.
  */
 export const ChatMessageUpdateSchema: GenMessage<ChatMessageUpdate> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 23);
+  messageDesc(file_qqbridge_v1_sync, 24);
 
 /**
  * @generated from message qqbridge.v1.Heartbeat
@@ -817,7 +856,7 @@ export type Heartbeat = Message<"qqbridge.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 24);
+  messageDesc(file_qqbridge_v1_sync, 25);
 
 /**
  * @generated from message qqbridge.v1.Resync
@@ -830,7 +869,7 @@ export type Resync = Message<"qqbridge.v1.Resync"> & {
  * Use `create(ResyncSchema)` to create a new message.
  */
 export const ResyncSchema: GenMessage<Resync> = /*@__PURE__*/
-  messageDesc(file_qqbridge_v1_sync, 25);
+  messageDesc(file_qqbridge_v1_sync, 26);
 
 /**
  * 类 Telegram 的增量同步（docs/design.md 4.7）。

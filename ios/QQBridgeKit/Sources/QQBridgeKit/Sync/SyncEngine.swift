@@ -166,6 +166,8 @@ public actor SyncEngine {
         try await withPts(u.pts) { try self.store.apply(tombstone: u.tombstone, pts: u.pts) }
       case .outbox(let u):
         try await withPts(u.pts) { try self.store.apply(outbox: u.entry, pts: u.pts) }
+      case .settings(let u):
+        try await withPts(u.pts) { try self.store.apply(settings: u.settings, pts: u.pts) }
       case .chatMessage(let u):
         try await withChatPts(u.chatID, u.chatPts) { contiguousTop in
           try self.store.applyChat(

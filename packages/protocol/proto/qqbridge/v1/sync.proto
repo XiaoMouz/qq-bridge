@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package qqbridge.v1;
 
+import "qqbridge/v1/auth.proto";
 import "qqbridge/v1/calls.proto";
 import "qqbridge/v1/common.proto";
 
@@ -56,6 +57,8 @@ message Difference {
   repeated Tombstone tombstones = 6;
   // 发件箱变化。全新设备（pts = 0）只会收到尚未发送成功的条目。
   repeated OutboxEntry outbox = 7;
+  // 账号设置在这段 pts 里变过才有；没有 = 不变（全新设备没有 = 一直是默认值）。
+  AccountSettings settings = 8;
 }
 
 message GetChatDifferenceRequest {
@@ -127,7 +130,14 @@ message SubscribeResponse {
     MediaReadyUpdate media_ready = 12;
     // 服务端正在从 QQ 下载视频、文件的进度（临时事件，同一个媒体最多约每 0.7 秒一次）。
     MediaProgressUpdate media_progress = 13;
+    // 账号设置变了（占 pts）。
+    SettingsUpdate settings = 14;
   }
+}
+
+message SettingsUpdate {
+  int64 pts = 1;
+  AccountSettings settings = 2;
 }
 
 message MediaProgressUpdate {

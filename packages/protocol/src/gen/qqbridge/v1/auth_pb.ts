@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/auth.proto.
  */
 export const file_qqbridge_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("ChZxcWJyaWRnZS92MS9hdXRoLnByb3RvEgtxcWJyaWRnZS52MSJZCgxMb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkSEwoLZGV2aWNlX25hbWUYAyABKAkSEAoIcGxhdGZvcm0YBCABKAkiRQoNTG9naW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRISCgphY2NvdW50X2lkGAIgASgDEhEKCWRldmljZV9pZBgDIAEoAyIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlIhQKEkxpc3REZXZpY2VzUmVxdWVzdCI7ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEiQKB2RldmljZXMYASADKAsyEy5xcWJyaWRnZS52MS5EZXZpY2UibwoGRGV2aWNlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoAxIUCgxsYXN0X3NlZW5fYXQYBSABKAMSDwoHY3VycmVudBgGIAEoCCIoChNSZXZva2VEZXZpY2VSZXF1ZXN0EhEKCWRldmljZV9pZBgBIAEoAyInChRSZXZva2VEZXZpY2VSZXNwb25zZRIPCgdyZXZva2VkGAEgASgIInUKE1JlZ2lzdGVyUHVzaFJlcXVlc3QSEgoKYXBuc190b2tlbhgBIAEoCRIXCg9hcG5zX3ZvaXBfdG9rZW4YAiABKAkSMQoLZW52aXJvbm1lbnQYAyABKA4yHC5xcWJyaWRnZS52MS5BcG5zRW52aXJvbm1lbnQiFgoUUmVnaXN0ZXJQdXNoUmVzcG9uc2UqcgoPQXBuc0Vudmlyb25tZW50EiAKHEFQTlNfRU5WSVJPTk1FTlRfVU5TUEVDSUZJRUQQABIcChhBUE5TX0VOVklST05NRU5UX1NBTkRCT1gQARIfChtBUE5TX0VOVklST05NRU5UX1BST0RVQ1RJT04QAjKMAwoLQXV0aFNlcnZpY2USPgoFTG9naW4SGS5xcWJyaWRnZS52MS5Mb2dpblJlcXVlc3QaGi5xcWJyaWRnZS52MS5Mb2dpblJlc3BvbnNlEkEKBkxvZ291dBIaLnFxYnJpZGdlLnYxLkxvZ291dFJlcXVlc3QaGy5xcWJyaWRnZS52MS5Mb2dvdXRSZXNwb25zZRJQCgtMaXN0RGV2aWNlcxIfLnFxYnJpZGdlLnYxLkxpc3REZXZpY2VzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3REZXZpY2VzUmVzcG9uc2USUwoMUmV2b2tlRGV2aWNlEiAucXFicmlkZ2UudjEuUmV2b2tlRGV2aWNlUmVxdWVzdBohLnFxYnJpZGdlLnYxLlJldm9rZURldmljZVJlc3BvbnNlElMKDFJlZ2lzdGVyUHVzaBIgLnFxYnJpZGdlLnYxLlJlZ2lzdGVyUHVzaFJlcXVlc3QaIS5xcWJyaWRnZS52MS5SZWdpc3RlclB1c2hSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChZxcWJyaWRnZS92MS9hdXRoLnByb3RvEgtxcWJyaWRnZS52MSJZCgxMb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkSEwoLZGV2aWNlX25hbWUYAyABKAkSEAoIcGxhdGZvcm0YBCABKAkiRQoNTG9naW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRISCgphY2NvdW50X2lkGAIgASgDEhEKCWRldmljZV9pZBgDIAEoAyIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlIhQKEkxpc3REZXZpY2VzUmVxdWVzdCI7ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEiQKB2RldmljZXMYASADKAsyEy5xcWJyaWRnZS52MS5EZXZpY2UibwoGRGV2aWNlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoAxIUCgxsYXN0X3NlZW5fYXQYBSABKAMSDwoHY3VycmVudBgGIAEoCCIoChNSZXZva2VEZXZpY2VSZXF1ZXN0EhEKCWRldmljZV9pZBgBIAEoAyInChRSZXZva2VEZXZpY2VSZXNwb25zZRIPCgdyZXZva2VkGAEgASgIInUKE1JlZ2lzdGVyUHVzaFJlcXVlc3QSEgoKYXBuc190b2tlbhgBIAEoCRIXCg9hcG5zX3ZvaXBfdG9rZW4YAiABKAkSMQoLZW52aXJvbm1lbnQYAyABKA4yHC5xcWJyaWRnZS52MS5BcG5zRW52aXJvbm1lbnQiFgoUUmVnaXN0ZXJQdXNoUmVzcG9uc2UiMgoPQWNjb3VudFNldHRpbmdzEh8KF3Bob25lX25vdGlmaWNhdGlvbnNfb2ZmGAEgASgIIksKGVNldEFjY291bnRTZXR0aW5nc1JlcXVlc3QSLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MiWQoaU2V0QWNjb3VudFNldHRpbmdzUmVzcG9uc2USLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MSCwoDcHRzGAIgASgDKnIKD0FwbnNFbnZpcm9ubWVudBIgChxBUE5TX0VOVklST05NRU5UX1VOU1BFQ0lGSUVEEAASHAoYQVBOU19FTlZJUk9OTUVOVF9TQU5EQk9YEAESHwobQVBOU19FTlZJUk9OTUVOVF9QUk9EVUNUSU9OEAIy8wMKC0F1dGhTZXJ2aWNlEj4KBUxvZ2luEhkucXFicmlkZ2UudjEuTG9naW5SZXF1ZXN0GhoucXFicmlkZ2UudjEuTG9naW5SZXNwb25zZRJBCgZMb2dvdXQSGi5xcWJyaWRnZS52MS5Mb2dvdXRSZXF1ZXN0GhsucXFicmlkZ2UudjEuTG9nb3V0UmVzcG9uc2USUAoLTGlzdERldmljZXMSHy5xcWJyaWRnZS52MS5MaXN0RGV2aWNlc1JlcXVlc3QaIC5xcWJyaWRnZS52MS5MaXN0RGV2aWNlc1Jlc3BvbnNlElMKDFJldm9rZURldmljZRIgLnFxYnJpZGdlLnYxLlJldm9rZURldmljZVJlcXVlc3QaIS5xcWJyaWRnZS52MS5SZXZva2VEZXZpY2VSZXNwb25zZRJTCgxSZWdpc3RlclB1c2gSIC5xcWJyaWRnZS52MS5SZWdpc3RlclB1c2hSZXF1ZXN0GiEucXFicmlkZ2UudjEuUmVnaXN0ZXJQdXNoUmVzcG9uc2USZQoSU2V0QWNjb3VudFNldHRpbmdzEiYucXFicmlkZ2UudjEuU2V0QWNjb3VudFNldHRpbmdzUmVxdWVzdBonLnFxYnJpZGdlLnYxLlNldEFjY291bnRTZXR0aW5nc1Jlc3BvbnNlYgZwcm90bzM");
 
 /**
  * @generated from message qqbridge.v1.LoginRequest
@@ -246,6 +246,68 @@ export const RegisterPushResponseSchema: GenMessage<RegisterPushResponse> = /*@_
   messageDesc(file_qqbridge_v1_auth, 10);
 
 /**
+ * 账号级设置：所有设备共享，存在服务端，经 pts 同步。字段都按「零值 = 默认行为」取名，旧客户端不受影响。
+ *
+ * @generated from message qqbridge.v1.AccountSettings
+ */
+export type AccountSettings = Message<"qqbridge.v1.AccountSettings"> & {
+  /**
+   * true = 不给手机（iOS / iPadOS 设备）发新消息的通知推送；Mac 照常。来电、已读同步不受影响。
+   *
+   * @generated from field: bool phone_notifications_off = 1;
+   */
+  phoneNotificationsOff: boolean;
+};
+
+/**
+ * Describes the message qqbridge.v1.AccountSettings.
+ * Use `create(AccountSettingsSchema)` to create a new message.
+ */
+export const AccountSettingsSchema: GenMessage<AccountSettings> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_auth, 11);
+
+/**
+ * @generated from message qqbridge.v1.SetAccountSettingsRequest
+ */
+export type SetAccountSettingsRequest = Message<"qqbridge.v1.SetAccountSettingsRequest"> & {
+  /**
+   * @generated from field: qqbridge.v1.AccountSettings settings = 1;
+   */
+  settings?: AccountSettings | undefined;
+};
+
+/**
+ * Describes the message qqbridge.v1.SetAccountSettingsRequest.
+ * Use `create(SetAccountSettingsRequestSchema)` to create a new message.
+ */
+export const SetAccountSettingsRequestSchema: GenMessage<SetAccountSettingsRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_auth, 12);
+
+/**
+ * @generated from message qqbridge.v1.SetAccountSettingsResponse
+ */
+export type SetAccountSettingsResponse = Message<"qqbridge.v1.SetAccountSettingsResponse"> & {
+  /**
+   * 改后的设置和它的 pts（客户端可直接应用，也会从 Subscribe 再收到一次）。
+   *
+   * @generated from field: qqbridge.v1.AccountSettings settings = 1;
+   */
+  settings?: AccountSettings | undefined;
+
+  /**
+   * @generated from field: int64 pts = 2;
+   */
+  pts: bigint;
+};
+
+/**
+ * Describes the message qqbridge.v1.SetAccountSettingsResponse.
+ * Use `create(SetAccountSettingsResponseSchema)` to create a new message.
+ */
+export const SetAccountSettingsResponseSchema: GenMessage<SetAccountSettingsResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_auth, 13);
+
+/**
  * @generated from enum qqbridge.v1.ApnsEnvironment
  */
 export enum ApnsEnvironment {
@@ -320,6 +382,16 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof RegisterPushRequestSchema;
     output: typeof RegisterPushResponseSchema;
+  },
+  /**
+   * 账号级设置（目前只有「通知手机」）。改完经 pts 推给所有设备（Difference.settings / SubscribeResponse.settings）。
+   *
+   * @generated from rpc qqbridge.v1.AuthService.SetAccountSettings
+   */
+  setAccountSettings: {
+    methodKind: "unary";
+    input: typeof SetAccountSettingsRequestSchema;
+    output: typeof SetAccountSettingsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_qqbridge_v1_auth, 0);

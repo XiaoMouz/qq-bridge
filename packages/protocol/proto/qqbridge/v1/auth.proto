@@ -11,6 +11,8 @@ service AuthService {
   rpc RevokeDevice(RevokeDeviceRequest) returns (RevokeDeviceResponse);
   // 登记本设备的推送令牌（APNs 普通推送和 VoIP 推送）。令牌变化时（例如重装 App）重新调用；传空表示取消。
   rpc RegisterPush(RegisterPushRequest) returns (RegisterPushResponse);
+  // 账号级设置（目前只有「通知手机」）。改完经 pts 推给所有设备（Difference.settings / SubscribeResponse.settings）。
+  rpc SetAccountSettings(SetAccountSettingsRequest) returns (SetAccountSettingsResponse);
 }
 
 message LoginRequest {
@@ -67,3 +69,19 @@ message RegisterPushRequest {
 }
 
 message RegisterPushResponse {}
+
+// 账号级设置：所有设备共享，存在服务端，经 pts 同步。字段都按「零值 = 默认行为」取名，旧客户端不受影响。
+message AccountSettings {
+  // true = 不给手机（iOS / iPadOS 设备）发新消息的通知推送；Mac 照常。来电、已读同步不受影响。
+  bool phone_notifications_off = 1;
+}
+
+message SetAccountSettingsRequest {
+  AccountSettings settings = 1;
+}
+
+message SetAccountSettingsResponse {
+  // 改后的设置和它的 pts（客户端可直接应用，也会从 Subscribe 再收到一次）。
+  AccountSettings settings = 1;
+  int64 pts = 2;
+}

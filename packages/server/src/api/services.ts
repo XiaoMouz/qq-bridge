@@ -21,6 +21,7 @@ import {
 import { MessageFlag } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { registerPush } from '../push/registration.ts';
+import { setAccountSettings } from '../auth/settings.ts';
 import { CallError } from '../calls/service.ts';
 import { ContactError, type UserProfile } from '../contacts/service.ts';
 import { InteractionError } from '../messages/interactions.ts';
@@ -96,6 +97,13 @@ function authService(deps: ApiDeps): ServiceImpl<typeof AuthService> {
       const env = req.environment === ApnsEnvironment.SANDBOX ? 'sandbox' : req.environment === ApnsEnvironment.PRODUCTION ? 'production' : null;
       await registerPush(deps.writers, auth, { token: req.apnsToken, voipToken: req.apnsVoipToken, env });
       return {};
+    },
+    async setAccountSettings(req, ctx) {
+      const auth = requireAuth(ctx);
+      if (!req.settings) throw new ConnectError('settings is required', Code.InvalidArgument);
+      const res = await setAccountSettings(deps.writers, auth.accountId, { phoneNotificationsOff: req.settings.phoneNotificationsOff });
+      deps.logger.info({ deviceId: auth.deviceId, ...res.settings }, 'account settings changed');
+      return { settings: res.settings, pts: BigInt(res.pts) };
     },
   };
 }
@@ -200,6 +208,8 @@ function streamEventToProto(event: StreamEvent): MessageInitShape<typeof Subscri
           };
         case 'outbox':
           return { event: { case: 'outbox', value: { pts: BigInt(u.pts), entry: outboxToProto(u.entry) } } };
+        case 'settings':
+          return { event: { case: 'settings', value: { pts: BigInt(u.pts), settings: u.settings } } };
         case 'chatEvent':
           return {
             event: {

@@ -415,6 +415,7 @@ qq-bridge/
 
 ### 4.9 推送（APNs）
 - **消息**：私聊默认全部推送，群聊默认只推 @我和回复我的消息；推送带 `mutable-content`，由 NSE 用 Communication Notifications 显示头像，并支持快捷回复；P4 起对推送内容加密。
+- **通知手机**（账号级设置，`AuthService.SetAccountSettings`）：关掉后新消息只推给 Mac，不推 iOS 设备；来电、已读同步照常。存在 `accounts.phone_notifications_off`，改动占全局 pts（`accounts.settings_pts`），在线设备经 Subscribe 的 `settings` 马上收到，离线设备补差量时从 `Difference.settings` 拿到。
 - **来电**：
   - 能用 CallKit 时：PushKit VoIP 推送 → `reportNewIncomingCall` → 系统原生来电界面。
   - CallKit 受限时：时效性通知加约 30 秒铃声，点击进入 App 内的来电界面。

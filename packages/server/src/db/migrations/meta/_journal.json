@@ -225,6 +225,13 @@
       "when": 1794300000000,
       "tag": "0031_people_lookups",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794900000000,
+      "tag": "0032_account_settings",
+      "breakpoints": true
     }
   ]
 }

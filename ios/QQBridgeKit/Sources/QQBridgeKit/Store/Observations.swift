@@ -81,6 +81,13 @@ extension LocalStore {
       .values(in: db)
   }
 
+  /// 账号设置：本机或其他设备改了（经 Subscribe / 差量落库）都会刷新。
+  public func observeAccountSettings() -> AsyncValueObservation<Qqbridge_V1_AccountSettings> {
+    ValueObservation.tracking { db in try Self.accountSettings(db) }
+      .removeDuplicates()
+      .values(in: db)
+  }
+
   /// 等待指定会话同步落库，不受会话列表的排序和数量上限影响。
   public func observeDialog(chatId: Int64) -> AsyncValueObservation<Qqbridge_V1_Dialog?> {
     ValueObservation.tracking { db in

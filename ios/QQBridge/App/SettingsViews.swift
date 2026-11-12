@@ -133,9 +133,11 @@ struct StatusDotLabelStyle: LabelStyle {
 struct PreferencesView: View {
   @AppStorage(DialogRow.linesKey) private var previewLines = 2
   @AppStorage(VoiceTranscripts.autoKey) private var autoTranscribe = false
+  @Environment(AppModel.self) private var model
 
   var body: some View {
     Form {
+      if let session = model.session { PhoneNotificationsSection(session: session) }
       Section("消息列表") {
         Picker("预览行数", selection: $previewLines) {
           Text("两行").tag(2)
@@ -152,6 +154,51 @@ struct PreferencesView: View {
     }
     .navigationTitle("偏好")
     .navigationBarTitleDisplayMode(.inline)
+  }
+}
+
+/// 「通知手机」：账号级设置，存在服务端（AuthService.SetAccountSettings）。
+/// 开关显示本地库里的值，本机或其他设备改了都经 Subscribe 落库后刷新（observeAccountSettings），不轮询。
+private struct PhoneNotificationsSection: View {
+  let session: Session
+  @State private var phoneOn = true
+  /// 已发出、服务端结果还没同步回来的值：期间不让旧的库值把开关拨回去。
+  @State private var pending: Bool?
+  @State private var failed = false
+
+  var body: some View {
+    Section {
+      Toggle("通知手机", isOn: Binding(get: { pending ?? phoneOn }, set: { set($0) }))
+    } header: {
+      Text("通知")
+    } footer: {
+      Text(failed
+        ? "没改成功，请检查与服务器的连接后重试。"
+        : "关闭后，新消息不再推送到 iPhone / iPad，Mac 照常通知；来电不受影响。在任何一台设备上改，其他设备会同时更新。")
+    }
+    .task {
+      do {
+        for try await s in session.store.observeAccountSettings() {
+          phoneOn = !s.phoneNotificationsOff
+          if pending == phoneOn { pending = nil }
+        }
+      } catch {}
+    }
+  }
+
+  private func set(_ on: Bool) {
+    pending = on
+    failed = false
+    var req = Qqbridge_V1_SetAccountSettingsRequest()
+    req.settings.phoneNotificationsOff = !on
+    Task {
+      do {
+        _ = try await session.api.auth.setAccountSettings(request: req, headers: session.api.headers).get()
+      } catch {
+        failed = true
+        pending = nil
+      }
+    }
   }
 }
 

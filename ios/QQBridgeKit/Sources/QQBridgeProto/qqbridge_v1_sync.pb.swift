@@ -121,9 +121,21 @@ public nonisolated struct Qqbridge_V1_Difference: Sendable {
   /// 发件箱变化。全新设备（pts = 0）只会收到尚未发送成功的条目。
   public var outbox: [Qqbridge_V1_OutboxEntry] = []
 
+  /// 账号设置在这段 pts 里变过才有；没有 = 不变（全新设备没有 = 一直是默认值）。
+  public var settings: Qqbridge_V1_AccountSettings {
+    get {_settings ?? Qqbridge_V1_AccountSettings()}
+    set {_settings = newValue}
+  }
+  /// Returns true if `settings` has been explicitly set.
+  public var hasSettings: Bool {self._settings != nil}
+  /// Clears the value of `settings`. Subsequent reads from it will return its default value.
+  public mutating func clearSettings() {self._settings = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+
+  fileprivate var _settings: Qqbridge_V1_AccountSettings? = nil
 }
 
 public nonisolated struct Qqbridge_V1_GetChatDifferenceRequest: Sendable {
@@ -360,6 +372,15 @@ public nonisolated struct Qqbridge_V1_SubscribeResponse: Sendable {
     set {event = .mediaProgress(newValue)}
   }
 
+  /// 账号设置变了（占 pts）。
+  public var settings: Qqbridge_V1_SettingsUpdate {
+    get {
+      if case .settings(let v)? = event {return v}
+      return Qqbridge_V1_SettingsUpdate()
+    }
+    set {event = .settings(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Event: Equatable, Sendable {
@@ -381,10 +402,35 @@ public nonisolated struct Qqbridge_V1_SubscribeResponse: Sendable {
     case mediaReady(Qqbridge_V1_MediaReadyUpdate)
     /// 服务端正在从 QQ 下载视频、文件的进度（临时事件，同一个媒体最多约每 0.7 秒一次）。
     case mediaProgress(Qqbridge_V1_MediaProgressUpdate)
+    /// 账号设置变了（占 pts）。
+    case settings(Qqbridge_V1_SettingsUpdate)
 
   }
 
   public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_SettingsUpdate: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var pts: Int64 = 0
+
+  public var settings: Qqbridge_V1_AccountSettings {
+    get {_settings ?? Qqbridge_V1_AccountSettings()}
+    set {_settings = newValue}
+  }
+  /// Returns true if `settings` has been explicitly set.
+  public var hasSettings: Bool {self._settings != nil}
+  /// Clears the value of `settings`. Subsequent reads from it will return its default value.
+  public mutating func clearSettings() {self._settings = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _settings: Qqbridge_V1_AccountSettings? = nil
 }
 
 public nonisolated struct Qqbridge_V1_MediaProgressUpdate: Sendable {
@@ -833,7 +879,7 @@ nonisolated extension Qqbridge_V1_GetDifferenceResponse: SwiftProtobuf.Message, 
 
 nonisolated extension Qqbridge_V1_Difference: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Difference"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pts\0\u{3}is_final\0\u{3}too_long\0\u{1}dialogs\0\u{1}peers\0\u{1}tombstones\0\u{1}outbox\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pts\0\u{3}is_final\0\u{3}too_long\0\u{1}dialogs\0\u{1}peers\0\u{1}tombstones\0\u{1}outbox\0\u{1}settings\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -848,12 +894,17 @@ nonisolated extension Qqbridge_V1_Difference: SwiftProtobuf.Message, SwiftProtob
       case 5: try { try decoder.decodeRepeatedMessageField(value: &self.peers) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.tombstones) }()
       case 7: try { try decoder.decodeRepeatedMessageField(value: &self.outbox) }()
+      case 8: try { try decoder.decodeSingularMessageField(value: &self._settings) }()
       default: break
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
     if self.pts != 0 {
       try visitor.visitSingularInt64Field(value: self.pts, fieldNumber: 1)
     }
@@ -875,6 +926,9 @@ nonisolated extension Qqbridge_V1_Difference: SwiftProtobuf.Message, SwiftProtob
     if !self.outbox.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.outbox, fieldNumber: 7)
     }
+    try { if let v = self._settings {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -886,6 +940,7 @@ nonisolated extension Qqbridge_V1_Difference: SwiftProtobuf.Message, SwiftProtob
     if lhs.peers != rhs.peers {return false}
     if lhs.tombstones != rhs.tombstones {return false}
     if lhs.outbox != rhs.outbox {return false}
+    if lhs._settings != rhs._settings {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1168,7 +1223,7 @@ nonisolated extension Qqbridge_V1_SubscribeRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SubscribeResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}difference\0\u{1}dialog\0\u{1}peer\0\u{1}tombstone\0\u{3}chat_message\0\u{1}heartbeat\0\u{1}resync\0\u{1}outbox\0\u{3}chat_event\0\u{1}typing\0\u{1}call\0\u{3}media_ready\0\u{3}media_progress\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}difference\0\u{1}dialog\0\u{1}peer\0\u{1}tombstone\0\u{3}chat_message\0\u{1}heartbeat\0\u{1}resync\0\u{1}outbox\0\u{3}chat_event\0\u{1}typing\0\u{1}call\0\u{3}media_ready\0\u{3}media_progress\0\u{1}settings\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1345,6 +1400,19 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
           self.event = .mediaProgress(v)
         }
       }()
+      case 14: try {
+        var v: Qqbridge_V1_SettingsUpdate?
+        var hadOneofValue = false
+        if let current = self.event {
+          hadOneofValue = true
+          if case .settings(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.event = .settings(v)
+        }
+      }()
       default: break
       }
     }
@@ -1408,6 +1476,10 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
       guard case .mediaProgress(let v)? = self.event else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 13)
     }()
+    case .settings?: try {
+      guard case .settings(let v)? = self.event else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 14)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -1415,6 +1487,45 @@ nonisolated extension Qqbridge_V1_SubscribeResponse: SwiftProtobuf.Message, Swif
 
   public static func ==(lhs: Qqbridge_V1_SubscribeResponse, rhs: Qqbridge_V1_SubscribeResponse) -> Bool {
     if lhs.event != rhs.event {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_SettingsUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SettingsUpdate"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pts\0\u{1}settings\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.pts) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._settings) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    if self.pts != 0 {
+      try visitor.visitSingularInt64Field(value: self.pts, fieldNumber: 1)
+    }
+    try { if let v = self._settings {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_SettingsUpdate, rhs: Qqbridge_V1_SettingsUpdate) -> Bool {
+    if lhs.pts != rhs.pts {return false}
+    if lhs._settings != rhs._settings {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

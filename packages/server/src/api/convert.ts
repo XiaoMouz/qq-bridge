@@ -301,6 +301,7 @@ export function differenceToProto(d: Difference): ProtoDifference {
     peers: d.peers.map(peerToProto),
     tombstones: d.tombstones.map((t) => ({ pts: big(t.pts), entity: t.entity, key: t.key })),
     outbox: d.outbox.map(outboxToProto),
+    ...(d.settings ? { settings: d.settings } : {}),
   });
 }
 
