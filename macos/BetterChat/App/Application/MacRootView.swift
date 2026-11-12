@@ -5,6 +5,7 @@ import UIKit
 /// 根视图：按登录阶段切换页面，并承载跨分区的全局浮层（连接状态、通话、横幅、提示、快速回复）。
 struct MacRootView: View {
   let router: MacCommandRouter
+  let keeper: MacWorkspaceKeeper<MacWorkspaceCoordinator>
   @Environment(AppModel.self) private var model
   @State private var manualSync = MacManualSync()
 
@@ -14,14 +15,17 @@ struct MacRootView: View {
       case .launching: ProgressView("正在打开 BetterChat…")
       case .loggedOut: MacLoginPage()
       case .ready(let session):
-        MacWorkspace(session: session, manualSync: manualSync, router: router)
+        MacWorkspace(session: session, manualSync: manualSync, router: router, keeper: keeper)
           .environment(\.session, session)
           .modifier(MacGlobalOverlays(session: session, manualSync: manualSync, router: router))
           .environment(\.macFullScreenCoverDidDismiss, { [weak router] in router?.workspace?.presentationDidDismiss() })
       }
     }
     .onChange(of: model.session == nil) { _, loggedOut in
-      if loggedOut { MacMediaWindows.shared.closeAll() }
+      guard loggedOut else { return }
+      MacMediaWindows.shared.closeAll()
+      // 工作区不随窗口释放（MacWorkspaceKeeper），退出登录时在这里拆掉。
+      keeper.discard()
     }
   }
 }

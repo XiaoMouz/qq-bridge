@@ -33,6 +33,7 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   private var settingPages: [MacSetting: UIViewController] = [:]
   private var chatInfoChat: Int64?
   private var contactPage: UIViewController?
+  private var hasAppeared = false
 
   init(_ dependencies: Dependencies) {
     model = dependencies.model
@@ -59,6 +60,9 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       selectSection: { [weak self] in self?.reselectOrSelect($0) },
       refreshContacts: { [weak self] in self?.contacts.refresh() },
       toggleSidebar: { [weak self] in self?.toggleSidebar() }))
+    // 上次的会话在建工作区时就放进右栏：窗口第一帧就是聊天，不先闪「选择会话」空状态（2026-11-12 用户反馈）。
+    // 以前等 viewDidAppear 才恢复，窗口已经画过一次空状态页。列表选中和检查器要等视图出现（workspaceAppeared）。
+    if model.pendingChat == nil, let id = chat.restorableChat { chat.open(id) }
     wireIntents()
     detail.show(chat.controller)
     rootViewController.appeared = { [weak self] in self?.workspaceAppeared() }
@@ -91,10 +95,17 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     search.route = { [weak self] route in self?.open(route) }
   }
 
+  /// 每次出现在窗口里都会调（首次显示，以及 ⌘W 后重开的新窗口接回这个工作区，见 MacWorkspaceKeeper）。
   private func workspaceAppeared() {
     router.attach(self)
     // 静默恢复上次会话：宽窗口右栏直接显示；窄窗口留在列表，不替用户进入详情。
     if model.pendingChat == nil, let id = chat.restorableChat { openChat(id, title: nil, composer: nil, revealDetail: false) }
+    if !hasAppeared, let id = chat.selectedChat {
+      // init 里已恢复的会话：只在第一次出现时补上列表选中和检查器；重开窗口时列表滚动位置保持不动。
+      dialogs.selectChat(id)
+      updateChatInfo()
+    }
+    hasAppeared = true
     updateWindowTitle()
   }
 

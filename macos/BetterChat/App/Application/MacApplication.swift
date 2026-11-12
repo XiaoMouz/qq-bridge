@@ -16,6 +16,8 @@ final class MacAppDelegate: UIResponder, UIApplicationDelegate {
   private let notifications = AppDelegate()
   /// 应用唯一的命令路由；菜单、快捷键与根视图都经它找到当前工作区。
   let router = MacCommandRouter()
+  /// 已登录的工作区（关掉主窗口后保留，重开的窗口接回它）。
+  let workspaces = MacWorkspaceKeeper<MacWorkspaceCoordinator>()
 
   func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
     if Self.runsStateTests { return true }
@@ -80,7 +82,8 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
   func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
     guard let scene = scene as? UIWindowScene,
-          let router = (UIApplication.shared.delegate as? MacAppDelegate)?.router else { return }
+          let app = UIApplication.shared.delegate as? MacAppDelegate else { return }
+    let router = app.router
     // 2026-10-19 实机：重启恢复的媒体 / 设置 / 快速回复窗口不经过 configurationForConnecting，系统按默认配置当成主窗口，
     // 开出两个主窗口。是别的窗口类型、或已经有一个主窗口时，这个就不要了（媒体等内容本来就不随重启恢复）。
     let recorded = session.userInfo?[MacWindowKind.key] as? String
@@ -104,15 +107,16 @@ final class MacSceneDelegate: UIResponder, UIWindowSceneDelegate {
     scene.titlebar?.toolbarStyle = .unified
     scene.activationConditions.canActivateForTargetContentIdentifierPredicate = NSPredicate(format: "SELF == nil OR NOT (SELF BEGINSWITH 'media:' OR SELF BEGINSWITH 'quickreply:' OR SELF == 'settings' OR SELF == 'qqlogin')")
     scene.sizeRestrictions?.minimumSize = MacMetrics.minimumWindow
+    // 先恢复登录：根视图第一帧就是工作区，不先画一帧「正在打开」（已登录时 launch 是空操作）。
+    AppModel.shared.launch()
     let window = MacWindow(windowScene: scene, router: router)
     window.tintColor = .systemBlue
-    window.rootViewController = UIHostingController(rootView: MacRootView(router: router).environment(AppModel.shared))
+    window.rootViewController = UIHostingController(rootView: MacRootView(router: router, keeper: app.workspaces).environment(AppModel.shared))
     // 回应面板、资料卡、转发在鼠标位置弹出（见 MacPopover.swift）。
     if let root = window.rootViewController?.view { MacPointer.install(on: root) }
     self.window = window
     scene.title = "BetterChat"
     window.makeKeyAndVisible()
-    AppModel.shared.launch()
   }
   // 切换到其他 Mac 应用时，仍保持消息与通话同步。
   func sceneDidBecomeActive(_ scene: UIScene) {
