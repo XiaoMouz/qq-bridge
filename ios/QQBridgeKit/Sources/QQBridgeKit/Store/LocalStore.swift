@@ -200,18 +200,23 @@ extension LocalStore {
   }
 
   static let phoneNotificationsOffKey = "settings:phoneNotificationsOff"
+  /// 服务端算的「有设备在线、自动停用手机通知」。
+  static let phoneAutoOffKey = "settings:phoneAutoOff"
 
   static func accountSettings(_ db: Database) throws -> Qqbridge_V1_AccountSettings {
     var s = Qqbridge_V1_AccountSettings()
     s.phoneNotificationsOff = (try Int64.fetchOne(db, sql: "select value from kv where key = ?", arguments: [phoneNotificationsOffKey]) ?? 0) != 0
+    s.phoneAutoOff = (try Int64.fetchOne(db, sql: "select value from kv where key = ?", arguments: [phoneAutoOffKey]) ?? 0) != 0
     return s
   }
 
   static func upsert(settings s: Qqbridge_V1_AccountSettings, _ db: Database) throws {
-    try db.execute(
-      sql: "insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
-      arguments: [phoneNotificationsOffKey, s.phoneNotificationsOff ? 1 : 0]
-    )
+    for (key, on) in [(phoneNotificationsOffKey, s.phoneNotificationsOff), (phoneAutoOffKey, s.phoneAutoOff)] {
+      try db.execute(
+        sql: "insert into kv (key, value) values (?, ?) on conflict(key) do update set value = excluded.value",
+        arguments: [key, on ? 1 : 0]
+      )
+    }
   }
 
   public func apply(dialog: Qqbridge_V1_Dialog, pts: Int64) throws {

@@ -46,6 +46,7 @@ import { createUpstream } from './upstream/index.ts';
 import { QqSettingsSync } from './upstream/settings-sync.ts';
 import { ApnsClient } from './push/apns.ts';
 import { PushNotifier } from './push/notifier.ts';
+import { PhoneAutoMute } from './push/phone-auto-mute.ts';
 
 /** 组装服务端的全部依赖；测试与 CLI 共用。 */
 export function createDeps(
@@ -109,6 +110,8 @@ export function createDeps(
     signer: new MediaUrlSigner(opts.mediaUrlSecret),
     activeChats: new ActiveChats(),
     onlineDevices: new OnlineDevices(),
+    phoneAutoMute: new PhoneAutoMute(db, writers, { logger: logger.child({ component: 'phone-auto-mute' }) }),
+    onPhoneNotificationsOff: null,
     logger,
   };
   deps.forwards = new ForwardService(db, ingest, () => deps.upstream, deps.people);
@@ -192,7 +195,11 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     deps.ingest.onNewMessage = (event) => notifier.onNewMessage(event);
     deps.ingest.onCall = (accountId, call) => notifier.onCall(accountId, call);
     deps.ingest.onRead = (event) => notifier.onRead(event);
+    deps.onPhoneNotificationsOff = (accountId, exceptDeviceId) => {
+      void notifier.notifyPhoneNotificationsOff(accountId, exceptDeviceId).catch((error: unknown) => deps.logger.warn({ err: error }, 'phone off notice failed'));
+    };
   }
+  await deps.phoneAutoMute.start();
   const app = await buildServer(deps);
   // QQ 表情资源放在媒体目录旁边（deploy/data/qface，见 tools/qface-sync.py）。
   registerQFaceRoutes(app, deps, path.join(config.MEDIA_ROOT, '..', 'qface'));
@@ -312,6 +319,7 @@ export async function startServer(config: Config, opts: { mediaSource?: MediaSou
     deps.people.stop();
     settingsSync?.stop();
     deps.tiering.stop();
+    deps.phoneAutoMute.stop();
     clearInterval(uploadCleanup);
     clearTimeout(retentionFirst);
     clearTimeout(storageWarm);

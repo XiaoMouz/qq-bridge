@@ -416,6 +416,10 @@ qq-bridge/
 ### 4.9 推送（APNs）
 - **消息**：私聊默认全部推送，群聊默认只推 @我和回复我的消息；推送带 `mutable-content`，由 NSE 用 Communication Notifications 显示头像，并支持快捷回复；P4 起对推送内容加密。
 - **通知手机**（账号级设置，`AuthService.SetAccountSettings`）：关掉后新消息只推给 Mac，不推 iOS 设备；来电、已读同步照常。存在 `accounts.phone_notifications_off`，改动占全局 pts（`accounts.settings_pts`），在线设备经 Subscribe 的 `settings` 马上收到，离线设备补差量时从 `Difference.settings` 拿到。
+  - 入口：Mac 侧栏标题栏的手机图标（菜单：通知手机、本机在线时自动停用）；iOS / Mac 设置 → 偏好 → 通知。
+  - 手动关掉时，服务端给其他 iOS 设备推一条「手机通知已关闭」（`phoneNotifications: "off"`，collapse id `phone-notifications`），点开 App 直接重新打开并提示，不进设置页。
+  - **本机在线时自动停用**（Mac 本机选项）：开着时每 30 秒 `AuthService.ReportPresence(mute_phone)` 续租，租约 75 秒（`push/phone-auto-mute.ts`）；有有效租约时 `accounts.phone_auto_off = true`，同样占 pts 同步。不看 Subscribe 连接：Mac 睡眠时服务端那头的连接要几分钟才断。自动停用不推「已关闭」提醒。租约在内存，服务端启动时清零，设备 30 秒内重新报到。
+  - iOS 会话列表顶部：手机通知没启用（手动关或自动停用）时显示「通知未启用」，「打开」= 手动开关打开并解除这次在线的自动停用（`override_auto_off`，那台 Mac 下线后再上线重新生效），「忽略」到通知恢复为止不再提示。
 - **来电**：
   - 能用 CallKit 时：PushKit VoIP 推送 → `reportNewIncomingCall` → 系统原生来电界面。
   - CallKit 受限时：时效性通知加约 30 秒铃声，点击进入 App 内的来电界面。

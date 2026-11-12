@@ -123,7 +123,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     withCompletionHandler completionHandler: @escaping @Sendable () -> Void
   ) {
     let chatId = Self.chatId(response.notification.request.content.userInfo)
+    // 「手机通知已关闭」（服务端 notifyPhoneNotificationsOff）：点开就重新打开，不跳设置页。
+    let resumePhone = (response.notification.request.content.userInfo["phoneNotifications"] as? String) == "off"
     Task { @MainActor in
+      if resumePhone { (self.model ?? AppModel.shared).resumePhoneNotificationsFromPush() }
       if let chatId {
         // 冷启动时界面还没接上 model：先记下，接上后再打开。
         if let model { model.pendingChat = chatId } else { pendingChat = chatId }

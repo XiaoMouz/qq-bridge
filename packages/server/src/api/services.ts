@@ -101,9 +101,19 @@ function authService(deps: ApiDeps): ServiceImpl<typeof AuthService> {
     async setAccountSettings(req, ctx) {
       const auth = requireAuth(ctx);
       if (!req.settings) throw new ConnectError('settings is required', Code.InvalidArgument);
+      if (req.overrideAutoOff) await deps.phoneAutoMute.override(auth.accountId);
       const res = await setAccountSettings(deps.writers, auth.accountId, { phoneNotificationsOff: req.settings.phoneNotificationsOff });
-      deps.logger.info({ deviceId: auth.deviceId, ...res.settings }, 'account settings changed');
+      deps.logger.info({ deviceId: auth.deviceId, overrideAutoOff: req.overrideAutoOff, ...res.settings }, 'account settings changed');
+      // 刚手动关掉：告诉其他手机（自动停用不走这里，不推）。
+      if (!res.previous.phoneNotificationsOff && res.settings.phoneNotificationsOff) {
+        deps.onPhoneNotificationsOff?.(auth.accountId, auth.deviceId);
+      }
       return { settings: res.settings, pts: BigInt(res.pts) };
+    },
+    async reportPresence(req, ctx) {
+      const auth = requireAuth(ctx);
+      await deps.phoneAutoMute.report(auth.accountId, auth.deviceId, req.mutePhone);
+      return {};
     },
   };
 }

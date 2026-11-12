@@ -25,6 +25,10 @@ final class AppModel {
   private(set) var loggingOut = false
   /// 通话界面的状态（来电、接听、挂断）。
   let calls = CallManager()
+  /// 「通知手机」开关（各端同步）。
+  let phoneNotifications = PhoneNotifications()
+  /// 点了「手机通知已关闭」推送、界面还没登录好：登录好后再打开。
+  @ObservationIgnored private var resumePhoneNotificationsPending = false
   /// QQ 是否在线（插件连着服务端）：nil = 还不知道（比如服务器本身连不上）。
   private(set) var qqOnline: Bool?
   /// 登录着的 QQ（昵称、号码、在线状态）：每次查状态时更新，并存在本机，设置页打开时直接显示。
@@ -94,6 +98,18 @@ final class AppModel {
   }
 
   func dismissToast() { toast = nil }
+
+  /// 点了「手机通知已关闭」推送：直接打开（不进设置页），底部提示一下。
+  func resumePhoneNotificationsFromPush() {
+    guard session != nil else {
+      resumePhoneNotificationsPending = true
+      return
+    }
+    Task {
+      let ok = await phoneNotifications.turnOn()
+      showToast(AppToast(text: ok ? "手机通知已打开" : "没能打开手机通知，请稍后在设置里重试"))
+    }
+  }
   private var statusTask: Task<Void, Never>?
 
   /// 本地数据放这里（以后有 App Group 时换成共享容器，通知扩展也能读）。
@@ -171,6 +187,7 @@ final class AppModel {
     UserDefaults.standard.removeObject(forKey: Self.qqAvatarKey)
     eventsTask?.cancel()
     statusTask?.cancel()
+    await phoneNotifications.detach()
     await session.logout(tokens: tokens, clearCache: clearCache)
     phase = .loggedOut
   }
@@ -218,6 +235,11 @@ final class AppModel {
   private func enter(_ session: Session) {
     phase = .ready(session)
     calls.session = session
+    phoneNotifications.attach(session)
+    if resumePhoneNotificationsPending {
+      resumePhoneNotificationsPending = false
+      resumePhoneNotificationsFromPush()
+    }
     Task { await calls.refresh() }
     registerForPush()
     Task.detached(priority: .utility) { await session.store.backfillMediaIndex() }

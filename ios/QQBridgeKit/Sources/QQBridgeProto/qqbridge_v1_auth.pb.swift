@@ -216,6 +216,10 @@ public nonisolated struct Qqbridge_V1_AccountSettings: Sendable {
   /// true = 不给手机（iOS / iPadOS 设备）发新消息的通知推送；Mac 照常。来电、已读同步不受影响。
   public var phoneNotificationsOff: Bool = false
 
+  /// 只读（服务端算的）：有设备开了「在线时自动停用」且正在线，手机通知暂停中。
+  /// 实际是否推手机 = !phone_notifications_off && !phone_auto_off。客户端写入时忽略这个字段。
+  public var phoneAutoOff: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -234,6 +238,9 @@ public nonisolated struct Qqbridge_V1_SetAccountSettingsRequest: Sendable {
   public var hasSettings: Bool {self._settings != nil}
   /// Clears the value of `settings`. Subsequent reads from it will return its default value.
   public mutating func clearSettings() {self._settings = nil}
+
+  /// true = 同时解除当前的「在线自动停用」，直到那些设备下线（手机上点「打开」时用）。
+  public var overrideAutoOff: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -264,6 +271,29 @@ public nonisolated struct Qqbridge_V1_SetAccountSettingsResponse: Sendable {
   public init() {}
 
   fileprivate var _settings: Qqbridge_V1_AccountSettings? = nil
+}
+
+public nonisolated struct Qqbridge_V1_ReportPresenceRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// true = 本设备在线，暂停手机通知；false = 不再要求（选项关了、App 退出）。
+  public var mutePhone: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Qqbridge_V1_ReportPresenceResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -622,7 +652,7 @@ nonisolated extension Qqbridge_V1_RegisterPushResponse: SwiftProtobuf.Message, S
 
 nonisolated extension Qqbridge_V1_AccountSettings: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".AccountSettings"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}phone_notifications_off\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}phone_notifications_off\0\u{3}phone_auto_off\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -631,6 +661,7 @@ nonisolated extension Qqbridge_V1_AccountSettings: SwiftProtobuf.Message, SwiftP
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBoolField(value: &self.phoneNotificationsOff) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.phoneAutoOff) }()
       default: break
       }
     }
@@ -640,11 +671,15 @@ nonisolated extension Qqbridge_V1_AccountSettings: SwiftProtobuf.Message, SwiftP
     if self.phoneNotificationsOff != false {
       try visitor.visitSingularBoolField(value: self.phoneNotificationsOff, fieldNumber: 1)
     }
+    if self.phoneAutoOff != false {
+      try visitor.visitSingularBoolField(value: self.phoneAutoOff, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_AccountSettings, rhs: Qqbridge_V1_AccountSettings) -> Bool {
     if lhs.phoneNotificationsOff != rhs.phoneNotificationsOff {return false}
+    if lhs.phoneAutoOff != rhs.phoneAutoOff {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -652,7 +687,7 @@ nonisolated extension Qqbridge_V1_AccountSettings: SwiftProtobuf.Message, SwiftP
 
 nonisolated extension Qqbridge_V1_SetAccountSettingsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SetAccountSettingsRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}settings\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}settings\0\u{3}override_auto_off\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -661,6 +696,7 @@ nonisolated extension Qqbridge_V1_SetAccountSettingsRequest: SwiftProtobuf.Messa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._settings) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.overrideAutoOff) }()
       default: break
       }
     }
@@ -674,11 +710,15 @@ nonisolated extension Qqbridge_V1_SetAccountSettingsRequest: SwiftProtobuf.Messa
     try { if let v = self._settings {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if self.overrideAutoOff != false {
+      try visitor.visitSingularBoolField(value: self.overrideAutoOff, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Qqbridge_V1_SetAccountSettingsRequest, rhs: Qqbridge_V1_SetAccountSettingsRequest) -> Bool {
     if lhs._settings != rhs._settings {return false}
+    if lhs.overrideAutoOff != rhs.overrideAutoOff {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -718,6 +758,55 @@ nonisolated extension Qqbridge_V1_SetAccountSettingsResponse: SwiftProtobuf.Mess
   public static func ==(lhs: Qqbridge_V1_SetAccountSettingsResponse, rhs: Qqbridge_V1_SetAccountSettingsResponse) -> Bool {
     if lhs._settings != rhs._settings {return false}
     if lhs.pts != rhs.pts {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ReportPresenceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ReportPresenceRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}mute_phone\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.mutePhone) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.mutePhone != false {
+      try visitor.visitSingularBoolField(value: self.mutePhone, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ReportPresenceRequest, rhs: Qqbridge_V1_ReportPresenceRequest) -> Bool {
+    if lhs.mutePhone != rhs.mutePhone {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Qqbridge_V1_ReportPresenceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ReportPresenceResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Qqbridge_V1_ReportPresenceResponse, rhs: Qqbridge_V1_ReportPresenceResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

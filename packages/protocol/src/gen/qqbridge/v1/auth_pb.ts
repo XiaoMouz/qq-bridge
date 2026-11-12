@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file qqbridge/v1/auth.proto.
  */
 export const file_qqbridge_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("ChZxcWJyaWRnZS92MS9hdXRoLnByb3RvEgtxcWJyaWRnZS52MSJZCgxMb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkSEwoLZGV2aWNlX25hbWUYAyABKAkSEAoIcGxhdGZvcm0YBCABKAkiRQoNTG9naW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRISCgphY2NvdW50X2lkGAIgASgDEhEKCWRldmljZV9pZBgDIAEoAyIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlIhQKEkxpc3REZXZpY2VzUmVxdWVzdCI7ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEiQKB2RldmljZXMYASADKAsyEy5xcWJyaWRnZS52MS5EZXZpY2UibwoGRGV2aWNlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoAxIUCgxsYXN0X3NlZW5fYXQYBSABKAMSDwoHY3VycmVudBgGIAEoCCIoChNSZXZva2VEZXZpY2VSZXF1ZXN0EhEKCWRldmljZV9pZBgBIAEoAyInChRSZXZva2VEZXZpY2VSZXNwb25zZRIPCgdyZXZva2VkGAEgASgIInUKE1JlZ2lzdGVyUHVzaFJlcXVlc3QSEgoKYXBuc190b2tlbhgBIAEoCRIXCg9hcG5zX3ZvaXBfdG9rZW4YAiABKAkSMQoLZW52aXJvbm1lbnQYAyABKA4yHC5xcWJyaWRnZS52MS5BcG5zRW52aXJvbm1lbnQiFgoUUmVnaXN0ZXJQdXNoUmVzcG9uc2UiMgoPQWNjb3VudFNldHRpbmdzEh8KF3Bob25lX25vdGlmaWNhdGlvbnNfb2ZmGAEgASgIIksKGVNldEFjY291bnRTZXR0aW5nc1JlcXVlc3QSLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MiWQoaU2V0QWNjb3VudFNldHRpbmdzUmVzcG9uc2USLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MSCwoDcHRzGAIgASgDKnIKD0FwbnNFbnZpcm9ubWVudBIgChxBUE5TX0VOVklST05NRU5UX1VOU1BFQ0lGSUVEEAASHAoYQVBOU19FTlZJUk9OTUVOVF9TQU5EQk9YEAESHwobQVBOU19FTlZJUk9OTUVOVF9QUk9EVUNUSU9OEAIy8wMKC0F1dGhTZXJ2aWNlEj4KBUxvZ2luEhkucXFicmlkZ2UudjEuTG9naW5SZXF1ZXN0GhoucXFicmlkZ2UudjEuTG9naW5SZXNwb25zZRJBCgZMb2dvdXQSGi5xcWJyaWRnZS52MS5Mb2dvdXRSZXF1ZXN0GhsucXFicmlkZ2UudjEuTG9nb3V0UmVzcG9uc2USUAoLTGlzdERldmljZXMSHy5xcWJyaWRnZS52MS5MaXN0RGV2aWNlc1JlcXVlc3QaIC5xcWJyaWRnZS52MS5MaXN0RGV2aWNlc1Jlc3BvbnNlElMKDFJldm9rZURldmljZRIgLnFxYnJpZGdlLnYxLlJldm9rZURldmljZVJlcXVlc3QaIS5xcWJyaWRnZS52MS5SZXZva2VEZXZpY2VSZXNwb25zZRJTCgxSZWdpc3RlclB1c2gSIC5xcWJyaWRnZS52MS5SZWdpc3RlclB1c2hSZXF1ZXN0GiEucXFicmlkZ2UudjEuUmVnaXN0ZXJQdXNoUmVzcG9uc2USZQoSU2V0QWNjb3VudFNldHRpbmdzEiYucXFicmlkZ2UudjEuU2V0QWNjb3VudFNldHRpbmdzUmVxdWVzdBonLnFxYnJpZGdlLnYxLlNldEFjY291bnRTZXR0aW5nc1Jlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChZxcWJyaWRnZS92MS9hdXRoLnByb3RvEgtxcWJyaWRnZS52MSJZCgxMb2dpblJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSEAoIcGFzc3dvcmQYAiABKAkSEwoLZGV2aWNlX25hbWUYAyABKAkSEAoIcGxhdGZvcm0YBCABKAkiRQoNTG9naW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCRISCgphY2NvdW50X2lkGAIgASgDEhEKCWRldmljZV9pZBgDIAEoAyIPCg1Mb2dvdXRSZXF1ZXN0IhAKDkxvZ291dFJlc3BvbnNlIhQKEkxpc3REZXZpY2VzUmVxdWVzdCI7ChNMaXN0RGV2aWNlc1Jlc3BvbnNlEiQKB2RldmljZXMYASADKAsyEy5xcWJyaWRnZS52MS5EZXZpY2UibwoGRGV2aWNlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSEAoIcGxhdGZvcm0YAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoAxIUCgxsYXN0X3NlZW5fYXQYBSABKAMSDwoHY3VycmVudBgGIAEoCCIoChNSZXZva2VEZXZpY2VSZXF1ZXN0EhEKCWRldmljZV9pZBgBIAEoAyInChRSZXZva2VEZXZpY2VSZXNwb25zZRIPCgdyZXZva2VkGAEgASgIInUKE1JlZ2lzdGVyUHVzaFJlcXVlc3QSEgoKYXBuc190b2tlbhgBIAEoCRIXCg9hcG5zX3ZvaXBfdG9rZW4YAiABKAkSMQoLZW52aXJvbm1lbnQYAyABKA4yHC5xcWJyaWRnZS52MS5BcG5zRW52aXJvbm1lbnQiFgoUUmVnaXN0ZXJQdXNoUmVzcG9uc2UiSgoPQWNjb3VudFNldHRpbmdzEh8KF3Bob25lX25vdGlmaWNhdGlvbnNfb2ZmGAEgASgIEhYKDnBob25lX2F1dG9fb2ZmGAIgASgIImYKGVNldEFjY291bnRTZXR0aW5nc1JlcXVlc3QSLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MSGQoRb3ZlcnJpZGVfYXV0b19vZmYYAiABKAgiWQoaU2V0QWNjb3VudFNldHRpbmdzUmVzcG9uc2USLgoIc2V0dGluZ3MYASABKAsyHC5xcWJyaWRnZS52MS5BY2NvdW50U2V0dGluZ3MSCwoDcHRzGAIgASgDIisKFVJlcG9ydFByZXNlbmNlUmVxdWVzdBISCgptdXRlX3Bob25lGAEgASgIIhgKFlJlcG9ydFByZXNlbmNlUmVzcG9uc2UqcgoPQXBuc0Vudmlyb25tZW50EiAKHEFQTlNfRU5WSVJPTk1FTlRfVU5TUEVDSUZJRUQQABIcChhBUE5TX0VOVklST05NRU5UX1NBTkRCT1gQARIfChtBUE5TX0VOVklST05NRU5UX1BST0RVQ1RJT04QAjLOBAoLQXV0aFNlcnZpY2USPgoFTG9naW4SGS5xcWJyaWRnZS52MS5Mb2dpblJlcXVlc3QaGi5xcWJyaWRnZS52MS5Mb2dpblJlc3BvbnNlEkEKBkxvZ291dBIaLnFxYnJpZGdlLnYxLkxvZ291dFJlcXVlc3QaGy5xcWJyaWRnZS52MS5Mb2dvdXRSZXNwb25zZRJQCgtMaXN0RGV2aWNlcxIfLnFxYnJpZGdlLnYxLkxpc3REZXZpY2VzUmVxdWVzdBogLnFxYnJpZGdlLnYxLkxpc3REZXZpY2VzUmVzcG9uc2USUwoMUmV2b2tlRGV2aWNlEiAucXFicmlkZ2UudjEuUmV2b2tlRGV2aWNlUmVxdWVzdBohLnFxYnJpZGdlLnYxLlJldm9rZURldmljZVJlc3BvbnNlElMKDFJlZ2lzdGVyUHVzaBIgLnFxYnJpZGdlLnYxLlJlZ2lzdGVyUHVzaFJlcXVlc3QaIS5xcWJyaWRnZS52MS5SZWdpc3RlclB1c2hSZXNwb25zZRJlChJTZXRBY2NvdW50U2V0dGluZ3MSJi5xcWJyaWRnZS52MS5TZXRBY2NvdW50U2V0dGluZ3NSZXF1ZXN0GicucXFicmlkZ2UudjEuU2V0QWNjb3VudFNldHRpbmdzUmVzcG9uc2USWQoOUmVwb3J0UHJlc2VuY2USIi5xcWJyaWRnZS52MS5SZXBvcnRQcmVzZW5jZVJlcXVlc3QaIy5xcWJyaWRnZS52MS5SZXBvcnRQcmVzZW5jZVJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * @generated from message qqbridge.v1.LoginRequest
@@ -257,6 +257,14 @@ export type AccountSettings = Message<"qqbridge.v1.AccountSettings"> & {
    * @generated from field: bool phone_notifications_off = 1;
    */
   phoneNotificationsOff: boolean;
+
+  /**
+   * 只读（服务端算的）：有设备开了「在线时自动停用」且正在线，手机通知暂停中。
+   * 实际是否推手机 = !phone_notifications_off && !phone_auto_off。客户端写入时忽略这个字段。
+   *
+   * @generated from field: bool phone_auto_off = 2;
+   */
+  phoneAutoOff: boolean;
 };
 
 /**
@@ -274,6 +282,13 @@ export type SetAccountSettingsRequest = Message<"qqbridge.v1.SetAccountSettingsR
    * @generated from field: qqbridge.v1.AccountSettings settings = 1;
    */
   settings?: AccountSettings | undefined;
+
+  /**
+   * true = 同时解除当前的「在线自动停用」，直到那些设备下线（手机上点「打开」时用）。
+   *
+   * @generated from field: bool override_auto_off = 2;
+   */
+  overrideAutoOff: boolean;
 };
 
 /**
@@ -306,6 +321,38 @@ export type SetAccountSettingsResponse = Message<"qqbridge.v1.SetAccountSettings
  */
 export const SetAccountSettingsResponseSchema: GenMessage<SetAccountSettingsResponse> = /*@__PURE__*/
   messageDesc(file_qqbridge_v1_auth, 13);
+
+/**
+ * @generated from message qqbridge.v1.ReportPresenceRequest
+ */
+export type ReportPresenceRequest = Message<"qqbridge.v1.ReportPresenceRequest"> & {
+  /**
+   * true = 本设备在线，暂停手机通知；false = 不再要求（选项关了、App 退出）。
+   *
+   * @generated from field: bool mute_phone = 1;
+   */
+  mutePhone: boolean;
+};
+
+/**
+ * Describes the message qqbridge.v1.ReportPresenceRequest.
+ * Use `create(ReportPresenceRequestSchema)` to create a new message.
+ */
+export const ReportPresenceRequestSchema: GenMessage<ReportPresenceRequest> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_auth, 14);
+
+/**
+ * @generated from message qqbridge.v1.ReportPresenceResponse
+ */
+export type ReportPresenceResponse = Message<"qqbridge.v1.ReportPresenceResponse"> & {
+};
+
+/**
+ * Describes the message qqbridge.v1.ReportPresenceResponse.
+ * Use `create(ReportPresenceResponseSchema)` to create a new message.
+ */
+export const ReportPresenceResponseSchema: GenMessage<ReportPresenceResponse> = /*@__PURE__*/
+  messageDesc(file_qqbridge_v1_auth, 15);
 
 /**
  * @generated from enum qqbridge.v1.ApnsEnvironment
@@ -392,6 +439,18 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof SetAccountSettingsRequestSchema;
     output: typeof SetAccountSettingsResponseSchema;
+  },
+  /**
+   * 本设备在线、要求暂停手机通知（Mac「本机在线时自动停用通知到手机」）。开着这个选项时每 30 秒报一次，
+   * 服务端 75 秒没收到就当离线、恢复通知；关掉选项或退出 App 时报 mute_phone = false。
+   * 用租约而不看 Subscribe 连接：Mac 睡眠时连接在服务端可能挂好几分钟才断。
+   *
+   * @generated from rpc qqbridge.v1.AuthService.ReportPresence
+   */
+  reportPresence: {
+    methodKind: "unary";
+    input: typeof ReportPresenceRequestSchema;
+    output: typeof ReportPresenceResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_qqbridge_v1_auth, 0);

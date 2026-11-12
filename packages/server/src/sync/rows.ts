@@ -248,6 +248,8 @@ export function toOutbox(r: DbRow): OutboxRow {
 /** 账号级设置（accounts 表上的几列），所有设备共享。 */
 export interface AccountSettingsRow {
   phoneNotificationsOff: boolean;
+  /** 只读：有设备在线并要求暂停手机通知。 */
+  phoneAutoOff: boolean;
 }
 
 export type Update =

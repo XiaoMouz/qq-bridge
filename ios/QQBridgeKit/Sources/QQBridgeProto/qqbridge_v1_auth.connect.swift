@@ -32,6 +32,12 @@ public protocol Qqbridge_V1_AuthServiceClientInterface: Sendable {
     /// 账号级设置（目前只有「通知手机」）。改完经 pts 推给所有设备（Difference.settings / SubscribeResponse.settings）。
     @available(iOS 13, *)
     func `setAccountSettings`(request: Qqbridge_V1_SetAccountSettingsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SetAccountSettingsResponse>
+
+    /// 本设备在线、要求暂停手机通知（Mac「本机在线时自动停用通知到手机」）。开着这个选项时每 30 秒报一次，
+    /// 服务端 75 秒没收到就当离线、恢复通知；关掉选项或退出 App 时报 mute_phone = false。
+    /// 用租约而不看 Subscribe 连接：Mac 睡眠时连接在服务端可能挂好几分钟才断。
+    @available(iOS 13, *)
+    func `reportPresence`(request: Qqbridge_V1_ReportPresenceRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ReportPresenceResponse>
 }
 
 /// Concrete implementation of `Qqbridge_V1_AuthServiceClientInterface`.
@@ -72,6 +78,11 @@ public final class Qqbridge_V1_AuthServiceClient: Qqbridge_V1_AuthServiceClientI
         return await self.client.unary(path: "/qqbridge.v1.AuthService/SetAccountSettings", idempotencyLevel: .unknown, request: request, headers: headers)
     }
 
+    @available(iOS 13, *)
+    public func `reportPresence`(request: Qqbridge_V1_ReportPresenceRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_ReportPresenceResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.AuthService/ReportPresence", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
     public enum Metadata {
         public enum Methods {
             public static let login = Connect.MethodSpec(name: "Login", service: "qqbridge.v1.AuthService", type: .unary)
@@ -80,6 +91,7 @@ public final class Qqbridge_V1_AuthServiceClient: Qqbridge_V1_AuthServiceClientI
             public static let revokeDevice = Connect.MethodSpec(name: "RevokeDevice", service: "qqbridge.v1.AuthService", type: .unary)
             public static let registerPush = Connect.MethodSpec(name: "RegisterPush", service: "qqbridge.v1.AuthService", type: .unary)
             public static let setAccountSettings = Connect.MethodSpec(name: "SetAccountSettings", service: "qqbridge.v1.AuthService", type: .unary)
+            public static let reportPresence = Connect.MethodSpec(name: "ReportPresence", service: "qqbridge.v1.AuthService", type: .unary)
         }
     }
 }

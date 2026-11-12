@@ -59,7 +59,9 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
     toolbar = MacSidebarToolbar(item: sidebarView.navigationItem, actions: .init(
       selectSection: { [weak self] in self?.reselectOrSelect($0) },
       refreshContacts: { [weak self] in self?.contacts.refresh() },
-      toggleSidebar: { [weak self] in self?.toggleSidebar() }))
+      toggleSidebar: { [weak self] in self?.toggleSidebar() },
+      setPhoneNotifications: { [weak model] in model?.phoneNotifications.setManual(on: $0) },
+      setAutoMuteHere: { [weak model] in model?.phoneNotifications.setAutoMuteHere($0) }))
     // 上次的会话在建工作区时就放进右栏：窗口第一帧就是聊天，不先闪「选择会话」空状态（2026-11-12 用户反馈）。
     // 以前等 viewDidAppear 才恢复，窗口已经画过一次空状态页。列表选中和检查器要等视图出现（workspaceAppeared）。
     // 聊天页滚到上次退出时看到的那条（MacWorkspaceStore.lastPosition）。
@@ -118,7 +120,10 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
                               contactsRefreshing: contacts.isRefreshing,
                               showsArchived: dialogs.showsArchived,
                               hasUnread: sidebar.unread > 0,
-                              rail: sidebar.isRail)
+                              rail: sidebar.isRail,
+                              phoneManualOn: model.phoneNotifications.manualOn,
+                              phoneAutoOff: model.phoneNotifications.autoOff,
+                              autoMuteHere: model.phoneNotifications.autoMuteHere)
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in self?.observeSidebar() }
     }

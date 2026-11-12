@@ -10,6 +10,7 @@ import { one } from '../src/db/client.ts';
 import { setAccountSettings } from '../src/auth/settings.ts';
 import { ApnsClient, type ApnsMessage, type ApnsResult, type PushSender } from '../src/push/apns.ts';
 import { PushNotifier, type ReadEvent } from '../src/push/notifier.ts';
+import { PhoneAutoMute } from '../src/push/phone-auto-mute.ts';
 import { startTestDb, type TestDb } from './helpers/db.ts';
 import { createTestAccount, services, textMessage, type TestAccount } from './helpers/fixtures.ts';
 
@@ -269,6 +270,38 @@ describe('PushNotifier', () => {
       expect(on.n).toBe(3);
     } finally {
       await setAccountSettings(svc.writers, acc.accountId, { phoneNotificationsOff: false });
+      await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
+    }
+  });
+
+  it('自动停用（有设备在线）：新消息同样不推手机', async () => {
+    await t.db.execute(sql`update devices set apns_token = 'mac-token', apns_env = 'sandbox' where account_id = ${acc.accountId} and platform = 'macos'`);
+    const mute = new PhoneAutoMute(t.db, svc.writers);
+    try {
+      await mute.report(acc.accountId, 999, true);
+      const off = await receive(textMessage('friend', 400, seq++, 400, { text: 'Mac 在线' }));
+      expect(off.n).toBe(1);
+      expect(sent.map((m) => m.token)).toEqual(['mac-token']);
+      await mute.report(acc.accountId, 999, false);
+      expect((await receive(textMessage('friend', 400, seq++, 400, { text: 'Mac 下线' }))).n).toBe(3);
+    } finally {
+      await mute.report(acc.accountId, 999, false);
+      await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
+    }
+  });
+
+  it('手动关掉后的「通知已关闭」只推其他 iOS 设备', async () => {
+    await t.db.execute(sql`update devices set apns_token = 'mac-token', apns_env = 'sandbox' where account_id = ${acc.accountId} and platform = 'macos'`);
+    try {
+      const phones = await t.db.execute(sql`select id, apns_token from devices where account_id = ${acc.accountId} and platform = 'ios' and apns_token is not null order by id`);
+      const list = phones.rows as { id: number; apns_token: string }[];
+      expect(list.length).toBeGreaterThan(1);
+      sent.length = 0;
+      const n = await notifier.notifyPhoneNotificationsOff(acc.accountId, Number(list[0]!.id));
+      expect(n).toBe(list.length - 1);
+      expect(sent.every((m) => m.platform === 'ios' && m.token !== list[0]!.apns_token)).toBe(true);
+      expect(sent[0]).toMatchObject({ collapseId: 'phone-notifications', payload: { phoneNotifications: 'off' } });
+    } finally {
       await t.db.execute(sql`update devices set apns_token = null where account_id = ${acc.accountId} and platform = 'macos'`);
     }
   });

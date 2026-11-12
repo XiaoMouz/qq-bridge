@@ -12,11 +12,17 @@ final class MacSidebarToolbar {
     var hasUnread = false
     /// 窄栏：标题栏放不下按钮，切换按钮和分区都在栏内。
     var rail = false
+    /// 「通知手机」（PhoneNotifications）：手动开关、是否被在线 Mac 自动停用、本机选项。
+    var phoneManualOn = true
+    var phoneAutoOff = false
+    var autoMuteHere = false
   }
   struct Actions {
     let selectSection: (MacSidebarSection) -> Void
     let refreshContacts: () -> Void
     let toggleSidebar: () -> Void
+    var setPhoneNotifications: (Bool) -> Void = { _ in }
+    var setAutoMuteHere: (Bool) -> Void = { _ in }
   }
 
   private let item: UINavigationItem
@@ -68,7 +74,26 @@ final class MacSidebarToolbar {
       refresh.isEnabled = !state.contactsRefreshing
       trailing.insert(refresh, at: 0)
     }
-    item.leadingItemGroups = [UIBarButtonItemGroup(barButtonItems: [sidebarItem], representativeItem: nil)]
+    item.leadingItemGroups = [UIBarButtonItemGroup(barButtonItems: [sidebarItem, phoneItem(state)], representativeItem: nil)]
     item.trailingItemGroups = [UIBarButtonItemGroup(barButtonItems: trailing, representativeItem: nil)]
+  }
+
+  /// 「通知手机」放在侧栏顶部（2026-11-12 用户要求比设置页更好找）：图标表示手机现在收不收通知，点开是菜单。
+  private func phoneItem(_ state: State) -> UIBarButtonItem {
+    let phoneOn = state.phoneManualOn && !state.phoneAutoOff
+    let manual = UIAction(title: "通知手机", state: state.phoneManualOn ? .on : .off) { [actions] _ in
+      actions.setPhoneNotifications(!state.phoneManualOn)
+    }
+    let auto = UIAction(title: "本机在线时自动停用", state: state.autoMuteHere ? .on : .off) { [actions] _ in
+      actions.setAutoMuteHere(!state.autoMuteHere)
+    }
+    var children: [UIMenuElement] = [manual, auto]
+    if state.phoneManualOn && state.phoneAutoOff {
+      children.insert(UIAction(title: "Mac 在线，手机通知已暂停", attributes: .disabled) { _ in }, at: 0)
+    }
+    let menu = UIMenu(title: phoneOn ? "手机会收到新消息通知" : "手机不收新消息通知", children: children)
+    let button = UIBarButtonItem(title: "通知手机", image: UIImage(systemName: phoneOn ? "iphone" : "iphone.slash"), menu: menu)
+    button.accessibilityValue = phoneOn ? "开" : "关"
+    return button
   }
 }

@@ -137,7 +137,7 @@ struct PreferencesView: View {
 
   var body: some View {
     Form {
-      if let session = model.session { PhoneNotificationsSection(session: session) }
+      if model.session != nil { PhoneNotificationsSection(phone: model.phoneNotifications) }
       Section("消息列表") {
         Picker("预览行数", selection: $previewLines) {
           Text("两行").tag(2)
@@ -157,48 +157,32 @@ struct PreferencesView: View {
   }
 }
 
-/// 「通知手机」：账号级设置，存在服务端（AuthService.SetAccountSettings）。
-/// 开关显示本地库里的值，本机或其他设备改了都经 Subscribe 落库后刷新（observeAccountSettings），不轮询。
+/// 「通知手机」：账号级设置，存在服务端（AuthService.SetAccountSettings），状态和操作见 PhoneNotifications。
+/// Mac 上多一个本机选项「本机在线时自动停用」。
 private struct PhoneNotificationsSection: View {
-  let session: Session
-  @State private var phoneOn = true
-  /// 已发出、服务端结果还没同步回来的值：期间不让旧的库值把开关拨回去。
-  @State private var pending: Bool?
-  @State private var failed = false
+  let phone: PhoneNotifications
 
   var body: some View {
     Section {
-      Toggle("通知手机", isOn: Binding(get: { pending ?? phoneOn }, set: { set($0) }))
+      Toggle("通知手机", isOn: Binding(get: { phone.manualOn }, set: { phone.setManual(on: $0) }))
+      #if targetEnvironment(macCatalyst)
+      Toggle("本机在线时自动停用", isOn: Binding(get: { phone.autoMuteHere }, set: { phone.setAutoMuteHere($0) }))
+      #endif
     } header: {
       Text("通知")
     } footer: {
-      Text(failed
-        ? "没改成功，请检查与服务器的连接后重试。"
-        : "关闭后，新消息不再推送到 iPhone / iPad，Mac 照常通知；来电不受影响。在任何一台设备上改，其他设备会同时更新。")
-    }
-    .task {
-      do {
-        for try await s in session.store.observeAccountSettings() {
-          phoneOn = !s.phoneNotificationsOff
-          if pending == phoneOn { pending = nil }
-        }
-      } catch {}
+      Text(footer)
     }
   }
 
-  private func set(_ on: Bool) {
-    pending = on
-    failed = false
-    var req = Qqbridge_V1_SetAccountSettingsRequest()
-    req.settings.phoneNotificationsOff = !on
-    Task {
-      do {
-        _ = try await session.api.auth.setAccountSettings(request: req, headers: session.api.headers).get()
-      } catch {
-        failed = true
-        pending = nil
-      }
-    }
+  private var footer: String {
+    if phone.failed { return "没改成功，请检查与服务器的连接后重试。" }
+    var text = "关闭后，新消息不再推送到 iPhone / iPad，Mac 照常通知；来电不受影响。在任何一台设备上改，其他设备会同时更新。"
+    #if targetEnvironment(macCatalyst)
+    text += "\n「本机在线时自动停用」：这台 Mac 开着时手机不收新消息通知，Mac 关机、睡眠或退出 BetterChat 后一分钟左右自动恢复。"
+    #endif
+    if phone.manualOn && phone.autoOff { text += "\n现在有 Mac 在线，手机通知已自动暂停。" }
+    return text
   }
 }
 

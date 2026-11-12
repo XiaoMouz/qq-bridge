@@ -137,12 +137,12 @@ export async function getDifference(db: Db, accountId: number, fromPts: number, 
 }
 
 export async function loadAccountSettings(db: Queryable, accountId: number): Promise<AccountSettingsRow> {
-  const row = await maybeOne<{ phone_notifications_off: boolean }>(
+  const row = await maybeOne<{ phone_notifications_off: boolean; phone_auto_off: boolean }>(
     db,
-    sql`select phone_notifications_off from accounts where id = ${accountId}`,
+    sql`select phone_notifications_off, phone_auto_off from accounts where id = ${accountId}`,
   );
   if (!row) throw new NotFoundError(`account ${accountId} not found`);
-  return { phoneNotificationsOff: row.phone_notifications_off };
+  return { phoneNotificationsOff: row.phone_notifications_off, phoneAutoOff: row.phone_auto_off };
 }
 
 /** 按 id 读取会话，并附上顶部消息（会话列表的预览）。 */

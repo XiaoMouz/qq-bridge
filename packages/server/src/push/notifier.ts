@@ -4,7 +4,8 @@
 // - 免打扰、收进群助手的会话不推。
 // - "只提醒 @我和回复我"：只推 @我、回复我，以及打开了"@全体成员 提醒"时的 @全体成员。
 // - 其余（默认 / 全部提醒）都推。
-// - 账号设置「通知手机」关了：新消息只推给 Mac，不推 iOS 设备（来电、已读同步照常）。
+// - 账号设置「通知手机」关了，或有设备开了「在线时自动停用」且在线：新消息只推给 Mac，不推 iOS 设备（来电、已读同步照常）。
+//   手动关掉时另给手机推一条「通知已关闭」（点开即重新打开）；自动停用不推这条。
 // 角标 = 会提醒的会话的未读数，加上其他会话（免打扰、群助手、只提醒 @我）里的 @我 和回复我；@全体成员 不单独算。
 import { MessageFlag, plainText, type Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
@@ -306,7 +307,7 @@ export class PushNotifier {
     if (!n) return 0;
     const all = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null; phone_off: boolean }>(
       this.db,
-      sql`select d.id, d.platform, d.apns_token, d.apns_env, a.phone_notifications_off as phone_off
+      sql`select d.id, d.platform, d.apns_token, d.apns_env, (a.phone_notifications_off or a.phone_auto_off) as phone_off
             from devices d join accounts a on a.id = d.account_id
            where d.account_id = ${event.accountId} and d.revoked_at is null and d.apns_token is not null`,
     );
@@ -350,6 +351,47 @@ export class PushNotifier {
         await this.db.execute(sql`update devices set apns_token = null where id = ${d.id} and apns_token = ${d.apns_token}`);
       }
     }
+    return sent;
+  }
+
+  /**
+   * 手动关了「通知手机」：给手机（除了正在操作的那台）推一条「通知已关闭」，点开 App 就重新打开
+   * （iOS Push.swift 按 phoneNotifications = "off" 识别）。同一个 collapse id，反复开关只留最后一条。
+   */
+  async notifyPhoneNotificationsOff(accountId: number, exceptDeviceId: number): Promise<number> {
+    const devices = await rows<{ id: number; platform: string; apns_token: string; apns_env: string | null }>(
+      this.db,
+      sql`select id, platform, apns_token, apns_env from devices
+           where account_id = ${accountId} and platform = 'ios' and id <> ${exceptDeviceId}
+             and revoked_at is null and apns_token is not null`,
+    );
+    let sent = 0;
+    const attempted = new Set<string>();
+    for (const d of devices) {
+      const env: ApnsEnv = d.apns_env === 'sandbox' ? 'sandbox' : 'production';
+      const key = endpointKey(d.platform, env, d.apns_token);
+      if (attempted.has(key)) continue;
+      attempted.add(key);
+      const result = await this.sender.send({
+        token: d.apns_token,
+        platform: d.platform,
+        env,
+        collapseId: 'phone-notifications',
+        ttlSec: 24 * 3600,
+        payload: {
+          aps: {
+            alert: { title: '手机通知已关闭', body: '新消息不再推送到这台设备。点此重新打开。' },
+            'thread-id': 'phone-notifications',
+          },
+          phoneNotifications: 'off',
+        },
+      });
+      if (result.ok) sent++;
+      else if (result.invalidToken) {
+        await this.db.execute(sql`update devices set apns_token = null where id = ${d.id} and apns_token = ${d.apns_token}`);
+      }
+    }
+    this.opts.logger?.info({ accountId, exceptDeviceId, sent }, 'phone notifications off notice pushed');
     return sent;
   }
 

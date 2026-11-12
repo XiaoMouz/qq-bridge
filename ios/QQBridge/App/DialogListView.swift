@@ -18,6 +18,11 @@ struct DialogListView: View {
     NavigationStack(path: $path) {
       ScrollViewReader { proxy in
       List {
+        if model.phoneNotifications.showsBanner {
+          PhoneNotificationsBanner(phone: model.phoneNotifications) { ok in
+            model.showToast(AppToast(text: ok ? "手机通知已打开" : "没能打开手机通知，请稍后重试"))
+          }
+        }
         let pinned = visible.filter(\.dialog.pinned)
         let rest = visible.filter { !$0.dialog.pinned }
         ForEach(pinned) { row($0) }
@@ -103,6 +108,51 @@ struct DialogListView: View {
 
   private func row(_ item: DialogItem) -> some View {
     DialogLink(item: item, session: session, typing: model.isTyping(item.id))
+  }
+}
+
+/// 会话列表顶部：「通知手机」关着（手动关了，或有 Mac 在线自动停用）。打开 = 手动开关打开并解除这次自动停用；
+/// 忽略 = 这次不再提示，通知恢复后再关时重新提示（2026-11-12 用户要求）。
+private struct PhoneNotificationsBanner: View {
+  let phone: PhoneNotifications
+  let done: (Bool) -> Void
+  @State private var working = false
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: "bell.slash.fill")
+        .font(.title3)
+        .foregroundStyle(.orange)
+        .frame(width: 28)
+      VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("通知未启用").font(.subheadline.bold())
+          Text(phone.manualOn ? "Mac 在线，新消息暂不推送到这台手机。" : "新消息不会推送到这台手机。")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        }
+        HStack(spacing: 10) {
+          Button {
+            working = true
+            Task {
+              let ok = await phone.turnOn()
+              working = false
+              done(ok)
+            }
+          } label: {
+            Text("打开").frame(minWidth: 44)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(working)
+          Button("忽略") { withAnimation { phone.ignoreBanner() } }
+            .buttonStyle(.bordered)
+        }
+        .controlSize(.small)
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(.vertical, 6)
+    .listRowSeparator(.hidden)
   }
 }
 

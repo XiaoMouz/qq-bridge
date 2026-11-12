@@ -30,6 +30,7 @@ import type { HoleFiller } from '../upstream/history.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
 import { NotFoundError } from '../sync/difference.ts';
 import type { OnlineDevices } from '../sync/online-devices.ts';
+import type { PhoneAutoMute } from '../push/phone-auto-mute.ts';
 import type { ActiveChats } from '../sync/active-chats.ts';
 import type { UpdateBus } from '../sync/bus.ts';
 import type { WriterRegistry } from '../sync/writer.ts';
@@ -79,6 +80,10 @@ export interface ApiDeps {
   signer: MediaUrlSigner;
   activeChats: ActiveChats;
   onlineDevices: OnlineDevices;
+  /** 「在线时自动停用通知到手机」的租约（AuthService.ReportPresence）。 */
+  phoneAutoMute: PhoneAutoMute;
+  /** 手动关了「通知手机」：给其他手机推「通知已关闭」。没配 APNs 时为 null。 */
+  onPhoneNotificationsOff: ((accountId: number, exceptDeviceId: number) => void) | null;
   logger: Logger;
 }
 

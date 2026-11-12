@@ -34,6 +34,8 @@ export const accounts = pgTable('accounts', {
   createdAt: ts('created_at').notNull().defaultNow(),
   /** 账号设置「通知手机」关了：新消息不推给 iOS 设备（push/notifier.ts）。 */
   phoneNotificationsOff: boolean('phone_notifications_off').notNull().default(false),
+  /** 有设备开了「在线时自动停用通知到手机」且在线（服务端按租约算，见 push/phone-auto-mute.ts）。 */
+  phoneAutoOff: boolean('phone_auto_off').notNull().default(false),
   /** 设置最后一次改动的全局 pts；差量据此带上设置（0 = 没改过）。 */
   settingsPts: ref('settings_pts').notNull().default(0),
 });
