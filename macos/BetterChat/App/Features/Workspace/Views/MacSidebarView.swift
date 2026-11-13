@@ -99,10 +99,13 @@ struct MacSidebarView: View {
 }
 
 /// 把协调器持有的 UIKit 控制器嵌入 SwiftUI 布局；控制器生命周期不归视图管理。
+/// 每次 make 返回新外壳（MacChildHost），不直接返回协调器的控制器：SwiftUI 拆旧嵌入时会把控制器的视图摘走（2026-11-13）。
 struct MacEmbeddedController: UIViewControllerRepresentable {
   let controller: UIViewController
-  func makeUIViewController(context: Context) -> UIViewController { controller }
-  func updateUIViewController(_ controller: UIViewController, context: Context) {
+  func makeUIViewController(context: Context) -> MacChildHost { MacChildHost(content: controller) }
+  func updateUIViewController(_ host: MacChildHost, context: Context) {
+    // 只在自己显示着时把控制器拉过来；不在窗口里的旧外壳不和新外壳抢。
+    if host.viewIfLoaded?.window != nil { host.embed() }
     (controller as? MacSidebarListInsetting)?.applySidebarListInsets()
   }
 }

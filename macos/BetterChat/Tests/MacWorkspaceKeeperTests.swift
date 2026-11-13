@@ -1,3 +1,5 @@
+import Observation
+import SwiftUI
 import Foundation
 import QQBridgeKit
 import QQBridgeProto
@@ -171,5 +173,45 @@ struct MacWorkspaceReopenSearchTests {
 
     MacSettingsWindow.close()
     await waitFor { settingsScene() == nil }
+  }
+}
+
+@MainActor @Observable
+private final class EmbedProbeState {
+  var token = 0
+}
+
+private struct EmbedProbe: View {
+  let state: EmbedProbeState
+  let list: UIViewController
+  var body: some View {
+    MacEmbeddedController(controller: list).id(state.token)
+  }
+}
+
+/// 2026-11-13 实机：⌘W 后从 Dock 重开，侧栏嵌入会话列表的宿主视图是空的。SwiftUI 重建嵌入（这里用 .id 强制）后
+/// 拆掉旧的那份，会把同一个控制器的视图摘走；MacEmbeddedController 每次给新外壳，列表要一直留在窗口里。
+/// 对照（2026-11-13 跑过）：make 直接返回同一个控制器时，这里改 token 后列表就不在窗口里了。
+@Suite(.serialized)
+@MainActor
+struct MacEmbeddedControllerTests {
+  private func pump() async {
+    for _ in 0..<15 { try? await Task.sleep(for: .milliseconds(20)) }
+  }
+
+  @Test func rebuiltEmbeddingKeepsSharedController() async throws {
+    let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let state = EmbedProbeState()
+    let list = UIViewController()
+    let window = UIWindow(windowScene: scene)
+    window.rootViewController = UIHostingController(rootView: EmbedProbe(state: state, list: list))
+    window.makeKeyAndVisible()
+    await pump()
+    #expect(list.viewIfLoaded?.window === window)
+    state.token += 1
+    await pump()
+    #expect(list.viewIfLoaded?.window === window)
+    window.isHidden = true
+    window.rootViewController = nil
   }
 }

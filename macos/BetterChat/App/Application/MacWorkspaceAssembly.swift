@@ -87,10 +87,14 @@ protocol MacKeptWorkspace: AnyObject {
 }
 extension MacWorkspaceCoordinator: MacKeptWorkspace {}
 
-/// 每个主窗口一个的外壳：把保留下来的工作区根控制器接进这个窗口。
-/// SwiftUI 只管理外壳本身；根控制器由外壳从旧窗口（已关闭的）挪过来，旧窗口晚到的拆除碰不到它。
+/// 把一个长期存在、由别处持有的控制器接进 SwiftUI：SwiftUI 每次 make 拿到的是新外壳，拆的也只是外壳；
+/// 外壳出现时把控制器（连同视图）挪到自己下面，旧外壳晚到的拆除碰不到它。
+///
+/// 2026-11-13 实机（lldb 导出调试版视图层级）：⌘W 后从 Dock 重开，侧栏的 MacEmbeddedController 宿主视图是空的，
+/// 会话列表控制器的视图不在窗口里。Representable 直接返回同一个控制器时，SwiftUI 重建嵌入后又拆掉旧的那份，
+/// 把已经挂到新宿主上的列表摘走了。
 @MainActor
-final class MacWorkspaceWindowHost: UIViewController {
+class MacChildHost: UIViewController {
   let content: UIViewController
 
   init(content: UIViewController) {
@@ -107,6 +111,27 @@ final class MacWorkspaceWindowHost: UIViewController {
     super.viewWillAppear(animated)
     embed()
   }
+
+  /// 控制器还挂在别的外壳上（关掉的窗口还没释放），或者视图被别人摘走了，就重新接进来。
+  func embed() {
+    guard content.parent !== self || content.viewIfLoaded?.superview !== view else { return }
+    if content.parent != nil {
+      content.viewIfLoaded?.endEditing(true)
+      content.willMove(toParent: nil)
+      content.viewIfLoaded?.removeFromSuperview()
+      content.removeFromParent()
+    }
+    addChild(content)
+    content.view.frame = view.bounds
+    content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    view.addSubview(content.view)
+    content.didMove(toParent: self)
+  }
+}
+
+/// 每个主窗口一个的外壳：把保留下来的工作区根控制器接进这个窗口（见 MacChildHost），并在关窗时收起焦点。
+@MainActor
+final class MacWorkspaceWindowHost: MacChildHost {
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
     observeScene()
@@ -130,22 +155,6 @@ final class MacWorkspaceWindowHost: UIViewController {
         }
       })
     }
-  }
-
-  /// 根控制器还挂在别的外壳上（关掉的窗口还没释放）时先摘下来再接进来。
-  func embed() {
-    guard content.parent !== self else { return }
-    if content.parent != nil {
-      content.viewIfLoaded?.endEditing(true)
-      content.willMove(toParent: nil)
-      content.view.removeFromSuperview()
-      content.removeFromParent()
-    }
-    addChild(content)
-    content.view.frame = view.bounds
-    content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    view.addSubview(content.view)
-    content.didMove(toParent: self)
   }
 
   /// 2026-11-13 用户反馈：侧栏搜索后焦点还在搜索框时 ⌘W，再从 Dock 打开，左栏整个空了且救不回来。
