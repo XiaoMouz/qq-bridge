@@ -74,7 +74,10 @@ final class MacSidebarToolbar {
       refresh.isEnabled = !state.contactsRefreshing
       trailing.insert(refresh, at: 0)
     }
-    item.leadingItemGroups = [UIBarButtonItemGroup(barButtonItems: [sidebarItem, phoneItem(state)], representativeItem: nil)]
+    // 侧栏标题栏只放得下四个按钮：联系人分区多了「刷新联系人」，再放手机图标，系统会把右边整组（分段控件）
+    // 收进窗口最右边的「更多工具栏项」，看起来像切不回消息了（2026-11-13 用户反馈）。所以手机图标只在消息分区显示。
+    let leading = state.section == .messages ? [sidebarItem, phoneItem(state)] : [sidebarItem]
+    item.leadingItemGroups = [UIBarButtonItemGroup(barButtonItems: leading, representativeItem: nil)]
     item.trailingItemGroups = [UIBarButtonItemGroup(barButtonItems: trailing, representativeItem: nil)]
   }
 
