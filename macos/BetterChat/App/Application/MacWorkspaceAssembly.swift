@@ -107,11 +107,36 @@ final class MacWorkspaceWindowHost: UIViewController {
     super.viewWillAppear(animated)
     embed()
   }
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    observeScene()
+  }
+
+  /// 关窗（场景断开）时视图不会收到 viewWillDisappear：窗口对象还在，只是场景没了。按场景通知收尾。
+  private var sceneObservers: [any NSObjectProtocol] = []
+  private func observeScene() {
+    guard sceneObservers.isEmpty, let scene = view.window?.windowScene else { return }
+    for name in [UIScene.didEnterBackgroundNotification, UIScene.didDisconnectNotification] {
+      sceneObservers.append(NotificationCenter.default.addObserver(forName: name, object: scene, queue: .main) { [weak self] note in
+        // 系统回调里先取出 Sendable 的值再进 MainActor（L1）。
+        let disconnected = note.name == UIScene.didDisconnectNotification
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.resignEditing()
+          if disconnected {
+            self.sceneObservers.forEach(NotificationCenter.default.removeObserver)
+            self.sceneObservers = []
+          }
+        }
+      })
+    }
+  }
 
   /// 根控制器还挂在别的外壳上（关掉的窗口还没释放）时先摘下来再接进来。
   func embed() {
     guard content.parent !== self else { return }
     if content.parent != nil {
+      content.viewIfLoaded?.endEditing(true)
       content.willMove(toParent: nil)
       content.view.removeFromSuperview()
       content.removeFromParent()
@@ -121,6 +146,15 @@ final class MacWorkspaceWindowHost: UIViewController {
     content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
     view.addSubview(content.view)
     content.didMove(toParent: self)
+  }
+
+  /// 2026-11-13 用户反馈：侧栏搜索后焦点还在搜索框时 ⌘W，再从 Dock 打开，左栏整个空了且救不回来。
+  /// 测试宿主里真实销毁场景后，那个搜索框仍报告自己是第一响应者，而它的窗口已经没了：搜索词改不动，
+  /// 「正在搜索」一直成立，会话列表层就一直隐藏。所以离开窗口前先结束工作区里的编辑。
+  /// 旧窗口的通知可能晚到：根控制器已经接到新窗口时不动它的焦点。
+  private func resignEditing() {
+    guard content.parent === self else { return }
+    content.viewIfLoaded?.endEditing(true)
   }
 }
 

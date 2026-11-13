@@ -22,11 +22,12 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
   private let manualSync: MacManualSync
   private let router: MacCommandRouter
   private let factory: MacPageFactory
-  private let sidebar = MacSidebarViewModel()
+  /// sidebar、dialogs 不设 private：MacWorkspaceKeeperTests 检查关窗重开后侧栏搜索与会话列表。
+  let sidebar = MacSidebarViewModel()
   private let search: MacSidebarSearchViewModel
   private let contacts: MacContactsViewModel
   private let dialogsViewModel: MacDialogsViewModel
-  private let dialogs: MacDialogsController
+  let dialogs: MacDialogsController
   private let chat: MacChatCoordinator
   private let detail = MacDetailContainer()
   private var toolbar: MacSidebarToolbar!

@@ -19,6 +19,12 @@ struct MacSidebarSearchField: UIViewRepresentable {
     field.delegate = context.coordinator
     field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
     field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    // 工作区换到新窗口（⌘W 后重开）时，显示的文字按绑定重新对一次：只有 SwiftUI 重绘才会走 updateUIView。
+    let coordinator = context.coordinator
+    field.movedToWindow = { [weak field] in
+      guard let field, field.window != nil, field.text != coordinator.parent.text else { return }
+      field.text = coordinator.parent.text
+    }
     return field
   }
   func updateUIView(_ field: SearchField, context: Context) {
@@ -50,6 +56,11 @@ struct MacSidebarSearchField: UIViewRepresentable {
   final class SearchField: UISearchTextField {
     var focusResults: (() -> Bool)?
     var hasResults = false
+    var movedToWindow: (() -> Void)?
+    override func didMoveToWindow() {
+      super.didMoveToWindow()
+      movedToWindow?()
+    }
     override var keyCommands: [UIKeyCommand]? {
       guard hasResults else { return super.keyCommands }
       return [UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(nextResult))]
