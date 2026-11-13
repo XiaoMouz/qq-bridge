@@ -16,7 +16,7 @@ extension MacDialogsViewModel: MacDialogSource {}
 @Observable
 final class MacSidebarSearchViewModel {
   enum ResultID: Hashable {
-    case dialog(Int64), contact(String), message(String)
+    case dialog(Int64), contact(String), message(String), person(Int64)
   }
   struct Result: Identifiable, Equatable {
     let id: ResultID
@@ -55,6 +55,9 @@ final class MacSidebarSearchViewModel {
   @ObservationIgnored private var task: Task<Void, Never>?
   @ObservationIgnored private var generation = UUID()
   private var contacts: [Qqbridge_V1_Peer] = []
+  /// 服务端找到的群成员等（2026-11-13 用户要求搜索包含群里的人）；失败不报错，只是没有这一组。
+  private var people: [Qqbridge_V1_PersonHit] = []
+  @ObservationIgnored private var peopleTask: Task<Void, Never>?
   // 忙碌状态直接读取请求状态机，避免请求取消已结束、行里却仍留着第二份 loading 标记。
   private var openingKey: String? { opening.peerKey }
   let avatars = AvatarBook()
@@ -65,6 +68,7 @@ final class MacSidebarSearchViewModel {
   }
   deinit {
     task?.cancel()
+    peopleTask?.cancel()
   }
 
   // MARK: 意图
@@ -128,6 +132,10 @@ final class MacSidebarSearchViewModel {
       guard let message = messages.first(where: { MacMessagePresentation.key($0) == key }) else { return }
       cancelOpening()
       route?(.message(chatId: message.chatID, seq: message.seq))
+    case .person(let user):
+      guard otherPeople.contains(where: { $0.userID == user }) else { return }
+      cancelOpening()
+      route?(.profile(userId: user))
     }
   }
 
@@ -137,6 +145,11 @@ final class MacSidebarSearchViewModel {
   }
 
   func wantAvatar(for id: ResultID) {
+    if case .person(let user) = id, let hit = people.first(where: { $0.userID == user }), hit.avatarSha256.isEmpty {
+      var peer = Qqbridge_V1_Peer(); peer.kind = .user; peer.peerID = user
+      service.requestAvatar(for: peer, in: avatars)
+      return
+    }
     guard case .contact(let key) = id, let peer = contacts.first(where: { MacPeerPresentation.key($0) == key }),
           peer.avatarSha256.isEmpty else { return }
     service.requestAvatar(for: peer, in: avatars)
@@ -170,6 +183,11 @@ final class MacSidebarSearchViewModel {
                     avatar: MacAvatar(sha256: sha, title: name, seed: peer.peerID), busy: openingKey == key)
     }
     if !people.isEmpty { groups.append(Group(title: "联系人", results: people)) }
+    let members = otherPeople.prefix(20).map { hit in
+      Result(id: .person(hit.userID), title: hit.name, subtitle: hit.detail.isEmpty ? "QQ \(String(hit.userID))" : hit.detail,
+             avatar: MacAvatar(sha256: hit.avatarSha256.isEmpty ? avatars.sha256[hit.userID] : hit.avatarSha256, title: hit.name, seed: hit.userID))
+    }
+    if !members.isEmpty { groups.append(Group(title: "群成员", results: members)) }
     let chats = Dictionary((dialogSource?.items ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     // 2026-10-17 实机：以前只有会话名和正文，看不出是谁说的；补上发送人、会话头像和关键词高亮（和 iOS 搜索一致）。
     let found = messages.map { message in
@@ -190,9 +208,7 @@ final class MacSidebarSearchViewModel {
   private var matchedDialogs: [DialogItem] {
     guard !term.isEmpty else { return [] }
     return (dialogSource?.items ?? []).filter {
-      $0.title.localizedCaseInsensitiveContains(term) || String($0.dialog.peerID).contains(term)
-        || ($0.peer?.name.localizedCaseInsensitiveContains(term) ?? false)
-        || ($0.peer?.remark.localizedCaseInsensitiveContains(term) ?? false)
+      NameSearch.matches([$0.title, $0.peer?.name ?? "", $0.peer?.remark ?? ""], term) || String($0.dialog.peerID).contains(term)
     }
   }
 
@@ -202,9 +218,28 @@ final class MacSidebarSearchViewModel {
     return contacts.filter { !shown.contains(MacPeerPresentation.key($0)) && MacPeerPresentation.matches($0, term) }
   }
 
+  /// 群成员结果：去掉已经作为会话、联系人列出来的人。
+  private var otherPeople: [Qqbridge_V1_PersonHit] {
+    guard !term.isEmpty else { return [] }
+    let shown = Set(matchedDialogs.filter { !$0.isGroup }.map(\.dialog.peerID) + matchedPeople.filter { $0.kind == .user }.map(\.peerID))
+    return people.filter { !shown.contains($0.userID) }
+  }
+
   private func run(_ next: String, force: Bool = false) {
     task?.cancel()
     task = nil
+    if next != term || next.isEmpty {
+      peopleTask?.cancel()
+      people = []
+      if !next.isEmpty {
+        peopleTask = Task { [weak self, service] in
+          try? await Task.sleep(for: .milliseconds(300))
+          guard !Task.isCancelled, let hits = try? await service.searchPeople(next), !Task.isCancelled,
+                let self, self.term == next else { return }
+          self.people = hits
+        }
+      }
+    }
     cancelOpening()
     let id = UUID()
     generation = id

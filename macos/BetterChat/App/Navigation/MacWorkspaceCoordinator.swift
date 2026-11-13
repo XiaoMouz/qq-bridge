@@ -248,6 +248,8 @@ final class MacWorkspaceCoordinator: MacWorkspaceCommands {
       // openMessage 可能另外登记 pendingChat；这里直接打开，避免观察到后重复打开。
       if model.pendingChat == id { model.pendingChat = nil }
       openChat(id, composer: nil)
+    case .profile(let id):
+      showContact(.user(id))
     }
   }
 

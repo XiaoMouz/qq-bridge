@@ -146,7 +146,7 @@ struct ContactsView: View {
     let q = (sidebarQuery ?? query).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty else { return list }
     return list.filter {
-      $0.name.localizedCaseInsensitiveContains(q) || $0.remark.localizedCaseInsensitiveContains(q) || String($0.peerID).contains(q)
+      $0.matchesSearch(q)
     }
   }
 

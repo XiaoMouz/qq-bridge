@@ -21,8 +21,7 @@ enum MacPeerPresentation {
 
   /// 名称、昵称、备注或号码是否包含关键词。
   static func matches(_ peer: Qqbridge_V1_Peer, _ term: String) -> Bool {
-    peer.name.localizedCaseInsensitiveContains(term) || peer.remark.localizedCaseInsensitiveContains(term)
-      || String(peer.peerID).contains(term)
+    peer.matchesSearch(term)
   }
 
   /// 同一个好友 / 群在会话与联系人两组结果中的去重键（与 iOS `searchKey` 规则相同）。

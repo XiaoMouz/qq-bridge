@@ -8,6 +8,7 @@ import type { AdminService } from '../admin/service.ts';
 import type { NapcatWebUi } from '../admin/napcat-webui.ts';
 import type { CallService } from '../calls/service.ts';
 import type { PeopleResolver } from '../contacts/people.ts';
+import type { PeopleSearch } from '../contacts/search.ts';
 import type { ContactService } from '../contacts/service.ts';
 import type { ForwardService } from '../messages/forwards.ts';
 import type { MessageForwarder } from '../messages/forwarding.ts';
@@ -61,6 +62,8 @@ export interface ApiDeps {
   forwards: ForwardService;
   contacts: ContactService;
   people: PeopleResolver;
+  /** 找人（好友、群成员，支持拼音）。 */
+  peopleSearch: PeopleSearch;
   tiering: TierManager;
   stickers: StickerService;
   storageBrowser: StorageBrowser;

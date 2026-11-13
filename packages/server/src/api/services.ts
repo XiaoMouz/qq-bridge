@@ -1156,6 +1156,16 @@ function contactService(deps: ApiDeps): ServiceImpl<typeof ContactService> {
         };
       });
     },
+    async searchPeople(req, ctx) {
+      return wrap(async () => ({
+        people: (
+          await deps.peopleSearch.search(requireAuth(ctx).accountId, req.query, {
+            limit: clampLimit(req.limit, 30, 100),
+            groupIds: req.groupIds.map((id) => toSafeNumber(id, 'group_ids')),
+          })
+        ).map((p) => ({ ...p, userId: BigInt(p.userId), groupId: BigInt(p.groupId) })),
+      }));
+    },
     async listGroupNotices(req, ctx) {
       return groupContent(async () => ({
         notices: (await deps.groupContent.notices(requireAuth(ctx).accountId, toSafeNumber(req.groupId, 'group_id'))).map((n) => ({

@@ -15,6 +15,9 @@ service ContactService {
   rpc GetUserProfile(GetUserProfileRequest) returns (GetUserProfileResponse);
   rpc GetGroupProfile(GetGroupProfileRequest) returns (GetGroupProfileResponse);
   rpc ListGroupMembers(ListGroupMembersRequest) returns (ListGroupMembersResponse);
+  // 找人：好友、库里有资料的人和所有群的群成员，按名字、备注、群名片、号码匹配，名字也能用拼音或首字母搜
+  // （「zhangsan」「zs」都能找到「张三」）。搜索页的「群成员」结果和「只看 / 排除」选人用。
+  rpc SearchPeople(SearchPeopleRequest) returns (SearchPeopleResponse);
   // 立即从 QQ 刷新好友列表和群列表（例如用户下拉刷新联系人页）。
   rpc RefreshContacts(RefreshContactsRequest) returns (RefreshContactsResponse);
   // 一批人的头像（聊天页显示到谁就要谁的）：超过一天没检查过的才从 QQ 头像服务下载，不经 QQ 协议。一次最多 50 个。
@@ -363,4 +366,28 @@ message ListGroupAlbumMediaResponse {
   string next_cursor = 2;
   bool has_more = 3;
   string album_name = 4;
+}
+
+message SearchPeopleRequest {
+  string query = 1;
+  // 默认 30，最多 100。
+  uint32 limit = 2;
+  // 只在这些群的成员里找；空 = 不限。
+  repeated int64 group_ids = 3;
+}
+
+message SearchPeopleResponse {
+  repeated PersonHit people = 1;
+}
+
+message PersonHit {
+  int64 user_id = 1;
+  // 显示名：备注 > 昵称 > 群名片 > 号码。
+  string name = 2;
+  // 补充说明，例如「好友」「「群名片」· 某某群 等 3 个群」。
+  string detail = 3;
+  bool is_friend = 4;
+  string avatar_sha256 = 5;
+  // 匹配到的群（按群名片匹配时）或所在的第一个群；0 = 不在群里。
+  int64 group_id = 6;
 }

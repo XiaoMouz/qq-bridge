@@ -1,3 +1,4 @@
+import { PeopleSearch } from './contacts/search.ts';
 import { LiveDownloads } from './media/live.ts';
 import { ChatCalendar } from './sync/calendar.ts';
 import fs from 'node:fs/promises';
@@ -106,6 +107,7 @@ export function createDeps(
       media,
     }),
     napcatWebUi: null,
+    peopleSearch: new PeopleSearch(db),
     contacts: new ContactService(db, ingest, media, processor, () => deps.upstream, { logger: logger.child({ component: 'contacts' }) }),
     signer: new MediaUrlSigner(opts.mediaUrlSecret),
     activeChats: new ActiveChats(),

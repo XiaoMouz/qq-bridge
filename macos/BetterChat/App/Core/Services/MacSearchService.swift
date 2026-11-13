@@ -11,6 +11,12 @@ protocol MacSearchService {
   func requestAvatar(for peer: Qqbridge_V1_Peer, in avatars: AvatarBook)
   /// 聊天记录结果里的发送人（和 iOS 搜索同一套规则）。
   func senderName(_ message: Qqbridge_V1_Message) -> String
+  /// 服务端找人：群成员、好友以外的人（名字支持拼音）。
+  func searchPeople(_ term: String) async throws -> [Qqbridge_V1_PersonHit]
+}
+
+extension MacSearchService {
+  func searchPeople(_ term: String) async throws -> [Qqbridge_V1_PersonHit] { [] }
 }
 
 @MainActor
@@ -37,5 +43,11 @@ struct MacSessionSearchService: MacSearchService {
   }
   func senderName(_ message: Qqbridge_V1_Message) -> String {
     MessageSearchPager.senderName(message, session: session)
+  }
+  func searchPeople(_ term: String) async throws -> [Qqbridge_V1_PersonHit] {
+    var request = Qqbridge_V1_SearchPeopleRequest()
+    request.query = term
+    request.limit = 30
+    return try await session.api.contacts.searchPeople(request: request, headers: session.api.headers).get().people
   }
 }

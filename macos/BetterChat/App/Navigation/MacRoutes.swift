@@ -39,4 +39,6 @@ enum MacSetting: String, CaseIterable, Hashable {
 enum MacSidebarRoute: Equatable {
   case chat(Int64)
   case message(chatId: Int64, seq: Int64)
+  /// 搜索到的群成员等：打开资料（2026-11-13）。
+  case profile(userId: Int64)
 }

@@ -31,6 +31,11 @@ public protocol Qqbridge_V1_ContactServiceClientInterface: Sendable {
     @available(iOS 13, *)
     func `listGroupMembers`(request: Qqbridge_V1_ListGroupMembersRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_ListGroupMembersResponse>
 
+    /// 找人：好友、库里有资料的人和所有群的群成员，按名字、备注、群名片、号码匹配，名字也能用拼音或首字母搜
+    /// （「zhangsan」「zs」都能找到「张三」）。搜索页的「群成员」结果和「只看 / 排除」选人用。
+    @available(iOS 13, *)
+    func `searchPeople`(request: Qqbridge_V1_SearchPeopleRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_SearchPeopleResponse>
+
     /// 立即从 QQ 刷新好友列表和群列表（例如用户下拉刷新联系人页）。
     @available(iOS 13, *)
     func `refreshContacts`(request: Qqbridge_V1_RefreshContactsRequest, headers: Connect.Headers) async -> ResponseMessage<Qqbridge_V1_RefreshContactsResponse>
@@ -116,6 +121,11 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
     }
 
     @available(iOS 13, *)
+    public func `searchPeople`(request: Qqbridge_V1_SearchPeopleRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_SearchPeopleResponse> {
+        return await self.client.unary(path: "/qqbridge.v1.ContactService/SearchPeople", idempotencyLevel: .unknown, request: request, headers: headers)
+    }
+
+    @available(iOS 13, *)
     public func `refreshContacts`(request: Qqbridge_V1_RefreshContactsRequest, headers: Connect.Headers = [:]) async -> ResponseMessage<Qqbridge_V1_RefreshContactsResponse> {
         return await self.client.unary(path: "/qqbridge.v1.ContactService/RefreshContacts", idempotencyLevel: .unknown, request: request, headers: headers)
     }
@@ -192,6 +202,7 @@ public final class Qqbridge_V1_ContactServiceClient: Qqbridge_V1_ContactServiceC
             public static let getUserProfile = Connect.MethodSpec(name: "GetUserProfile", service: "qqbridge.v1.ContactService", type: .unary)
             public static let getGroupProfile = Connect.MethodSpec(name: "GetGroupProfile", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupMembers = Connect.MethodSpec(name: "ListGroupMembers", service: "qqbridge.v1.ContactService", type: .unary)
+            public static let searchPeople = Connect.MethodSpec(name: "SearchPeople", service: "qqbridge.v1.ContactService", type: .unary)
             public static let refreshContacts = Connect.MethodSpec(name: "RefreshContacts", service: "qqbridge.v1.ContactService", type: .unary)
             public static let getAvatars = Connect.MethodSpec(name: "GetAvatars", service: "qqbridge.v1.ContactService", type: .unary)
             public static let listGroupNotices = Connect.MethodSpec(name: "ListGroupNotices", service: "qqbridge.v1.ContactService", type: .unary)

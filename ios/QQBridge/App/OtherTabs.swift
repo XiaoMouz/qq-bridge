@@ -21,6 +21,8 @@ struct SearchView: View {
   /// 本地缓存的全部好友和群（还没聊过的也能搜到备注、昵称）。
   @State private var contacts: [Qqbridge_V1_Peer] = []
   @State private var avatars = AvatarBook()
+  /// 服务端找到的群成员等（好友、会话以外的人，名字支持拼音）。2026-11-13 用户要求搜索包含群里的人。
+  @State private var members: [Qqbridge_V1_PersonHit] = []
   @State private var path = NavigationPath()
   @State private var pager: MessageSearchPager
 
@@ -73,6 +75,23 @@ struct SearchView: View {
             }
           }
         }
+        let others = otherPeople
+        if !others.isEmpty {
+          Section("群成员") {
+            ForEach(others.prefix(20), id: \.userID) { p in
+              NavigationLink(value: SearchProfileRoute(userId: p.userID, groupId: p.groupID)) {
+                HStack(spacing: 12) {
+                  AvatarView(sha256: !p.avatarSha256.isEmpty ? p.avatarSha256 : avatars.sha256[p.userID], title: p.name, seed: p.userID, size: 40)
+                    .onAppear { if p.avatarSha256.isEmpty { avatars.want(p.userID, session: session) } }
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(p.name).lineLimit(1).foregroundStyle(.primary)
+                    Text(p.detail.isEmpty ? "QQ \(String(p.userID))" : p.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                  }
+                }
+              }
+            }
+          }
+        }
         if !pager.results.isEmpty {
           Section("聊天记录") {
             ForEach(pager.results, id: \.searchKey) { m in
@@ -114,6 +133,10 @@ struct SearchView: View {
       .contentMargins(.top, 8, for: .scrollContent)
       .navigationTitle("搜索")
       .navigationDestination(for: Int64.self) { ChatScreen(session: session, chatId: $0) }
+      .navigationDestination(for: SearchProfileRoute.self) {
+        UserProfileView(session: session, userId: $0.userId, groupMember: nil, viaGroupId: $0.groupId)
+      }
+      .task(id: query) { await searchMembers() }
       .searchable(text: $query, prompt: "搜索会话和聊天记录")
       #if targetEnvironment(macCatalyst)
       .searchFocused($searchFocused)
@@ -128,7 +151,7 @@ struct SearchView: View {
         if pager.searched != nil, pager.canSearch(query) { Task { await search() } } else { pager.reset() }
       }
       .overlay {
-        if pager.searching { ProgressView() } else if pager.searched != nil, pager.results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty {
+        if pager.searching { ProgressView() } else if pager.searched != nil, pager.results.isEmpty, matchedDialogs.isEmpty, matchedContacts.isEmpty, otherPeople.isEmpty {
           if query.isEmpty { ContentUnavailableView("没有符合筛选的消息", systemImage: "line.3.horizontal.decrease.circle") }
           else { ContentUnavailableView.search(text: query) }
         }
@@ -146,9 +169,7 @@ struct SearchView: View {
     let q = query.trimmingCharacters(in: .whitespaces)
     guard !q.isEmpty else { return [] }
     return dialogs.filter { item in
-      item.title.localizedCaseInsensitiveContains(q)
-        || (item.peer?.name.localizedCaseInsensitiveContains(q) ?? false)
-        || (item.peer?.remark.localizedCaseInsensitiveContains(q) ?? false)
+      NameSearch.matches([item.title, item.peer?.name ?? "", item.peer?.remark ?? ""], q)
         || String(item.dialog.peerID).contains(q)
     }
   }
@@ -160,8 +181,28 @@ struct SearchView: View {
     let shown = Set(matchedDialogs.map { "\($0.isGroup ? 2 : 1):\($0.dialog.peerID)" })
     return contacts.filter { p in
       !shown.contains(p.searchKey)
-        && (p.remark.localizedCaseInsensitiveContains(q) || p.name.localizedCaseInsensitiveContains(q) || String(p.peerID).contains(q))
+        && p.matchesSearch(q)
     }
+  }
+
+  /// 群成员结果：去掉已经作为会话、联系人列出来的人。
+  private var otherPeople: [Qqbridge_V1_PersonHit] {
+    guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
+    let shown = Set(matchedDialogs.filter { !$0.isGroup }.map(\.dialog.peerID) + matchedContacts.filter { $0.kind == .user }.map(\.peerID))
+    return members.filter { !shown.contains($0.userID) }
+  }
+
+  private func searchMembers() async {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    guard !q.isEmpty else { members = []; return }
+    try? await Task.sleep(for: .milliseconds(300))
+    guard !Task.isCancelled else { return }
+    var req = Qqbridge_V1_SearchPeopleRequest()
+    req.query = q
+    req.limit = 30
+    guard let hits = try? await session.api.contacts.searchPeople(request: req, headers: session.api.headers).get().people,
+          !Task.isCancelled else { return }
+    members = hits
   }
 
   static func name(_ p: Qqbridge_V1_Peer) -> String {
@@ -186,6 +227,12 @@ struct SearchView: View {
 
 extension Qqbridge_V1_Message {
   var searchKey: String { "\(chatID):\(seq)" }
+}
+
+/// 搜索结果里的人：打开资料（从群里找到的带上群，发起私聊时走群临时会话）。
+struct SearchProfileRoute: Hashable {
+  let userId: Int64
+  let groupId: Int64
 }
 
 extension Qqbridge_V1_Peer {

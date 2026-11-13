@@ -249,6 +249,11 @@ struct SearchPeoplePicker: View {
   @State private var candidates: [SearchPerson] = []
   @State private var query = ""
   @State private var loading = true
+  /// 服务端找到的人（群成员、好友以外的人；名字支持拼音），和说明（「群名片」· 群名）。
+  @State private var remote: [SearchPerson] = []
+  @State private var details: [Int64: String] = [:]
+  /// 只在这个群的成员里找（会话内搜索的群聊）；nil = 不限。
+  @State private var groupId: Int64?
 
   init(session: Session, scope: SearchFilterScope, mode: MessageSearchFilter.Mode, selected: [SearchPerson],
        onDone: @escaping (MessageSearchFilter.Mode, [SearchPerson]) -> Void) {
@@ -264,7 +269,10 @@ struct SearchPeoplePicker: View {
     let chosen = Set(selected.map(\.id))
     let rest = candidates.filter { !chosen.contains($0.id) }
     guard !q.isEmpty else { return rest }
-    var hits = rest.filter { $0.name.localizedCaseInsensitiveContains(q) || String($0.id).contains(q) }
+    var hits = rest.filter { NameSearch.matches($0.name, q) || String($0.id).contains(q) }
+    // 2026-11-13：本地只有好友（全局）或前 2000 个群成员（群聊），其余的人由服务端找，接在后面。
+    let local = Set(hits.map(\.id))
+    hits += remote.filter { !local.contains($0.id) && !chosen.contains($0.id) }
     if let number = Int64(q), number > 10000, !chosen.contains(number), !hits.contains(where: { $0.id == number }) {
       hits.insert(SearchPerson(id: number, name: String(number)), at: 0)
     }
@@ -293,7 +301,7 @@ struct SearchPeoplePicker: View {
         }
       }
       .overlay { if loading && candidates.isEmpty { ProgressView() } }
-      .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "名字或号码")
+      .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "名字、拼音或号码")
       .navigationTitle("发送者")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
@@ -304,6 +312,22 @@ struct SearchPeoplePicker: View {
       }
     }
     .task { await load() }
+    .task(id: query) { await searchRemote() }
+  }
+
+  private func searchRemote() async {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    guard !q.isEmpty else { remote = []; return }
+    try? await Task.sleep(for: .milliseconds(250))
+    guard !Task.isCancelled else { return }
+    var req = Qqbridge_V1_SearchPeopleRequest()
+    req.query = q
+    req.limit = 50
+    if let groupId { req.groupIds = [groupId] }
+    guard let hits = try? await session.api.contacts.searchPeople(request: req, headers: session.api.headers).get().people,
+          !Task.isCancelled else { return }
+    remote = hits.map { SearchPerson(id: $0.userID, name: $0.name) }
+    for h in hits where !h.detail.isEmpty { details[h.userID] = h.detail }
   }
 
   private func row(_ p: SearchPerson, on: Bool) -> some View {
@@ -312,7 +336,10 @@ struct SearchPeoplePicker: View {
     } label: {
       HStack(spacing: 12) {
         AvatarView(sha256: nil, title: p.name, seed: p.id, size: 32)
-        Text(p.name).lineLimit(1).foregroundStyle(.primary)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(p.name).lineLimit(1).foregroundStyle(.primary)
+          if let detail = details[p.id] { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+        }
         Spacer()
         if on { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).fontWeight(.semibold) }
       }
@@ -329,6 +356,7 @@ struct SearchPeoplePicker: View {
       let me = (try? session.store.selfUin(qqAccountId: d.qqAccountID)) ?? 0
       var list: [SearchPerson] = me != 0 ? [SearchPerson(id: me, name: "我")] : []
       if d.scene == .group {
+        groupId = d.peerID
         var req = Qqbridge_V1_ListGroupMembersRequest()
         req.groupID = d.peerID
         req.limit = 2000
@@ -373,7 +401,7 @@ struct SearchChatsPicker: View {
     let chosen = Set(selected.map(\.id))
     let q = query.trimmingCharacters(in: .whitespaces)
     return dialogs.filter { d in
-      !chosen.contains(d.id) && (q.isEmpty || d.title.localizedCaseInsensitiveContains(q) || String(d.dialog.peerID).contains(q))
+      !chosen.contains(d.id) && (q.isEmpty || NameSearch.matches(d.title, q) || String(d.dialog.peerID).contains(q))
     }
   }
 
