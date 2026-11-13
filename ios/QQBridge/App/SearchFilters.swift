@@ -252,6 +252,9 @@ struct SearchPeoplePicker: View {
   /// 服务端找到的人（群成员、好友以外的人；名字支持拼音），和说明（「群名片」· 群名）。
   @State private var remote: [SearchPerson] = []
   @State private var details: [Int64: String] = [:]
+  /// 头像：服务端结果带的直接用，其余显示到谁就要谁的（2026-11-13 用户反馈选人列表没有头像）。
+  @State private var avatarShas: [Int64: String] = [:]
+  @State private var avatars = AvatarBook()
   /// 只在这个群的成员里找（会话内搜索的群聊）；nil = 不限。
   @State private var groupId: Int64?
 
@@ -327,7 +330,10 @@ struct SearchPeoplePicker: View {
     guard let hits = try? await session.api.contacts.searchPeople(request: req, headers: session.api.headers).get().people,
           !Task.isCancelled else { return }
     remote = hits.map { SearchPerson(id: $0.userID, name: $0.name) }
-    for h in hits where !h.detail.isEmpty { details[h.userID] = h.detail }
+    for h in hits {
+      if !h.detail.isEmpty { details[h.userID] = h.detail }
+      if !h.avatarSha256.isEmpty { avatarShas[h.userID] = h.avatarSha256 }
+    }
   }
 
   private func row(_ p: SearchPerson, on: Bool) -> some View {
@@ -335,7 +341,8 @@ struct SearchPeoplePicker: View {
       if on { selected.removeAll { $0.id == p.id } } else { selected.append(p) }
     } label: {
       HStack(spacing: 12) {
-        AvatarView(sha256: nil, title: p.name, seed: p.id, size: 32)
+        AvatarView(sha256: avatarShas[p.id] ?? avatars.sha256[p.id], title: p.name, seed: p.id, size: 32)
+          .onAppear { if avatarShas[p.id] == nil { avatars.want(p.id, session: session) } }
         VStack(alignment: .leading, spacing: 1) {
           Text(p.name).lineLimit(1).foregroundStyle(.primary)
           if let detail = details[p.id] { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
