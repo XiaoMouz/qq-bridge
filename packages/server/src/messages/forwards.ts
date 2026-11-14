@@ -4,7 +4,7 @@
 import type { Segment } from '@qqbridge/domain';
 import { sql } from 'drizzle-orm';
 import { ANONYMOUS_FORWARD_SENDER, localNames, type PeopleResolver } from '../contacts/people.ts';
-import { maybeOne, type Db } from '../db/client.ts';
+import { maybeOne, rows, type Db } from '../db/client.ts';
 import type { ForwardBundleRow, ForwardNodeInput, IngestService, StoredForwardNode } from '../ingest/service.ts';
 import type { UpstreamHub } from '../upstream/hub.ts';
 import { mapRawMessage } from '../upstream/napcat/map.ts';
@@ -34,6 +34,9 @@ function unnamed(node: StoredForwardNode): boolean {
   return node.senderId !== ANONYMOUS_FORWARD_SENDER && (!node.senderName || node.senderName === String(node.senderId));
 }
 
+/** 给客户端的节点：senderUnknown = 查不到这个人（见 ForwardService.markUnknown）。 */
+export type ForwardNodeView = StoredForwardNode & { senderUnknown: boolean };
+
 function backupWithMissingMedia(nodes: StoredForwardNode[]): boolean {
   return nodes.length > 0 && nodes.every((n) => !n.msgId)
     && nodes.some((n) => n.segments.some((s) => 'media' in s && (s as { media?: { state?: string } }).media?.state === 'expired'));
@@ -47,7 +50,7 @@ export class ForwardService {
     private readonly people: Pick<PeopleResolver, 'ensure'> | null = null,
   ) {}
 
-  async get(accountId: number, chatId: number, seq: number, path: number[]): Promise<ForwardBundleRow> {
+  async get(accountId: number, chatId: number, seq: number, path: number[]): Promise<Omit<ForwardBundleRow, 'nodes'> & { nodes: ForwardNodeView[] }> {
     const message = await maybeOne<{
       qq_account_id: number;
       uin: number;
@@ -65,7 +68,27 @@ export class ForwardService {
     if (!message) throw new InteractionError('not_found', `message ${chatId}/${seq} not found`);
     if (!message.segments.some((s) => s.type === 'forward')) throw new InteractionError('unsupported', 'message has no forward');
     const bundle = await this.level(message, chatId, seq, path);
-    return { ...bundle, nodes: await this.withNames(message.qq_account_id, message.scene === 'group' ? Number(message.peer_id) : null, bundle.nodes) };
+    const nodes = await this.withNames(message.qq_account_id, message.scene === 'group' ? Number(message.peer_id) : null, bundle.nodes);
+    return { ...bundle, nodes: await this.markUnknown(message.qq_account_id, nodes) };
+  }
+
+  /**
+   * 查不到的发送者：QQ 隐藏了号码的（1094950020，名字是各自的昵称，头像不是本人的），和补完名字仍只有号码、
+   * 向 QQ 要资料也没要到的（people_lookups.found = false）。客户端给这些人显示默认头像，不能点开资料。
+   */
+  private async markUnknown(qqAccountId: number, nodes: StoredForwardNode[]): Promise<ForwardNodeView[]> {
+    const ids = [...new Set(nodes.filter((n) => n.senderId !== ANONYMOUS_FORWARD_SENDER && unnamed(n)).map((n) => n.senderId))];
+    const notFound = new Set<number>();
+    if (ids.length) {
+      const list = sql.join(ids.map((id) => sql`${id}`), sql`, `);
+      for (const r of await rows<{ user_id: string }>(
+        this.db,
+        sql`select user_id from people_lookups where qq_account_id = ${qqAccountId} and not found and user_id in (${list})`,
+      )) {
+        notFound.add(Number(r.user_id));
+      }
+    }
+    return nodes.map((n) => ({ ...n, senderUnknown: n.senderId === ANONYMOUS_FORWARD_SENDER || notFound.has(n.senderId) }));
   }
 
   /**

@@ -191,6 +191,27 @@ describe('ForwardService', () => {
     expect(refs).toEqual([{ role: 'attachment', fetch_state: 'on_demand' }, { role: 'qq_thumb', fetch_state: 'pending' }]);
   });
 
+  it('marks senders nobody can look up: QQ-hidden numbers and people QQ had no profile for', async () => {
+    const { ingest } = services(t.db);
+    const acc = await createTestAccount(t.db, ingest);
+    const hub = new FakeHub();
+    const forwards = new ForwardService(t.db, ingest, () => hub);
+    await ingest.ingestMessage(acc.qqAccountId, { ...textMessage('group', 940009, 4, 20002, { extra: [{ type: 'forward', forwardId: 'res-9' }] }), qqMsgId: '7300000000000000044' });
+    const chat = await chatIdOf(acc, 940009);
+    hub.forwards.set('7300000000000000044', [
+      raw({ chatType: 2, peer: '940009', seq: 1, sender: '1094950020', sendNickName: '某人的昵称', elements: [el.text('隐藏号码')] }),
+      raw({ chatType: 2, peer: '940009', seq: 2, sender: '30071', elements: [el.text('查不到')] }),
+      raw({ chatType: 2, peer: '940009', seq: 3, sender: '30072', sendNickName: '丙', elements: [el.text('有名字')] }),
+    ]);
+    await t.db.execute(sql`insert into people_lookups (qq_account_id, user_id, found) values (${acc.qqAccountId}, 30071, false)`);
+    const bundle = await forwards.get(acc.accountId, chat, 4, []);
+    expect(bundle.nodes.map((n) => [n.senderId, n.senderName, n.senderUnknown])).toEqual([
+      [1094950020, '某人的昵称', true],
+      [30071, '30071', true],
+      [30072, '丙', false],
+    ]);
+  });
+
   it('remembers forwards QQ no longer has', async () => {
     const { ingest } = services(t.db);
     const acc = await createTestAccount(t.db, ingest);

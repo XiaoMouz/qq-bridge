@@ -287,6 +287,9 @@ public nonisolated struct Qqbridge_V1_ForwardNode: Sendable {
 
   public var segments: [Qqbridge_V1_Segment] = []
 
+  /// 查不到这个人：QQ 隐藏了号码（名字是昵称，号码不是本人的），或者要资料也没要到。显示默认头像，不能点开资料。
+  public var senderUnknown: Bool = false
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1282,7 +1285,7 @@ nonisolated extension Qqbridge_V1_GetForwardRequest: SwiftProtobuf.Message, Swif
 
 nonisolated extension Qqbridge_V1_ForwardNode: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ForwardNode"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}sender_id\0\u{3}sender_name\0\u{1}time\0\u{1}segments\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}sender_id\0\u{3}sender_name\0\u{1}time\0\u{1}segments\0\u{3}sender_unknown\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1294,6 +1297,7 @@ nonisolated extension Qqbridge_V1_ForwardNode: SwiftProtobuf.Message, SwiftProto
       case 2: try { try decoder.decodeSingularStringField(value: &self.senderName) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.time) }()
       case 4: try { try decoder.decodeRepeatedMessageField(value: &self.segments) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.senderUnknown) }()
       default: break
       }
     }
@@ -1312,6 +1316,9 @@ nonisolated extension Qqbridge_V1_ForwardNode: SwiftProtobuf.Message, SwiftProto
     if !self.segments.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.segments, fieldNumber: 4)
     }
+    if self.senderUnknown != false {
+      try visitor.visitSingularBoolField(value: self.senderUnknown, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -1320,6 +1327,7 @@ nonisolated extension Qqbridge_V1_ForwardNode: SwiftProtobuf.Message, SwiftProto
     if lhs.senderName != rhs.senderName {return false}
     if lhs.time != rhs.time {return false}
     if lhs.segments != rhs.segments {return false}
+    if lhs.senderUnknown != rhs.senderUnknown {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

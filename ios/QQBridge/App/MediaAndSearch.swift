@@ -416,9 +416,34 @@ struct ForwardView: View {
   @State private var thumbMissing: Set<String> = []
   /// 这一层里的语音共用一个播放器（同时只放一条），离开时停掉。
   @State private var voice = VoicePlayer()
+  @State private var avatars = AvatarBook()
 
   /// QQ 隐藏了发送者的节点：号码一律是 1094950020、名字「QQ用户」（2026-11-10 服务端库里实测），不是真人，不能点开资料。
   static let anonymousSender: Int64 = 1094950020
+
+  /// 能点开资料的发送者：服务端说查不到的（隐藏号码、要资料也没要到）不行；旧服务端没有这个字段时按隐藏号码判断。
+  static func canOpenProfile(_ node: Qqbridge_V1_ForwardNode) -> Bool {
+    node.senderID != 0 && node.senderID != anonymousSender && !node.senderUnknown
+  }
+
+  /// 发送者头像：查得到的人显示头像（按需向服务端要），点开资料；查不到的显示默认头像、不能点。
+  @ViewBuilder private func senderAvatar(_ node: Qqbridge_V1_ForwardNode) -> some View {
+    if Self.canOpenProfile(node) {
+      let name = node.senderName.isEmpty ? String(node.senderID) : node.senderName
+      Button { profile = ProfileTarget(userId: node.senderID) } label: {
+        AvatarView(sha256: avatars.sha256[node.senderID], title: name, seed: node.senderID, size: 32)
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("查看\(name)的资料")
+      .onAppear { avatars.want(node.senderID, session: session) }
+    } else {
+      Image(systemName: "person.crop.circle.fill")
+        .resizable()
+        .foregroundStyle(.gray.opacity(0.5))
+        .frame(width: 32, height: 32)
+        .accessibilityHidden(true)
+    }
+  }
 
   /// 还在等服务端下载的：照片等 QQ 缩略图（原图按需，点开才下），其余等原件。
   static func downloading(_ node: Qqbridge_V1_ForwardNode, index: Int, thumbMissing: Set<String>) -> Bool {
@@ -437,22 +462,25 @@ struct ForwardView: View {
   var body: some View {
     List {
       ForEach(Array(nodes.enumerated()), id: \.offset) { index, node in
-        VStack(alignment: .leading, spacing: 4) {
-          HStack {
-            if node.senderID != 0, node.senderID != Self.anonymousSender {
-              Button { profile = ProfileTarget(userId: node.senderID) } label: {
-                Text(node.senderName.isEmpty ? String(node.senderID) : node.senderName).font(.caption.bold())
+        HStack(alignment: .top, spacing: 10) {
+          senderAvatar(node)
+          VStack(alignment: .leading, spacing: 4) {
+            HStack {
+              if Self.canOpenProfile(node) {
+                Button { profile = ProfileTarget(userId: node.senderID) } label: {
+                  Text(node.senderName.isEmpty ? String(node.senderID) : node.senderName).font(.caption.bold())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("查看资料")
+              } else {
+                Text(node.senderName.isEmpty ? "QQ用户" : node.senderName).font(.caption.bold())
               }
-              .buttonStyle(.plain)
-              .accessibilityHint("查看资料")
-            } else {
-              Text(node.senderName).font(.caption.bold())
+              Spacer()
+              Text(Format.chatTime(node.time)).font(.caption2).foregroundStyle(.secondary)
             }
-            Spacer()
-            Text(Format.chatTime(node.time)).font(.caption2).foregroundStyle(.secondary)
-          }
-          ForEach(Array(node.segments.enumerated()), id: \.offset) { _, seg in
-            ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)], thumbMissing: thumbMissing, voice: voice)
+            ForEach(Array(node.segments.enumerated()), id: \.offset) { _, seg in
+              ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)], thumbMissing: thumbMissing, voice: voice)
+            }
           }
         }
         .padding(.vertical, 2)

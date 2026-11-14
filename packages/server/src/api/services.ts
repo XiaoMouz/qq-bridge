@@ -605,6 +605,7 @@ function messageService(deps: ApiDeps): ServiceImpl<typeof MessageService> {
             senderName: n.senderName,
             time: BigInt(n.time),
             segments: n.segments.map(segmentToProto),
+            senderUnknown: n.senderUnknown,
           })),
         };
       } catch (error) {

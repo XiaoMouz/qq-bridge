@@ -126,6 +126,8 @@ message ForwardNode {
   // unix 秒。
   int64 time = 3;
   repeated Segment segments = 4;
+  // 查不到这个人：QQ 隐藏了号码（名字是昵称，号码不是本人的），或者要资料也没要到。显示默认头像，不能点开资料。
+  bool sender_unknown = 5;
 }
 
 message GetForwardResponse {
