@@ -508,12 +508,20 @@ struct ForwardView: View {
       req.path = path
       // 里面的图片 / 表情 / 视频还在下载：等服务端推「这一层有媒体下好了」再重新拉一次，下好就显示。
       let watch = MediaReady.shared.watchForward(chatId: chatId, seq: seq, path: path)
-      for round in 0..<200 {
+      var failures = 0
+      for _ in 0..<200 {
         if Task.isCancelled { return }
         if let res = try? await session.api.messages.getForward(request: req, headers: session.api.headers).get() {
           nodes = res.nodes
           unavailable = res.unavailable
-        } else if round == 0 {
+        } else if nodes.isEmpty {
+          // 请求失败（网络抖动、服务端忙）不等于「拿不到了」：隔一会儿再试，连续三次都失败才这么显示。
+          // 2026-11-14 模拟器在宿主机负载很高时实测：第一次请求失败就一直显示「已无法查看」，服务端其实是好的。
+          failures += 1
+          if failures < 3 {
+            try? await Task.sleep(for: .seconds(failures))
+            continue
+          }
           unavailable = true
         }
         loading = false
