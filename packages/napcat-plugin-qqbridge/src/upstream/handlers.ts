@@ -377,14 +377,24 @@ export function createHandlers(ctx: NapCatPluginContext, deps: { sender?: Sender
           return { url: await packetUrl(() => api.getPttUrl(peerUid, locator.fileUuid, URL_TIMEOUT_MS)) };
         case ElementType.FILE: {
           if (!locator.fileUuid || !api.getFileUrl) return { url: null };
+          // 合并转发里转存的文件：节点还是原来的群（chatType 2），但 fileUuid 是「哈希_UUID」而不是群文件的「/UUID」，
+          // fileBizId 3、没有 file10MMd5。2026-11-14 实测（私聊收到的聊天记录，3 个 mp4）：按群文件要报「文件不存在」，
+          // 按私聊文件（主号 uid）要能拿到链接，服务器不校验 file10MMd5（NapCat 要求非空，填 32 个 0），Range 可用、内容正确。
+          // 库里 30 天 703 个群文件 fileUuid 全以 / 开头，所以只认「群里、不以 / 开头」这一种。
+          const forwarded = locator.chatType === ChatType.group && !locator.fileUuid.startsWith('/');
+          const asPrivate = forwarded || locator.chatType === ChatType.friend || locator.chatType === ChatType.temp;
           // 2026-10-30 私聊 87 MB 文件实测：传对方 uid 会使 0xE37_1200 超时；
           // NapCat 专用 get_private_file_url 用主号 uid，立即拿到地址且 Range 请求成功。
-          const receiverUid = locator.chatType === ChatType.friend || locator.chatType === ChatType.temp
-            ? selfInfo(ctx.core).uid
-            : peerUid;
-          return {
-            url: await packetUrl(() => api.getFileUrl(locator.chatType, receiverUid, locator.fileUuid, locator.file10MMd5, URL_TIMEOUT_MS)),
-          };
+          const receiverUid = asPrivate ? selfInfo(ctx.core).uid : peerUid;
+          const chatType = forwarded ? ChatType.friend : locator.chatType;
+          const md5 = locator.file10MMd5 || (forwarded ? '0'.repeat(32) : locator.file10MMd5);
+          try {
+            return { url: validUrl(await packetUrl(() => api.getFileUrl(chatType, receiverUid, locator.fileUuid, md5, URL_TIMEOUT_MS))) };
+          } catch (error) {
+            // 群文件已被删、或主号不在那个群（合并转发里别的群的群文件）：QQ 上也拿不到了，不用再试。2026-11-14 实测的两种回复。
+            if (error instanceof Error && /code=-10[23]\)/.test(error.message)) return { url: null };
+            throw error;
+          }
         }
         default:
           return { url: null };
@@ -428,6 +438,11 @@ async function packetUrl(fn: () => Promise<unknown>): Promise<string | null> {
     if (error instanceof TypeError && /reading '(info|download|domain)'/.test(error.message)) return null;
     throw error;
   }
+}
+
+/** NapCat 拼链接时域名、端口是 undefined（拿到的下载信息不完整，2026-11-14 别的群的群文件按私聊要时实测）：当作拿不到。 */
+function validUrl(url: string | null): string | null {
+  return url && !url.includes('//undefined') ? url : null;
 }
 
 function nonEmpty(url: unknown): string | null {
