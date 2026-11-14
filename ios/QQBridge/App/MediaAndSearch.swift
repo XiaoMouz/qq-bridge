@@ -543,7 +543,8 @@ struct ForwardSegmentView: View {
         })
         .mediaViewer(item: $media, session: session, chatId: chatId)
     case .video(let v):
-      MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId)
+      // 视频：没有封面时不拿视频原件当图片显示（解不出来，一片空白）。
+      MediaThumb(media: v.media, width: v.width, height: v.height, chatId: chatId, isVideo: true)
         .overlay {
           if v.media.state == .pending || v.media.state == .onDemand {
             // 服务端还在下载：转圈 + 大小，点开会等下好再播。
@@ -569,7 +570,9 @@ struct ForwardSegmentView: View {
       NavigationLink { ForwardView(session: session, chatId: chatId, seq: seq, path: path) } label: {
         Label(f.title.isEmpty ? "聊天记录" : f.title, systemImage: "text.bubble")
       }
-    case .file(let f): Label(f.name, systemImage: "doc")
+    case .file(let f):
+      ForwardFileView(file: f, session: session, chatId: chatId,
+                      forward: ForwardRef(seq: seq, path: Array(path.dropLast()), node: Int(path.last ?? 0)))
     case .record: Label("语音", systemImage: "waveform")
     case .marketFace(let f): Text(f.summary.isEmpty ? "[表情]" : f.summary)
     case .reply(let r):
@@ -622,6 +625,118 @@ struct ForwardSegmentView: View {
       }
     case .none: EmptyView()
     }
+  }
+}
+
+/// 聊天记录里的文件：点了下载（服务端按位置从 QQ 拉原件，显示进度），下好用 QuickLook 打开（mp4 能直接播放）。
+struct ForwardFileView: View {
+  let file: Qqbridge_V1_FileSegment
+  let session: Session
+  let chatId: Int64
+  let forward: ForwardRef
+  @State private var opening = false
+  @State private var fileURL: URL?
+  @State private var error: String?
+  /// 这次点了以后服务端回的状态（聊天记录的缓存不会自己刷新）。
+  @State private var latest: Qqbridge_V1_MediaInfo?
+
+  private var media: Qqbridge_V1_MediaInfo { latest ?? file.media }
+
+  /// 服务端从 QQ 拉这个文件的进度（Subscribe 推来的；没在下载时为 nil）。
+  private var serverProgress: MediaProgress.Value? {
+    MediaProgress.shared.value(chatId: chatId, seq: forward.seq, ord: media.ord,
+                               forward: (path: forward.path.map(String.init).joined(separator: "."), node: Int32(forward.node)))
+  }
+
+  var body: some View {
+    Button { Task { await open() } } label: {
+      HStack(spacing: 10) {
+        Group {
+          if opening || media.state == .pending {
+            TransferRing(progress: serverProgress?.fraction)
+          } else {
+            Image(systemName: media.state == .expired ? "doc.badge.ellipsis" : FileIcon.symbol(file.name))
+              .font(.title2).foregroundStyle(FileIcon.color(file.name))
+          }
+        }
+        .frame(width: 28, height: 28)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(file.name).lineLimit(2)
+          Text(status).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(opening || media.state == .expired)
+    .accessibilityLabel("文件：\(file.name)")
+    .accessibilityValue(status)
+    .quickLookPreview($fileURL)
+    .alert("打不开", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }), presenting: error) { _ in
+      Button("好") { error = nil }
+    } message: { Text($0) }
+  }
+
+  private var status: String {
+    let size = file.size > 0 ? Bytes.text(Int64(file.size)) : "文件"
+    switch media.state {
+    case .expired: return "\(size) · 已失效，QQ 上也拿不到了"
+    case .failed: return "\(size) · 下载失败，点一下重试"
+    case .stored, .purged: return size
+    default:
+      if let p = serverProgress { return "\(Bytes.text(p.received)) / \(size)" }
+      return opening || media.state == .pending ? "\(size) · 下载中" : "\(size) · 点一下下载"
+    }
+  }
+
+  private func open() async {
+    opening = true
+    defer { opening = false }
+    var sha = media.state == .stored ? media.sha256 : ""
+    if sha.isEmpty {
+      // 原件还没下（太大没自动下、以前失败的）：按位置让服务端从 QQ 拉；还在下载就等它推「下好了」。
+      var ref = Qqbridge_V1_MediaRef()
+      ref.chatID = chatId
+      ref.seq = forward.seq
+      ref.ord = media.ord
+      ref.forward.path = forward.path
+      ref.forward.node = Int32(forward.node)
+      var req = Qqbridge_V1_RequestMediaRequest()
+      req.refs = [ref]
+      req.original = true
+      let key = forward.path.map(String.init).joined(separator: ".")
+      let (chatId, seq, node, ord) = (chatId, forward.seq, forward.node, media.ord)
+      let watch = MediaReady.shared.watch { e in
+        !e.thumb && e.chatID == chatId && e.seq == seq && e.forwardPath == key && Int(e.node) == node && e.ord == ord
+      }
+      for _ in 0..<6 {
+        if let m = try? await session.api.media.requestMedia(request: req, headers: session.api.headers).get().media.first {
+          latest = m
+          if m.state == .stored, !m.sha256.isEmpty { sha = m.sha256; break }
+          if m.state == .expired || m.state == .failed || m.state == .skipped { break }
+        }
+        guard let e = await watch.next(timeout: .seconds(300)) else { continue }
+        if e.state == "stored", !e.sha256.isEmpty { sha = e.sha256 }
+        break
+      }
+    }
+    guard !sha.isEmpty else {
+      error = media.state == .skipped ? "文件太大，服务端没有下载" : "文件已经失效，QQ 上也拿不到了"
+      return
+    }
+    #if targetEnvironment(macCatalyst)
+    do { fileURL = try await MacDownloads.shared.file(sha: sha, name: file.name, session: session) }
+    catch { self.error = error.localizedDescription }
+    #else
+    guard let cached = try? await session.media.file(for: sha, chatId: chatId) else {
+      error = "文件没能下到本机，稍后再试"
+      return
+    }
+    let named = FileManager.default.temporaryDirectory.appendingPathComponent(file.name.isEmpty ? cached.lastPathComponent : file.name)
+    try? FileManager.default.removeItem(at: named)
+    try? FileManager.default.copyItem(at: cached, to: named)
+    fileURL = named
+    #endif
   }
 }
 
