@@ -181,11 +181,8 @@ struct ChatScreen: View {
         actions.mention(id)
       })
     } else if let dialog {
-      #if targetEnvironment(macCatalyst)
+      // 私聊资料页也带上当前会话，才有「查找聊天记录」和共享媒体（临时会话和普通私聊不按用户 ID 混查）。
       UserProfileView(session: session, userId: dialog.peerID, groupMember: nil, conversationID: chatId)
-      #else
-      UserProfileView(session: session, userId: dialog.peerID, groupMember: nil)
-      #endif
     }
   }
 

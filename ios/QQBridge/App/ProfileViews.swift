@@ -28,7 +28,7 @@ struct UserProfileView: View {
   var viaGroupId: Int64 = 0
   /// 作为弹出卡片显示：不要顶部的「资料」标题栏。
   var asCard = false
-  /// 从 Mac 会话详情进入时明确传入当前会话，避免临时会话和普通私聊混查。
+  /// 从私聊会话的资料页进入时明确传入当前会话（手机和 Mac 都是），避免临时会话和普通私聊混查。
   var conversationID: Int64? = nil
   /// 卡片宿主显式清除自己的 sheet 选择，避免关闭动作落在内部导航环境。
   var onClose: (() -> Void)? = nil
@@ -64,7 +64,7 @@ struct UserProfileView: View {
           Text(sign).font(.subheadline).foregroundStyle(.secondary)
         }
       }
-      #if targetEnvironment(macCatalyst)
+      // 从私聊会话进来才有：手机和 Mac 一样能在这个会话里查记录、看共享媒体（2026-11-15 之前手机版漏了）。
       if let conversationID {
         Section {
           NavigationLink { ChatSearchView(session: session, chatId: conversationID) } label: {
@@ -75,7 +75,6 @@ struct UserProfileView: View {
           }
         }
       }
-      #endif
       if let m = groupMember {
         Section("群内") {
           if !m.card.isEmpty { LabeledContent("群名片", value: m.card) }
