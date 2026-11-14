@@ -414,6 +414,8 @@ struct ForwardView: View {
   @State private var profile: ProfileTarget?
   /// QQ 缩略图拿不到的图片（"节点:ord"）：不再转圈等，显示下载图标，点开看大图时才下原图。
   @State private var thumbMissing: Set<String> = []
+  /// 这一层里的语音共用一个播放器（同时只放一条），离开时停掉。
+  @State private var voice = VoicePlayer()
 
   /// QQ 隐藏了发送者的节点：号码一律是 1094950020、名字「QQ用户」（2026-11-10 服务端库里实测），不是真人，不能点开资料。
   static let anonymousSender: Int64 = 1094950020
@@ -450,13 +452,14 @@ struct ForwardView: View {
             Text(Format.chatTime(node.time)).font(.caption2).foregroundStyle(.secondary)
           }
           ForEach(Array(node.segments.enumerated()), id: \.offset) { _, seg in
-            ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)], thumbMissing: thumbMissing)
+            ForwardSegmentView(segment: seg, session: session, chatId: chatId, seq: seq, path: path + [Int32(index)], thumbMissing: thumbMissing, voice: voice)
           }
         }
         .padding(.vertical, 2)
       }
     }
     .listStyle(.plain)
+    .onDisappear { voice.stop() }
     .profileCard(item: $profile) { target in
       NavigationStack {
         UserProfileView(session: session, userId: target.userId, groupMember: nil, asCard: true, onClose: { profile = nil })
@@ -503,6 +506,7 @@ struct ForwardSegmentView: View {
   let seq: Int64
   let path: [Int32]
   var thumbMissing: Set<String> = []
+  var voice: VoicePlayer? = nil
   @State private var media: MediaTarget?
   @State private var unsupported: UnsupportedItem?
   @State private var profile: ProfileTarget?
@@ -573,7 +577,17 @@ struct ForwardSegmentView: View {
     case .file(let f):
       ForwardFileView(file: f, session: session, chatId: chatId,
                       forward: ForwardRef(seq: seq, path: Array(path.dropLast()), node: Int(path.last ?? 0)))
-    case .record: Label("语音", systemImage: "waveform")
+    case .record(let r):
+      if let voice {
+        // 和会话里的语音一样：波形、时长，点了播放（服务端展开时已把语音下好、转成能播的格式）。
+        let id = VoicePlaybackID(chatId: chatId, seq: seq, block: path.reduce(0) { $0 &* 1000 &+ Int($1) &+ 1 } &* 100 &+ Int(r.media.ord))
+        VoiceMessagePlaybackControl(record: r, voice: voice, outgoing: false, id: id) { voice.toggle(r, id: id, session: session) }
+          .padding(.vertical, 6).padding(.horizontal, 10)
+          .background(Color(.secondarySystemBackground), in: Capsule())
+        if let error = voice.error(for: r, id: id) { Text(error).font(.caption).foregroundStyle(.secondary) }
+      } else {
+        Label("语音", systemImage: "waveform")
+      }
     case .marketFace(let f): Text(f.summary.isEmpty ? "[表情]" : f.summary)
     case .reply(let r):
       // 引用的是原会话里的消息，聊天记录里拿不到原消息：显示 QQ 回复元素自带的被回复人和内容摘要（服务端补了名字）。
